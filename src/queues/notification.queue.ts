@@ -1,7 +1,6 @@
 import { QUEUE_NAMES } from '../constants/queueNames.js';
+import { logger } from '../logs/logger.js';
 import { getQueue } from './queue.factory.js';
-
-export const notificationQueue = getQueue(QUEUE_NAMES.NOTIFICATIONS);
 
 export interface NotificationJobData {
   userId: string;
@@ -12,7 +11,12 @@ export interface NotificationJobData {
 }
 
 export async function enqueueNotification(data: NotificationJobData): Promise<void> {
-  await notificationQueue.add('send-notification', data, {
+  const queue = getQueue(QUEUE_NAMES.NOTIFICATIONS);
+  if (!queue) {
+    logger.debug('Notification skipped (Redis unavailable)', { userId: data.userId });
+    return;
+  }
+  await queue.add('send-notification', data, {
     priority: data.type === 'urgent' ? 1 : 5,
   });
 }

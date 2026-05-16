@@ -1,8 +1,10 @@
 import { env } from './env.js';
-import { redis } from './redis.js';
+import { getRedis, isRedisConnected } from './redis.js';
 
 export const bullmqConfig = {
-  connection: redis,
+  get connection() {
+    return getRedis();
+  },
   prefix: env.BULLMQ_PREFIX,
   defaultJobOptions: {
     attempts: 3,
@@ -14,3 +16,9 @@ export const bullmqConfig = {
     removeOnFail: { count: 5000 },
   },
 } as const;
+
+export function assertRedisForQueues(): void {
+  if (!isRedisConnected()) {
+    throw new Error('Redis is required for background jobs. Connect Redis or run workers separately.');
+  }
+}

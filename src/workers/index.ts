@@ -1,6 +1,11 @@
 import '../config/load-env.js';
 import type { Worker } from 'bullmq';
-import { connectRedis, disconnectRedis } from '../config/redis.js';
+import {
+  connectRedis,
+  disconnectRedis,
+  isRedisConnected,
+  isRedisEnabled,
+} from '../config/redis.js';
 import { connectDatabase, disconnectDatabase } from '../config/database.js';
 import { logger } from '../logs/logger.js';
 import {
@@ -13,7 +18,18 @@ const workers: Worker[] = [];
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
+
+  if (!isRedisEnabled()) {
+    logger.error('Workers require Redis. Set REDIS_ENABLED=true and start Redis.');
+    process.exit(1);
+  }
+
   await connectRedis();
+
+  if (!isRedisConnected()) {
+    logger.error('Workers require an active Redis connection.');
+    process.exit(1);
+  }
 
   workers.push(
     createNotificationWorker(),

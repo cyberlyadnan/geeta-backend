@@ -22,6 +22,13 @@ const envSchema = z.object({
     .min(1, 'DIRECT_URL is required for Supabase (direct connection, not the pooler URL)')
     .optional(),
 
+  /** Set to false to disable Redis entirely */
+  REDIS_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .optional()
+    .transform((v) => v === undefined || v === 'true' || v === '1'),
+  /** Set to true to start API even when Redis is down (defaults to true in development) */
+  REDIS_OPTIONAL: z.enum(['true', 'false', '1', '0']).optional(),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
   REDIS_PASSWORD: z.string().optional(),
