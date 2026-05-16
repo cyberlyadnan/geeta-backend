@@ -1,0 +1,15 @@
+export { authRoutes, authService } from './auth/index.js';
+export { usersRoutes } from './users/index.js';
+export { productsRoutes } from './products/index.js';
+export { categoriesRoutes } from './categories/index.js';
+export { ordersRoutes } from './orders/index.js';
+export { workflowRoutes } from './workflow/index.js';
+export { walletRoutes } from './wallet/index.js';
+export { paymentsRoutes } from './payments/index.js';
+export { reportsRoutes } from './reports/index.js';
+export { notificationsRoutes } from './notifications/index.js';
+export { supportRoutes } from './support/index.js';
+export { expensesRoutes } from './expenses/index.js';
+export { purchasesRoutes } from './purchases/index.js';
+export { dashboardRoutes } from './dashboard/index.js';
+export { settingsRoutes } from './settings/index.js';

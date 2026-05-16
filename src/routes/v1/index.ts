@@ -1,0 +1,36 @@
+import { Router } from 'express';
+import { authRoutes } from '../../modules/auth/auth.routes.js';
+import { usersRoutes } from '../../modules/users/users.routes.js';
+import { productsRoutes } from '../../modules/products/products.routes.js';
+import { categoriesRoutes } from '../../modules/categories/categories.routes.js';
+import { ordersRoutes } from '../../modules/orders/orders.routes.js';
+import { walletRoutes } from '../../modules/wallet/wallet.routes.js';
+import { paymentsRoutes } from '../../modules/payments/payments.routes.js';
+import { workflowRoutes } from '../../modules/workflow/workflow.routes.js';
+import { reportsRoutes } from '../../modules/reports/reports.routes.js';
+import { notificationsRoutes } from '../../modules/notifications/notifications.routes.js';
+import { supportRoutes } from '../../modules/support/support.routes.js';
+import { expensesRoutes } from '../../modules/expenses/expenses.routes.js';
+import { purchasesRoutes } from '../../modules/purchases/purchases.routes.js';
+import { dashboardRoutes } from '../../modules/dashboard/dashboard.routes.js';
+import { settingsRoutes } from '../../modules/settings/settings.routes.js';
+
+const v1Router = Router();
+
+v1Router.use('/auth', authRoutes);
+v1Router.use('/users', usersRoutes);
+v1Router.use('/products', productsRoutes);
+v1Router.use('/categories', categoriesRoutes);
+v1Router.use('/orders', ordersRoutes);
+v1Router.use('/wallet', walletRoutes);
+v1Router.use('/payments', paymentsRoutes);
+v1Router.use('/workflow', workflowRoutes);
+v1Router.use('/reports', reportsRoutes);
+v1Router.use('/notifications', notificationsRoutes);
+v1Router.use('/support', supportRoutes);
+v1Router.use('/expenses', expensesRoutes);
+v1Router.use('/purchases', purchasesRoutes);
+v1Router.use('/dashboard', dashboardRoutes);
+v1Router.use('/settings', settingsRoutes);
+
+export { v1Router };
