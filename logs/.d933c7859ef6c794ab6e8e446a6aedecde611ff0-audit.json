@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "E:\\Nextjs Projects\\geeta-print\\backend\\logs\\.d933c7859ef6c794ab6e8e446a6aedecde611ff0-audit.json",
+    "files": [
+        {
+            "date": 1778955391066,
+            "name": "E:\\Nextjs Projects\\geeta-print\\backend\\logs\\app-2026-05-16.log",
+            "hash": "9b2bfd8a9129982b5f5cea0fe2c6f187ffa2f991fafa0500d3d9a6762556213c"
+        }
+    ],
+    "hashType": "sha256"
+}

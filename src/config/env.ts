@@ -8,7 +8,19 @@ const envSchema = z.object({
   API_PREFIX: z.string().default('/api'),
   API_VERSION: z.string().default('v1'),
 
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  /** Supabase pooler (port 6543) — used by the app at runtime */
+  DATABASE_URL: z
+    .string()
+    .min(1, 'DATABASE_URL is required')
+    .refine((url) => !url.includes('[YOUR-PASSWORD]') && !url.includes('[PASSWORD]'), {
+      message:
+        'DATABASE_URL still contains a placeholder password. Set your real Supabase password in .env or .env.local',
+    }),
+  /** Supabase direct connection (port 5432) — used by Prisma migrations */
+  DIRECT_URL: z
+    .string()
+    .min(1, 'DIRECT_URL is required for Supabase (direct connection, not the pooler URL)')
+    .optional(),
 
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),

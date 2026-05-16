@@ -1,4 +1,4 @@
-﻿import { ApiError } from '../../common/errors/ApiError.js';
+import { ApiError } from '../../common/errors/ApiError.js';
 
 export class UsersService {
   async findAll(): Promise<unknown[]> {
@@ -6,7 +6,7 @@ export class UsersService {
     return [];
   }
 
-  async findById(id: string): Promise<unknown> {
+  async findById(_id: string): Promise<unknown> {
     // TODO: Implement users findById
     throw ApiError.notFound('Users resource not found');
   }

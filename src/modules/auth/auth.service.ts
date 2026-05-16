@@ -1,4 +1,4 @@
-﻿import { RoleName, UserStatus } from '@prisma/client';
+import { RoleName, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { passwordService, tokenService } from '../../services/auth/index.js';

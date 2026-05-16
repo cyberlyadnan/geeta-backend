@@ -13,7 +13,7 @@ interface TokenUser {
 
 class TokenService {
   generateAccessToken(user: TokenUser): string {
-    const payload: Omit<JwtPayload, 'type'> & { permissions?: string[] } = {
+    const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,

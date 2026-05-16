@@ -1,4 +1,4 @@
-﻿import { ApiError } from '../../common/errors/ApiError.js';
+import { ApiError } from '../../common/errors/ApiError.js';
 
 export class PurchasesService {
   async findAll(): Promise<unknown[]> {
@@ -6,7 +6,7 @@ export class PurchasesService {
     return [];
   }
 
-  async findById(id: string): Promise<unknown> {
+  async findById(_id: string): Promise<unknown> {
     // TODO: Implement purchases findById
     throw ApiError.notFound('Purchases resource not found');
   }

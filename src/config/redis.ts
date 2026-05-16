@@ -1,22 +1,22 @@
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import { env } from './env.js';
 import { logger } from '../logs/logger.js';
 
 let redisClient: Redis | null = null;
 
 export function createRedisClient(): Redis {
-  const options = env.REDIS_URL
-    ? env.REDIS_URL
-    : {
-        host: env.REDIS_HOST,
-        port: env.REDIS_PORT,
-        password: env.REDIS_PASSWORD || undefined,
-        db: env.REDIS_DB,
-        maxRetriesPerRequest: null,
-        enableReadyCheck: true,
-      };
+  if (env.REDIS_URL) {
+    return new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
+  }
 
-  return new Redis(options as string);
+  return new Redis({
+    host: env.REDIS_HOST,
+    port: env.REDIS_PORT,
+    password: env.REDIS_PASSWORD || undefined,
+    db: env.REDIS_DB,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: true,
+  });
 }
 
 export const redis: Redis = (redisClient ??= createRedisClient());

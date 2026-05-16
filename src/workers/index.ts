@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import '../config/load-env.js';
 import type { Worker } from 'bullmq';
 import { connectRedis, disconnectRedis } from '../config/redis.js';
 import { connectDatabase, disconnectDatabase } from '../config/database.js';

@@ -1,4 +1,4 @@
-﻿import { ApiError } from '../../common/errors/ApiError.js';
+import { ApiError } from '../../common/errors/ApiError.js';
 
 export class NotificationsService {
   async findAll(): Promise<unknown[]> {
@@ -6,7 +6,7 @@ export class NotificationsService {
     return [];
   }
 
-  async findById(id: string): Promise<unknown> {
+  async findById(_id: string): Promise<unknown> {
     // TODO: Implement notifications findById
     throw ApiError.notFound('Notifications resource not found');
   }
