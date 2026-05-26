@@ -13,3 +13,4 @@ export { expensesRoutes } from './expenses/index.js';
 export { purchasesRoutes } from './purchases/index.js';
 export { dashboardRoutes } from './dashboard/index.js';
 export { settingsRoutes } from './settings/index.js';
+export { contactRoutes } from './contact/index.js';

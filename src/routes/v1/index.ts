@@ -14,6 +14,7 @@ import { expensesRoutes } from '../../modules/expenses/expenses.routes.js';
 import { purchasesRoutes } from '../../modules/purchases/purchases.routes.js';
 import { dashboardRoutes } from '../../modules/dashboard/dashboard.routes.js';
 import { settingsRoutes } from '../../modules/settings/settings.routes.js';
+import { contactRoutes } from '../../modules/contact/contact.routes.js';
 
 const v1Router = Router();
 
@@ -32,5 +33,6 @@ v1Router.use('/expenses', expensesRoutes);
 v1Router.use('/purchases', purchasesRoutes);
 v1Router.use('/dashboard', dashboardRoutes);
 v1Router.use('/settings', settingsRoutes);
+v1Router.use('/contact', contactRoutes);
 
 export { v1Router };

@@ -59,6 +59,22 @@ enum WalletTransactionStatus {
   REVERSED
 }
 
+enum ContactSubject {
+  QUOTE
+  ORDER
+  PARTNERSHIP
+  SUPPORT
+  OTHER
+}
+
+enum ContactInquiryStatus {
+  NEW
+  READ
+  IN_PROGRESS
+  RESOLVED
+  ARCHIVED
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────────────────────────────────────
@@ -263,4 +279,30 @@ model WalletTransaction {
   @@index([status])
   @@index([createdAt])
   @@map("wallet_transactions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contact (website inquiries)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ContactInquiry {
+  id        String               @id @default(cuid())
+  name      String
+  email     String
+  phone     String
+  company   String?
+  subject   ContactSubject
+  message   String               @db.Text
+  status    ContactInquiryStatus @default(NEW)
+  ipAddress String?              @map("ip_address")
+  userAgent String?              @map("user_agent") @db.Text
+  readAt    DateTime?            @map("read_at")
+  createdAt DateTime             @default(now()) @map("created_at")
+  updatedAt DateTime             @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([subject])
+  @@index([createdAt])
+  @@index([email])
+  @@map("contact_inquiries")
 }
