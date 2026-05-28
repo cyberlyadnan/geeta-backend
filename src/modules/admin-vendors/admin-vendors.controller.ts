@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { adminVendorsService } from './admin-vendors.service.js';
+import type { ListVendorsQuery } from './admin-vendors.validation.js';
 
 function requestMeta(req: Request) {
   return {
@@ -12,7 +13,8 @@ function requestMeta(req: Request) {
 
 export class AdminVendorsController {
   list = asyncHandler(async (req: Request, res: Response) => {
-    const result = await adminVendorsService.list(req.query as never);
+    const query = req.validatedQuery as ListVendorsQuery;
+    const result = await adminVendorsService.list(query);
     return ApiResponse.success(res, result);
   });
 
@@ -22,13 +24,13 @@ export class AdminVendorsController {
   });
 
   getById = asyncHandler(async (req: Request, res: Response) => {
-    const id = req.params['id'] as string;
+    const { id } = req.validatedParams as { id: string };
     const result = await adminVendorsService.getById(id);
     return ApiResponse.success(res, result);
   });
 
   updateStatus = asyncHandler(async (req: Request, res: Response) => {
-    const id = req.params['id'] as string;
+    const { id } = req.validatedParams as { id: string };
     const result = await adminVendorsService.updateStatus(
       id,
       req.body,
@@ -39,7 +41,7 @@ export class AdminVendorsController {
   });
 
   addNote = asyncHandler(async (req: Request, res: Response) => {
-    const id = req.params['id'] as string;
+    const { id } = req.validatedParams as { id: string };
     const result = await adminVendorsService.addNote(
       id,
       req.body,

@@ -23,7 +23,7 @@ export class ContactController {
 
   list = asyncHandler(async (req: Request, res: Response) => {
     const result = await contactService.findAll(
-      req.query as unknown as ListContactInquiriesInput,
+      req.validatedQuery as ListContactInquiriesInput,
     );
     return ApiResponse.paginated(res, result.items, result.meta);
   });

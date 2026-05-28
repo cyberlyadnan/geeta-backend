@@ -5,7 +5,7 @@ import { vendorsService } from './vendors.service.js';
 
 export class VendorsController {
   getStatusByPhone = asyncHandler(async (req: Request, res: Response) => {
-    const phone = req.params['phone'] as string;
+    const { phone } = req.validatedParams as { phone: string };
     const result = await vendorsService.getStatusByPhone(phone);
     return ApiResponse.success(res, result);
   });

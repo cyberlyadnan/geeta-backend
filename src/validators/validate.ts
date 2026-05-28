@@ -14,6 +14,10 @@ function formatZodErrors(error: ZodError): Record<string, string[]> {
   return errors;
 }
 
+/**
+ * Express 5: `req.query` and `req.params` are read-only — store parsed values on
+ * `req.validatedQuery` / `req.validatedParams` instead of reassigning.
+ */
 export function validate<T>(schema: ZodSchema<T>, target: RequestTarget = 'body') {
   return (req: Request, _res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req[target]);
@@ -23,7 +27,18 @@ export function validate<T>(schema: ZodSchema<T>, target: RequestTarget = 'body'
       return;
     }
 
-    req[target] = result.data as (typeof req)[typeof target];
+    switch (target) {
+      case 'body':
+        req.body = result.data;
+        break;
+      case 'query':
+        req.validatedQuery = result.data;
+        break;
+      case 'params':
+        req.validatedParams = result.data;
+        break;
+    }
+
     next();
   };
 }

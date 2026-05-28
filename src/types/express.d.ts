@@ -11,6 +11,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthenticatedUser;
+      validatedQuery?: unknown;
+      validatedParams?: unknown;
     }
   }
 }
