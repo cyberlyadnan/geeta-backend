@@ -1,8 +1,15 @@
-﻿import type { RoleName } from '@prisma/client';
+﻿import type { RoleName, VendorAccountStatus } from '@prisma/client';
 
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+export interface VendorProfileSummary {
+  id: string;
+  businessName: string;
+  accountStatus: VendorAccountStatus;
+  verificationRemarks: string | null;
 }
 
 export interface AuthUserResponse {
@@ -10,10 +17,19 @@ export interface AuthUserResponse {
   email: string;
   firstName: string;
   lastName: string;
+  phone: string | null;
   role: RoleName;
+  status: string;
+  vendorProfile?: VendorProfileSummary | null;
 }
 
 export interface LoginResponse {
   user: AuthUserResponse;
   tokens: AuthTokens;
+}
+
+export interface VendorRegisterResponse {
+  message: string;
+  vendorProfileId: string;
+  accountStatus: VendorAccountStatus;
 }

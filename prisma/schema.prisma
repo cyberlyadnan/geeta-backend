@@ -75,6 +75,28 @@ enum ContactInquiryStatus {
   ARCHIVED
 }
 
+enum VendorAccountStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  SUSPENDED
+  UNDER_REVIEW
+  DOCUMENT_REQUIRED
+  BLOCKED
+}
+
+enum ActivityAction {
+  VENDOR_REGISTERED
+  VENDOR_STATUS_CHANGED
+  VENDOR_VERIFIED
+  VENDOR_REJECTED
+  VENDOR_SUSPENDED
+  ADMIN_NOTE_ADDED
+  USER_LOGIN
+  USER_LOGIN_BLOCKED
+  USER_CREATED
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +122,7 @@ model User {
   passwordHash String     @map("password_hash")
   firstName    String     @map("first_name")
   lastName     String     @map("last_name")
-  phone        String?
+  phone        String?    @unique
   avatarUrl    String?    @map("avatar_url")
   status       UserStatus @default(PENDING_VERIFICATION)
   roleId       String     @map("role_id")
@@ -110,16 +132,99 @@ model User {
   updatedAt    DateTime   @updatedAt @map("updated_at")
   deletedAt    DateTime?  @map("deleted_at")
 
-  role              Role               @relation(fields: [roleId], references: [id])
-  refreshTokens     RefreshToken[]
-  orders            Order[]
-  wallet            Wallet?
+  role               Role               @relation(fields: [roleId], references: [id])
+  refreshTokens      RefreshToken[]
+  orders             Order[]
+  wallet             Wallet?
   walletTransactions WalletTransaction[]
+  vendorProfile      VendorProfile?
+  vendorsVerified    VendorProfile[]    @relation("VendorVerifiedBy")
+  vendorsRejected    VendorProfile[]    @relation("VendorRejectedBy")
+  adminNotes         AdminNote[]        @relation("AdminNoteAuthor")
+  activityLogs       ActivityLog[]      @relation("ActivityActor")
 
   @@index([roleId])
   @@index([status])
+  @@index([phone])
   @@index([deletedAt])
   @@map("users")
+}
+
+model VendorProfile {
+  id                  String              @id @default(cuid())
+  userId              String              @unique @map("user_id")
+  businessName        String              @map("business_name")
+  ownerName           String              @map("owner_name")
+  alternatePhone      String?             @map("alternate_phone")
+  gstNumber           String?             @map("gst_number")
+  referenceCode       String?             @map("reference_code")
+  employeeCode        String?             @map("employee_code")
+  country             String              @default("India")
+  state               String?
+  district            String?
+  city                String?
+  pinCode             String              @map("pin_code")
+  fullAddress         String              @map("full_address") @db.Text
+  businessType        String?             @map("business_type")
+  services            Json                @default("[]")
+  accountStatus       VendorAccountStatus @default(PENDING) @map("account_status")
+  verificationRemarks String?             @map("verification_remarks") @db.Text
+  verifiedAt          DateTime?           @map("verified_at")
+  verifiedById        String?             @map("verified_by_id")
+  rejectedAt          DateTime?           @map("rejected_at")
+  rejectedById        String?             @map("rejected_by_id")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifiedBy User? @relation("VendorVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  rejectedBy User? @relation("VendorRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
+  adminNotes AdminNote[]
+  activities ActivityLog[] @relation("VendorActivity")
+
+  @@index([accountStatus])
+  @@index([businessName])
+  @@index([createdAt])
+  @@map("vendor_profiles")
+}
+
+model AdminNote {
+  id              String   @id @default(cuid())
+  vendorProfileId String   @map("vendor_profile_id")
+  authorId        String   @map("author_id")
+  content         String   @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  vendorProfile VendorProfile @relation(fields: [vendorProfileId], references: [id], onDelete: Cascade)
+  author        User          @relation("AdminNoteAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorProfileId])
+  @@index([authorId])
+  @@index([createdAt])
+  @@map("admin_notes")
+}
+
+model ActivityLog {
+  id              String         @id @default(cuid())
+  action          ActivityAction
+  entityType      String         @map("entity_type")
+  entityId        String         @map("entity_id")
+  vendorProfileId String?        @map("vendor_profile_id")
+  actorId         String?        @map("actor_id")
+  metadata        Json           @default("{}")
+  ipAddress       String?        @map("ip_address")
+  userAgent       String?        @map("user_agent") @db.Text
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  vendorProfile VendorProfile? @relation("VendorActivity", fields: [vendorProfileId], references: [id], onDelete: Cascade)
+  actor         User?          @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([vendorProfileId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("activity_logs")
 }
 
 model RefreshToken {

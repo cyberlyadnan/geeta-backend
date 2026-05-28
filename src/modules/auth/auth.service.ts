@@ -1,14 +1,109 @@
-import { RoleName, UserStatus } from '@prisma/client';
+import {
+  ActivityAction,
+  RoleName,
+  UserStatus,
+  VendorAccountStatus,
+} from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { passwordService, tokenService } from '../../services/auth/index.js';
+import { activityLogService } from '../../services/activity/index.js';
 import { parseDurationToMs } from '../../utils/time.js';
 import { jwtConfig } from '../../config/jwt.js';
-import type { LoginInput, RegisterInput } from './auth.validation.js';
-import type { AuthTokens, LoginResponse } from './auth.types.js';
-import { extractPermissions, mapUserToAuthResponse } from './auth.utils.js';
+import type { LoginInput, RegisterInput, VendorRegisterInput } from './auth.validation.js';
+import type {
+  AuthTokens,
+  LoginResponse,
+  VendorRegisterResponse,
+} from './auth.types.js';
+import { extractPermissions, mapUserToAuthResponse, splitOwnerName } from './auth.utils.js';
+
+const SUPPORT_PHONE = process.env['SUPPORT_PHONE'] ?? '+91 93198 23229';
+const SUPPORT_EMAIL = process.env['SUPPORT_EMAIL'] ?? 'support@geetaprint.com';
 
 export class AuthService {
+  async registerVendor(
+    input: VendorRegisterInput,
+    meta?: { ipAddress?: string; userAgent?: string },
+  ): Promise<VendorRegisterResponse> {
+    const phone = input.whatsapp;
+
+    const [existingEmail, existingPhone] = await Promise.all([
+      prisma.user.findUnique({ where: { email: input.email.toLowerCase() } }),
+      prisma.user.findUnique({ where: { phone } }),
+    ]);
+
+    if (existingEmail) {
+      throw ApiError.conflict('Email is already registered');
+    }
+    if (existingPhone) {
+      throw ApiError.conflict('Mobile number is already registered');
+    }
+
+    const vendorRole = await prisma.role.findUnique({
+      where: { name: RoleName.VENDOR },
+    });
+    if (!vendorRole) {
+      throw ApiError.internal('Vendor role not configured. Run database seed.');
+    }
+
+    const { firstName, lastName } = splitOwnerName(input.yourName);
+    const passwordHash = await passwordService.hash(input.password);
+
+    const user = await prisma.user.create({
+      data: {
+        email: input.email.toLowerCase(),
+        passwordHash,
+        firstName,
+        lastName,
+        phone,
+        roleId: vendorRole.id,
+        status: UserStatus.PENDING_VERIFICATION,
+        vendorProfile: {
+          create: {
+            businessName: input.businessName,
+            ownerName: input.yourName,
+            gstNumber: input.gstNumber || null,
+            referenceCode: input.referenceCode || null,
+            employeeCode: input.employeeCode || null,
+            country: input.country,
+            pinCode: input.pinCode,
+            fullAddress: input.fullAddress,
+            services: input.services,
+            accountStatus: VendorAccountStatus.PENDING,
+          },
+        },
+      },
+      include: { vendorProfile: true },
+    });
+
+    if (!user.vendorProfile) {
+      throw ApiError.internal('Vendor profile creation failed');
+    }
+
+    await activityLogService.log({
+      action: ActivityAction.VENDOR_REGISTERED,
+      entityType: 'vendor_profile',
+      entityId: user.vendorProfile.id,
+      vendorProfileId: user.vendorProfile.id,
+      actorId: user.id,
+      metadata: {
+        businessName: input.businessName,
+        phone,
+        email: input.email,
+      },
+      ipAddress: meta?.ipAddress,
+      userAgent: meta?.userAgent,
+    });
+
+    return {
+      message:
+        'Registration submitted successfully. Your account is pending admin verification.',
+      vendorProfileId: user.vendorProfile.id,
+      accountStatus: VendorAccountStatus.PENDING,
+    };
+  }
+
   async register(input: RegisterInput): Promise<LoginResponse> {
     const existing = await prisma.user.findUnique({ where: { email: input.email } });
     if (existing) {
@@ -18,7 +113,6 @@ export class AuthService {
     const customerRole = await prisma.role.findUnique({
       where: { name: RoleName.CUSTOMER },
     });
-
     if (!customerRole) {
       throw ApiError.internal('Default role not configured. Run database seed.');
     }
@@ -27,7 +121,7 @@ export class AuthService {
 
     const user = await prisma.user.create({
       data: {
-        email: input.email,
+        email: input.email.toLowerCase(),
         passwordHash,
         firstName: input.firstName,
         lastName: input.lastName,
@@ -36,30 +130,32 @@ export class AuthService {
         status: UserStatus.PENDING_VERIFICATION,
         wallet: { create: {} },
       },
-      include: { role: true },
+      include: { role: true, vendorProfile: true },
     });
 
     const tokens = await this.issueTokens(user.id, user.email, user.role);
     return { user: mapUserToAuthResponse(user), tokens };
   }
 
-  async login(input: LoginInput): Promise<LoginResponse> {
-    const user = await prisma.user.findUnique({
-      where: { email: input.email },
-      include: { role: true },
+  async login(input: LoginInput, meta?: { ipAddress?: string; userAgent?: string }): Promise<LoginResponse> {
+    const user = await prisma.user.findFirst({
+      where: { phone: input.phone, deletedAt: null },
+      include: { role: true, vendorProfile: true },
     });
 
-    if (!user || user.deletedAt) {
-      throw ApiError.unauthorized('Invalid credentials');
-    }
-
-    if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.INACTIVE) {
-      throw ApiError.forbidden('Account is not active');
+    if (!user) {
+      throw ApiError.unauthorized('Invalid mobile number or password');
     }
 
     const valid = await passwordService.compare(input.password, user.passwordHash);
     if (!valid) {
-      throw ApiError.unauthorized('Invalid credentials');
+      throw ApiError.unauthorized('Invalid mobile number or password');
+    }
+
+    if (user.role.name === RoleName.VENDOR) {
+      await this.assertVendorCanLogin(user);
+    } else if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.INACTIVE) {
+      throw ApiError.forbidden('Account is not active');
     }
 
     await prisma.user.update({
@@ -67,8 +163,77 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
+    await activityLogService.log({
+      action: ActivityAction.USER_LOGIN,
+      entityType: 'user',
+      entityId: user.id,
+      vendorProfileId: user.vendorProfile?.id,
+      actorId: user.id,
+      ipAddress: meta?.ipAddress,
+      userAgent: meta?.userAgent,
+    });
+
     const tokens = await this.issueTokens(user.id, user.email, user.role);
     return { user: mapUserToAuthResponse(user), tokens };
+  }
+
+  private async assertVendorCanLogin(
+    user: {
+      id: string;
+      vendorProfile: {
+        id: string;
+        accountStatus: VendorAccountStatus;
+        verificationRemarks: string | null;
+      } | null;
+    },
+  ): Promise<void> {
+    const profile = user.vendorProfile;
+    if (!profile) {
+      throw ApiError.forbidden('Vendor profile not found', 'VENDOR_PROFILE_MISSING');
+    }
+
+    const support = { supportPhone: SUPPORT_PHONE, supportEmail: SUPPORT_EMAIL };
+
+    switch (profile.accountStatus) {
+      case VendorAccountStatus.PENDING:
+      case VendorAccountStatus.UNDER_REVIEW:
+      case VendorAccountStatus.DOCUMENT_REQUIRED:
+        await activityLogService.log({
+          action: ActivityAction.USER_LOGIN_BLOCKED,
+          entityType: 'vendor_profile',
+          entityId: profile.id,
+          vendorProfileId: profile.id,
+          actorId: user.id,
+          metadata: { reason: profile.accountStatus },
+        });
+        throw ApiError.forbidden(
+          'Your account is currently under verification by the administration team. You will be able to access your dashboard once your account is approved.',
+          'VENDOR_PENDING_VERIFICATION',
+          { ...support, accountStatus: profile.accountStatus },
+        );
+      case VendorAccountStatus.REJECTED:
+        throw ApiError.forbidden(
+          profile.verificationRemarks ??
+            'Your registration was not approved. Please contact support for assistance.',
+          'VENDOR_REJECTED',
+          {
+            ...support,
+            accountStatus: profile.accountStatus,
+            remarks: profile.verificationRemarks,
+          },
+        );
+      case VendorAccountStatus.SUSPENDED:
+      case VendorAccountStatus.BLOCKED:
+        throw ApiError.forbidden(
+          'Your account has been suspended. Please contact support.',
+          'VENDOR_SUSPENDED',
+          { ...support, accountStatus: profile.accountStatus },
+        );
+      case VendorAccountStatus.VERIFIED:
+        return;
+      default:
+        throw ApiError.forbidden('Account cannot login at this time', 'VENDOR_LOGIN_DENIED', support);
+    }
   }
 
   async refresh(refreshToken: string): Promise<AuthTokens> {
@@ -81,11 +246,15 @@ export class AuthService {
         revokedAt: null,
         expiresAt: { gt: new Date() },
       },
-      include: { user: { include: { role: true } } },
+      include: { user: { include: { role: true, vendorProfile: true } } },
     });
 
     if (!stored) {
       throw ApiError.unauthorized('Invalid refresh token');
+    }
+
+    if (stored.user.role.name === RoleName.VENDOR) {
+      await this.assertVendorCanLogin(stored.user);
     }
 
     await prisma.refreshToken.update({
@@ -101,6 +270,17 @@ export class AuthService {
       where: { token: refreshToken, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  async getMe(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId, deletedAt: null },
+      include: { role: true, vendorProfile: true },
+    });
+    if (!user) {
+      throw ApiError.notFound('User not found');
+    }
+    return mapUserToAuthResponse(user);
   }
 
   private async issueTokens(

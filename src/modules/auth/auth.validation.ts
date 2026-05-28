@@ -1,5 +1,17 @@
 ﻿import { z } from 'zod';
 
+const phoneSchema = z
+  .string()
+  .transform((v) => v.replace(/\s/g, ''))
+  .pipe(z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit mobile number'));
+
+const registrationServiceIds = z.enum([
+  'printing',
+  'exhibition',
+  'magazine',
+  'magazine_ad',
+]);
+
 export const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
@@ -8,8 +20,23 @@ export const registerSchema = z.object({
   phone: z.string().optional(),
 });
 
-export const loginSchema = z.object({
+export const vendorRegisterSchema = z.object({
+  businessName: z.string().min(2).max(200),
+  yourName: z.string().min(2).max(120),
+  whatsapp: phoneSchema,
   email: z.string().email(),
+  password: z.string().min(8).max(128),
+  referenceCode: z.string().max(50).optional(),
+  employeeCode: z.string().max(50).optional(),
+  country: z.string().min(1).max(100),
+  pinCode: z.string().regex(/^\d{6}$/, 'Enter a valid 6-digit PIN code'),
+  gstNumber: z.string().max(20).optional(),
+  fullAddress: z.string().min(10).max(2000),
+  services: z.array(registrationServiceIds).min(1),
+});
+
+export const loginSchema = z.object({
+  phone: phoneSchema,
   password: z.string().min(1),
 });
 
@@ -18,5 +45,6 @@ export const refreshTokenSchema = z.object({
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
+export type VendorRegisterInput = z.infer<typeof vendorRegisterSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;

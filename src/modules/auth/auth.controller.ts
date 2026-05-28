@@ -3,14 +3,26 @@ import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { authService } from './auth.service.js';
 
+function requestMeta(req: Request) {
+  return {
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent') ?? undefined,
+  };
+}
+
 export class AuthController {
   register = asyncHandler(async (req: Request, res: Response) => {
     const result = await authService.register(req.body);
     return ApiResponse.created(res, result, 'Registration successful');
   });
 
+  registerVendor = asyncHandler(async (req: Request, res: Response) => {
+    const result = await authService.registerVendor(req.body, requestMeta(req));
+    return ApiResponse.created(res, result, result.message);
+  });
+
   login = asyncHandler(async (req: Request, res: Response) => {
-    const result = await authService.login(req.body);
+    const result = await authService.login(req.body, requestMeta(req));
     return ApiResponse.success(res, result, 'Login successful');
   });
 
@@ -25,7 +37,8 @@ export class AuthController {
   });
 
   me = asyncHandler(async (req: Request, res: Response) => {
-    return ApiResponse.success(res, { user: req.user });
+    const user = await authService.getMe(req.user!.id);
+    return ApiResponse.success(res, { user });
   });
 }
 

@@ -1,4 +1,5 @@
-import { PrismaClient, RoleName } from '@prisma/client';
+import { PrismaClient, RoleName, UserStatus } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -20,14 +21,14 @@ const ROLES: Array<{
     name: RoleName.ADMIN,
     displayName: 'Administrator',
     description: 'Organization administrator',
-    permissions: ['users:*', 'orders:*', 'reports:*'],
+    permissions: ['users:*', 'orders:*', 'reports:*', 'vendors:*'],
     isSystem: true,
   },
   {
     name: RoleName.MANAGER,
     displayName: 'Manager',
     description: 'Operations manager',
-    permissions: ['orders:*', 'workflow:*', 'reports:read'],
+    permissions: ['orders:*', 'workflow:*', 'reports:read', 'vendors:*'],
     isSystem: true,
   },
   {
@@ -64,6 +65,39 @@ async function main(): Promise<void> {
       },
       create: role,
     });
+  }
+
+  const superAdminEmail = process.env.SEED_SUPER_ADMIN_EMAIL ?? 'admin@geetaprint.com';
+  const superAdminPassword = process.env.SEED_SUPER_ADMIN_PASSWORD ?? 'Admin@12345';
+  const superAdminPhone = process.env.SEED_SUPER_ADMIN_PHONE ?? '9999999999';
+
+  const superAdminRole = await prisma.role.findUnique({
+    where: { name: RoleName.SUPER_ADMIN },
+  });
+
+  if (superAdminRole) {
+    const passwordHash = await bcrypt.hash(superAdminPassword, 12);
+    await prisma.user.upsert({
+      where: { email: superAdminEmail },
+      update: {
+        passwordHash,
+        firstName: 'Super',
+        lastName: 'Admin',
+        phone: superAdminPhone,
+        roleId: superAdminRole.id,
+        status: UserStatus.ACTIVE,
+      },
+      create: {
+        email: superAdminEmail,
+        passwordHash,
+        firstName: 'Super',
+        lastName: 'Admin',
+        phone: superAdminPhone,
+        roleId: superAdminRole.id,
+        status: UserStatus.ACTIVE,
+      },
+    });
+    console.log(`Super admin ready: ${superAdminEmail} (phone login: ${superAdminPhone})`);
   }
 
   console.log('Seed completed: roles initialized');
