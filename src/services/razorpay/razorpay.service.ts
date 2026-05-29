@@ -1,8 +1,15 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getRazorpayClient, getRazorpayWebhookSecret } from './razorpay.client.js';
 import { ApiError } from '../../common/errors/ApiError.js';
-import { isQrFeatureUnavailableError, mapRazorpayError } from './razorpay.errors.js';
+import {
+  extractRazorpayError,
+  getRazorpayKeyMode,
+  isQrFeatureUnavailableError,
+  mapRazorpayError,
+} from './razorpay.errors.js';
 import { paiseFromRupees } from '../../utils/money.js';
+import { env } from '../../config/env.js';
+import { logger } from '../../logs/logger.js';
 
 export type WalletCheckoutMode = 'upi_qr';
 
@@ -16,7 +23,7 @@ export interface CreateWalletRechargeInput {
 export interface CreateWalletRechargeResult {
   checkoutMode: WalletCheckoutMode;
   razorpayId: string;
-  /** Razorpay-hosted QR image URL — encodes native UPI payload (not a website link). */
+  /** Razorpay-hosted QR image URL (short link to PNG — e.g. rzp.io/i/… or rzp.io/rzp/…). */
   qrImageUrl: string;
   referenceId: string;
   expiresAt: Date;
@@ -39,7 +46,7 @@ function razorpayExpiryUnix(requestedExpiresAt?: Date): { unix: number; expiresA
 export class RazorpayService {
   /**
    * Creates a native UPI QR (single-use, fixed amount) via Razorpay QR Codes API.
-   * Requires UPI QR to be enabled on your Razorpay account — contact Razorpay support if unavailable.
+   * POST https://api.razorpay.com/v1/payments/qr_codes
    */
   async createWalletRechargeCheckout(
     input: CreateWalletRechargeInput,
@@ -47,35 +54,61 @@ export class RazorpayService {
     const razorpay = getRazorpayClient();
     const amountPaise = paiseFromRupees(input.amountRupees);
     const { unix: closeBy, expiresAt } = razorpayExpiryUnix(input.expiresAt);
+    const keyMode = getRazorpayKeyMode(env.RAZORPAY_KEY_ID);
+
+    const payload = {
+      type: 'upi_qr' as const,
+      name: 'Geeta Print Wallet',
+      usage: 'single_use' as const,
+      fixed_amount: true,
+      payment_amount: amountPaise,
+      description: input.description.slice(0, 255),
+      notes: {
+        reference_id: input.referenceId,
+        purpose: 'wallet_recharge',
+      },
+      close_by: closeBy,
+    };
+
+    logger.info('Creating Razorpay UPI QR', {
+      keyMode,
+      amountPaise,
+      referenceId: input.referenceId,
+      closeBy,
+    });
 
     try {
-      const qr = (await razorpay.qrCode.create({
-        type: 'upi_qr',
-        name: 'Geeta Print Wallet',
-        usage: 'single_use',
-        fixed_amount: true,
-        payment_amount: amountPaise,
-        description: input.description.slice(0, 255),
-        notes: {
-          reference_id: input.referenceId,
-          purpose: 'wallet_recharge',
-        },
-        close_by: closeBy,
-      })) as { id: string; image_url: string };
+      const qr = (await razorpay.qrCode.create(payload)) as {
+        id: string;
+        image_url: string;
+        type?: string;
+      };
 
       if (!qr.id || !qr.image_url) {
+        logger.error('Razorpay QR response missing id or image_url', { qr });
         throw mapRazorpayError({
           statusCode: 502,
-          error: { description: 'Razorpay did not return a valid UPI QR code' },
+          error: { description: 'Razorpay did not return a valid UPI QR code (missing id or image_url)' },
         });
       }
 
-      if (isWebsitePaymentUrl(qr.image_url)) {
+      if (!isValidQrImageUrl(qr.image_url)) {
+        logger.error('Razorpay returned unexpected image_url format', {
+          qrId: qr.id,
+          imageUrl: qr.image_url,
+        });
         throw ApiError.serviceUnavailable(
-          'Razorpay returned a web link instead of a UPI QR. Enable UPI QR Codes on your Razorpay account (Dashboard → contact support / Payment Methods → UPI QR).',
-          'UPI_QR_NOT_ENABLED',
+          `Razorpay returned an unexpected QR URL format: ${qr.image_url}. Ensure UPI QR Codes are enabled on your ${keyMode} Razorpay account.`,
+          'UPI_QR_INVALID_URL',
+          { imageUrl: qr.image_url, qrId: qr.id },
         );
       }
+
+      logger.info('Razorpay UPI QR created', {
+        qrId: qr.id,
+        imageUrl: qr.image_url,
+        keyMode,
+      });
 
       return {
         checkoutMode: 'upi_qr',
@@ -85,12 +118,23 @@ export class RazorpayService {
         expiresAt,
       };
     } catch (err) {
+      if (err instanceof ApiError) throw err;
+
+      const extracted = extractRazorpayError(err);
+      logger.error('Razorpay UPI QR creation failed', {
+        keyMode,
+        referenceId: input.referenceId,
+        ...extracted,
+      });
+
       if (isQrFeatureUnavailableError(err)) {
         throw ApiError.serviceUnavailable(
-          'UPI QR Codes are not enabled on your Razorpay account. Ask Razorpay to activate "UPI QR" / QR Codes API (Test & Live mode). Payment links cannot be used as scan-and-pay UPI QR.',
+          `UPI QR Codes API is not enabled on your Razorpay ${keyMode} account. Contact Razorpay support to activate "UPI QR" / QR Codes API. Dashboard: Payment Methods → UPI QR.`,
           'UPI_QR_NOT_ENABLED',
+          extracted.raw,
         );
       }
+
       throw mapRazorpayError(err);
     }
   }
@@ -114,9 +158,18 @@ export class RazorpayService {
   }
 }
 
-/** Payment-link short URLs open a website — not valid for in-app UPI QR display. */
-function isWebsitePaymentUrl(url: string): boolean {
-  return /rzp\.io\/rzp\//i.test(url) || /razorpay\.com/i.test(url);
+/**
+ * Razorpay QR Codes API returns a short URL to the QR PNG (rzp.io/i/…, rzp.io/rzp/…, etc.).
+ * These are NOT payment-link checkout pages — they serve image/png when used as img src.
+ */
+function isValidQrImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return false;
+    return parsed.hostname === 'rzp.io' || parsed.hostname.endsWith('.razorpay.com');
+  } catch {
+    return false;
+  }
 }
 
 export const razorpayService = new RazorpayService();

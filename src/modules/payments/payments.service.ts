@@ -10,7 +10,9 @@ import { walletConfig } from '../../config/wallet.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { walletLedgerService } from '../../services/ledger/index.js';
 import { razorpayService } from '../../services/razorpay/index.js';
-import { decimalToNumber, toDecimal } from '../../utils/money.js';
+import { mapRazorpayError } from '../../services/razorpay/razorpay.errors.js';
+import { logger } from '../../logs/logger.js';
+import { decimalToNumber, paiseFromRupees, toDecimal } from '../../utils/money.js';
 import type { CreatePaymentInput } from './payments.validation.js';
 
 export class PaymentsService {
@@ -76,11 +78,18 @@ export class PaymentsService {
         where: { id: payment.id },
         data: { status: PaymentStatus.FAILED },
       });
+
+      logger.error('Wallet recharge QR creation failed', {
+        paymentId: payment.id,
+        userId,
+        amount: input.amount,
+        error: err instanceof ApiError ? err.message : String(err),
+        code: err instanceof ApiError ? err.code : undefined,
+        details: err instanceof ApiError ? err.details : undefined,
+      });
+
       if (err instanceof ApiError) throw err;
-      throw ApiError.serviceUnavailable(
-        'Could not create UPI QR. Verify Razorpay API keys and that QR codes are enabled on your Razorpay account.',
-        'PAYMENT_QR_FAILED',
-      );
+      throw mapRazorpayError(err);
     }
   }
 
@@ -142,28 +151,37 @@ export class PaymentsService {
     }
 
     try {
+      let linkedPaymentId: string | undefined;
+
       if (
         eventType === 'payment.captured' ||
-        eventType === 'qr_code.credited' ||
-        eventType === 'payment_link.paid'
+        eventType === 'qr_code.credited'
       ) {
-        await this.handlePaymentSuccess(payload);
+        linkedPaymentId = await this.handlePaymentSuccess(payload);
       } else if (eventType === 'payment.failed') {
-        await this.handlePaymentFailed(payload);
-      } else if (eventType === 'qr_code.closed' || eventType === 'payment_link.expired') {
-        await this.handlePaymentExpired(payload);
-      } else if (eventType === 'payment_link.cancelled') {
-        await this.handlePaymentExpired(payload);
+        linkedPaymentId = await this.handlePaymentFailed(payload);
+      } else if (eventType === 'qr_code.closed') {
+        linkedPaymentId = await this.handlePaymentExpired(payload);
+      } else {
+        logger.debug('Unhandled Razorpay webhook event', { eventType, eventId });
       }
 
       await prisma.paymentWebhookLog.update({
         where: { id: webhookLog.id },
-        data: { processed: true },
+        data: {
+          processed: true,
+          ...(linkedPaymentId ? { paymentId: linkedPaymentId } : {}),
+        },
       });
 
       return { duplicate: false, message: 'Webhook processed' };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Webhook processing failed';
+      logger.error('Razorpay webhook processing failed', {
+        eventId,
+        eventType,
+        error: message,
+      });
       await prisma.paymentWebhookLog.update({
         where: { id: webhookLog.id },
         data: { processError: message, processed: false },
@@ -176,28 +194,24 @@ export class PaymentsService {
     payload?: {
       payment?: { entity?: Record<string, unknown> };
       qr_code?: { entity?: Record<string, unknown> };
-      payment_link?: { entity?: Record<string, unknown> };
     };
-  }) {
+  }): Promise<string | undefined> {
     const paymentEntity = payload.payload?.payment?.entity;
     const qrEntity = payload.payload?.qr_code?.entity;
-    const linkEntity = payload.payload?.payment_link?.entity;
 
     const razorpayPaymentId = paymentEntity?.['id'] as string | undefined;
     const razorpayQrId = (qrEntity?.['id'] ?? paymentEntity?.['qr_code_id']) as string | undefined;
-    const razorpayPaymentLinkId = (linkEntity?.['id'] ??
-      paymentEntity?.['payment_link_id']) as string | undefined;
-    const notes = (paymentEntity?.['notes'] ??
-      qrEntity?.['notes'] ??
-      linkEntity?.['notes']) as Record<string, string> | undefined;
+    const notes = (paymentEntity?.['notes'] ?? qrEntity?.['notes']) as
+      | Record<string, string>
+      | undefined;
     const referenceId = notes?.['reference_id'];
+    const capturedPaise = paymentEntity?.['amount'] as number | undefined;
 
     const payment = await prisma.payment.findFirst({
       where: {
         OR: [
           ...(razorpayPaymentId ? [{ razorpayPaymentId }] : []),
           ...(razorpayQrId ? [{ razorpayQrId }] : []),
-          ...(razorpayPaymentLinkId ? [{ razorpayPaymentLinkId }] : []),
           ...(referenceId ? [{ id: referenceId }] : []),
         ],
       },
@@ -207,8 +221,20 @@ export class PaymentsService {
       throw ApiError.notFound('Payment record not found for webhook');
     }
 
+    if (
+      capturedPaise !== undefined &&
+      capturedPaise !== paiseFromRupees(decimalToNumber(payment.amount))
+    ) {
+      logger.error('Webhook amount mismatch — wallet not credited', {
+        paymentId: payment.id,
+        expectedPaise: paiseFromRupees(decimalToNumber(payment.amount)),
+        capturedPaise,
+      });
+      throw ApiError.badRequest('Payment amount mismatch');
+    }
+
     if (payment.status === PaymentStatus.SUCCESS) {
-      return;
+      return payment.id;
     }
 
     await prisma.$transaction(async (tx) => {
@@ -244,11 +270,21 @@ export class PaymentsService {
         tx,
       );
     });
+
+    logger.info('Wallet credited via webhook', {
+      paymentId: payment.id,
+      userId: payment.userId,
+      amount: decimalToNumber(payment.amount),
+      razorpayPaymentId,
+      razorpayQrId,
+    });
+
+    return payment.id;
   }
 
   private async handlePaymentFailed(payload: {
     payload?: { payment?: { entity?: Record<string, unknown> } };
-  }) {
+  }): Promise<string | undefined> {
     const entity = payload.payload?.payment?.entity;
     const razorpayPaymentId = entity?.['id'] as string | undefined;
     const notes = entity?.['notes'] as Record<string, string> | undefined;
@@ -262,42 +298,43 @@ export class PaymentsService {
       },
     });
 
-    if (!payment || payment.status === PaymentStatus.SUCCESS) return;
+    if (!payment || payment.status === PaymentStatus.SUCCESS) return undefined;
 
     await prisma.payment.update({
       where: { id: payment.id },
       data: { status: PaymentStatus.FAILED },
     });
+
+    return payment.id;
   }
 
   private async handlePaymentExpired(payload: {
     payload?: {
       qr_code?: { entity?: Record<string, unknown> };
-      payment_link?: { entity?: Record<string, unknown> };
     };
-  }) {
+  }): Promise<string | undefined> {
     const qrId = payload.payload?.qr_code?.entity?.['id'] as string | undefined;
-    const linkId = payload.payload?.payment_link?.entity?.['id'] as string | undefined;
-    const linkNotes = payload.payload?.payment_link?.entity?.['notes'] as
+    const qrNotes = payload.payload?.qr_code?.entity?.['notes'] as
       | Record<string, string>
       | undefined;
-    const referenceId = linkNotes?.['reference_id'];
+    const referenceId = qrNotes?.['reference_id'];
 
     const payment = await prisma.payment.findFirst({
       where: {
         OR: [
           ...(qrId ? [{ razorpayQrId: qrId }] : []),
-          ...(linkId ? [{ razorpayPaymentLinkId: linkId }] : []),
           ...(referenceId ? [{ id: referenceId }] : []),
         ],
       },
     });
-    if (!payment || payment.status === PaymentStatus.SUCCESS) return;
+    if (!payment || payment.status === PaymentStatus.SUCCESS) return undefined;
 
     await prisma.payment.update({
       where: { id: payment.id },
       data: { status: PaymentStatus.EXPIRED },
     });
+
+    return payment.id;
   }
 
   private mapPayment(payment: {
