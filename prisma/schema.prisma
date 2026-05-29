@@ -108,6 +108,23 @@ enum ContactInquiryStatus {
   ARCHIVED
 }
 
+enum ContactInquiryPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ContactInquiryActivityType {
+  CREATED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  ASSIGNED
+  UNASSIGNED
+  NOTE_ADDED
+  READ
+}
+
 enum VendorAccountStatus {
   PENDING
   VERIFIED
@@ -188,6 +205,10 @@ model User {
   activityLogs       ActivityLog[]      @relation("ActivityActor")
   sliderSlidesCreated SliderSlide[]     @relation("SliderSlideCreatedBy")
   sliderSlidesUpdated SliderSlide[]     @relation("SliderSlideUpdatedBy")
+  assignedContactInquiries ContactInquiry[] @relation("ContactInquiryAssignee")
+  resolvedContactInquiries ContactInquiry[] @relation("ContactInquiryResolver")
+  contactInquiryNotes      ContactInquiryNote[]
+  contactInquiryActivities ContactInquiryActivity[]
 
   @@index([roleId])
   @@index([status])
@@ -550,25 +571,71 @@ model WalletBalanceSnapshot {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model ContactInquiry {
-  id        String               @id @default(cuid())
-  name      String
-  email     String
-  phone     String
-  company   String?
-  subject   ContactSubject
-  message   String               @db.Text
-  status    ContactInquiryStatus @default(NEW)
-  ipAddress String?              @map("ip_address")
-  userAgent String?              @map("user_agent") @db.Text
-  readAt    DateTime?            @map("read_at")
-  createdAt DateTime             @default(now()) @map("created_at")
-  updatedAt DateTime             @updatedAt @map("updated_at")
+  id            String                   @id @default(cuid())
+  referenceCode String                   @unique @map("reference_code")
+  name          String
+  email         String
+  phone         String
+  company       String?
+  subject       ContactSubject
+  message       String                   @db.Text
+  status        ContactInquiryStatus     @default(NEW)
+  priority      ContactInquiryPriority   @default(NORMAL)
+  assignedToId  String?                  @map("assigned_to_id")
+  resolvedAt    DateTime?                @map("resolved_at")
+  resolvedById  String?                  @map("resolved_by_id")
+  ipAddress     String?                  @map("ip_address")
+  userAgent     String?                  @map("user_agent") @db.Text
+  readAt        DateTime?                @map("read_at")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+
+  assignedTo User?                  @relation("ContactInquiryAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  resolvedBy User?                  @relation("ContactInquiryResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  notes      ContactInquiryNote[]
+  activities ContactInquiryActivity[]
 
   @@index([status])
+  @@index([priority])
   @@index([subject])
   @@index([createdAt])
   @@index([email])
+  @@index([assignedToId])
   @@map("contact_inquiries")
+}
+
+model ContactInquiryNote {
+  id        String   @id @default(cuid())
+  inquiryId String   @map("inquiry_id")
+  authorId  String   @map("author_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  inquiry ContactInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  author  User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([inquiryId])
+  @@index([authorId])
+  @@index([createdAt])
+  @@map("contact_inquiry_notes")
+}
+
+model ContactInquiryActivity {
+  id        String                     @id @default(cuid())
+  inquiryId String                     @map("inquiry_id")
+  actorId   String?                    @map("actor_id")
+  type      ContactInquiryActivityType
+  metadata  Json                       @default("{}")
+  createdAt DateTime                   @default(now()) @map("created_at")
+
+  inquiry ContactInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  actor   User?          @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([inquiryId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("contact_inquiry_activities")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

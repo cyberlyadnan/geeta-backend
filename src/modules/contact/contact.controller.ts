@@ -21,24 +21,56 @@ export class ContactController {
     return ApiResponse.created(res, result, 'Your message has been received');
   });
 
+  stats = asyncHandler(async (_req: Request, res: Response) => {
+    const result = await contactService.getStats();
+    return ApiResponse.success(res, result);
+  });
+
+  listAssignees = asyncHandler(async (_req: Request, res: Response) => {
+    const result = await contactService.listAssignees();
+    return ApiResponse.success(res, result);
+  });
+
   list = asyncHandler(async (req: Request, res: Response) => {
     const result = await contactService.findAll(
       req.validatedQuery as ListContactInquiriesInput,
     );
-    return ApiResponse.paginated(res, result.items, result.meta);
+    return ApiResponse.success(res, result);
   });
 
   getById = asyncHandler(async (req: Request, res: Response) => {
-    const result = await contactService.findById(req.params['id'] as string);
+    const result = await contactService.findById(
+      req.params['id'] as string,
+      req.user?.id,
+    );
     return ApiResponse.success(res, result);
+  });
+
+  update = asyncHandler(async (req: Request, res: Response) => {
+    const result = await contactService.update(
+      req.params['id'] as string,
+      req.body,
+      req.user?.id,
+    );
+    return ApiResponse.success(res, result, 'Inquiry updated');
   });
 
   updateStatus = asyncHandler(async (req: Request, res: Response) => {
     const result = await contactService.updateStatus(
       req.params['id'] as string,
       req.body,
+      req.user?.id,
     );
     return ApiResponse.success(res, result, 'Status updated');
+  });
+
+  addNote = asyncHandler(async (req: Request, res: Response) => {
+    const result = await contactService.addNote(
+      req.params['id'] as string,
+      req.body,
+      req.user!.id,
+    );
+    return ApiResponse.success(res, result, 'Note added');
   });
 }
 
