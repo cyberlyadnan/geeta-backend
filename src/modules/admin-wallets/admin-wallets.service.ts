@@ -3,7 +3,11 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { walletLedgerService } from '../../services/ledger/index.js';
 import { decimalToNumber } from '../../utils/money.js';
-import type { AdminWalletAdjustInput, ListAdminWalletsQuery } from './admin-wallets.validation.js';
+import type {
+  AdminWalletAdjustInput,
+  AdminWalletDetailQuery,
+  ListAdminWalletsQuery,
+} from './admin-wallets.validation.js';
 
 export class AdminWalletsService {
   async list(query: ListAdminWalletsQuery) {
@@ -54,7 +58,12 @@ export class AdminWalletsService {
     };
   }
 
-  async getByUserId(userId: string) {
+  async getByUserId(userId: string, query: AdminWalletDetailQuery) {
+    const { transactionsPage, paymentsPage, auditsPage, pageSize } = query;
+    const txSkip = (transactionsPage - 1) * pageSize;
+    const paySkip = (paymentsPage - 1) * pageSize;
+    const auditSkip = (auditsPage - 1) * pageSize;
+
     const wallet = await walletLedgerService.ensureWallet(userId);
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -69,49 +78,86 @@ export class AdminWalletsService {
     });
     if (!user) throw ApiError.notFound('User not found');
 
-    const [transactions, payments, audits] = await Promise.all([
+    const [
+      transactions,
+      transactionsTotal,
+      payments,
+      paymentsTotal,
+      audits,
+      auditsTotal,
+    ] = await Promise.all([
       prisma.walletTransaction.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
-        take: 50,
+        skip: txSkip,
+        take: pageSize,
       }),
+      prisma.walletTransaction.count({ where: { userId } }),
       prisma.payment.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
-        take: 30,
+        skip: paySkip,
+        take: pageSize,
       }),
+      prisma.payment.count({ where: { userId } }),
       prisma.financialAuditLog.findMany({
         where: { targetUserId: userId },
         orderBy: { createdAt: 'desc' },
-        take: 30,
+        skip: auditSkip,
+        take: pageSize,
         include: {
           actor: { select: { id: true, firstName: true, lastName: true, email: true } },
         },
       }),
+      prisma.financialAuditLog.count({ where: { targetUserId: userId } }),
     ]);
 
     return {
       wallet: walletLedgerService.mapWalletSummary(wallet),
       user,
-      transactions: transactions.map((t) => ({
-        id: t.id,
-        type: t.type,
-        status: t.status,
-        amount: decimalToNumber(t.amount),
-        balanceAfter: decimalToNumber(t.balanceAfter),
-        referenceNumber: t.referenceNumber,
-        remarks: t.remarks,
-        createdAt: t.createdAt.toISOString(),
-      })),
-      payments: payments.map((p) => ({
-        id: p.id,
-        amount: decimalToNumber(p.amount),
-        status: p.status,
-        paymentMethod: p.paymentMethod,
-        webhookVerified: p.webhookVerified,
-        createdAt: p.createdAt.toISOString(),
-      })),
-      auditLogs: audits,
+      transactions: {
+        items: transactions.map((t) => ({
+          id: t.id,
+          type: t.type,
+          status: t.status,
+          amount: decimalToNumber(t.amount),
+          balanceAfter: decimalToNumber(t.balanceAfter),
+          referenceNumber: t.referenceNumber,
+          remarks: t.remarks,
+          createdAt: t.createdAt.toISOString(),
+        })),
+        meta: {
+          page: transactionsPage,
+          limit: pageSize,
+          total: transactionsTotal,
+          totalPages: Math.ceil(transactionsTotal / pageSize) || 1,
+        },
+      },
+      payments: {
+        items: payments.map((p) => ({
+          id: p.id,
+          amount: decimalToNumber(p.amount),
+          status: p.status,
+          paymentMethod: p.paymentMethod,
+          webhookVerified: p.webhookVerified,
+          createdAt: p.createdAt.toISOString(),
+        })),
+        meta: {
+          page: paymentsPage,
+          limit: pageSize,
+          total: paymentsTotal,
+          totalPages: Math.ceil(paymentsTotal / pageSize) || 1,
+        },
+      },
+      auditLogs: {
+        items: audits,
+        meta: {
+          page: auditsPage,
+          limit: pageSize,
+          total: auditsTotal,
+          totalPages: Math.ceil(auditsTotal / pageSize) || 1,
+        },
+      },
     };
   }
 

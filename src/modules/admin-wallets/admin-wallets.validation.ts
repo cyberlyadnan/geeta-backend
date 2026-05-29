@@ -16,5 +16,13 @@ export const listAdminWalletsQuerySchema = z.object({
   search: z.string().optional(),
 });
 
+export const adminWalletDetailQuerySchema = z.object({
+  transactionsPage: z.coerce.number().int().min(1).default(1),
+  paymentsPage: z.coerce.number().int().min(1).default(1),
+  auditsPage: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(10),
+});
+
 export type AdminWalletAdjustInput = z.infer<typeof adminWalletAdjustSchema>;
 export type ListAdminWalletsQuery = z.infer<typeof listAdminWalletsQuerySchema>;
+export type AdminWalletDetailQuery = z.infer<typeof adminWalletDetailQuerySchema>;

@@ -6,6 +6,7 @@ import { validate } from '../../validators/validate.js';
 import { adminWalletsController } from './admin-wallets.controller.js';
 import {
   adminWalletAdjustSchema,
+  adminWalletDetailQuerySchema,
   listAdminWalletsQuerySchema,
   userIdParamSchema,
 } from './admin-wallets.validation.js';
@@ -18,6 +19,11 @@ router.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
 router.get('/', validate(listAdminWalletsQuerySchema, 'query'), adminWalletsController.list);
 router.post('/credit', validate(adminWalletAdjustSchema), adminWalletsController.credit);
 router.post('/debit', validate(adminWalletAdjustSchema), adminWalletsController.debit);
-router.get('/:userId', validate(userIdParamSchema, 'params'), adminWalletsController.getByUserId);
+router.get(
+  '/:userId',
+  validate(userIdParamSchema, 'params'),
+  validate(adminWalletDetailQuerySchema, 'query'),
+  adminWalletsController.getByUserId,
+);
 
 export { router as adminWalletsRoutes };

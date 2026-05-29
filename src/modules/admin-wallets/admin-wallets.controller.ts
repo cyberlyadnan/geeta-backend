@@ -2,7 +2,11 @@ import type { Request, Response } from 'express';
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { adminWalletsService } from './admin-wallets.service.js';
-import type { AdminWalletAdjustInput, ListAdminWalletsQuery } from './admin-wallets.validation.js';
+import type {
+  AdminWalletAdjustInput,
+  AdminWalletDetailQuery,
+  ListAdminWalletsQuery,
+} from './admin-wallets.validation.js';
 
 export class AdminWalletsController {
   list = asyncHandler(async (req: Request, res: Response) => {
@@ -13,7 +17,8 @@ export class AdminWalletsController {
 
   getByUserId = asyncHandler(async (req: Request, res: Response) => {
     const { userId } = req.validatedParams as { userId: string };
-    const result = await adminWalletsService.getByUserId(userId);
+    const query = req.validatedQuery as AdminWalletDetailQuery;
+    const result = await adminWalletsService.getByUserId(userId, query);
     return ApiResponse.success(res, result);
   });
 
