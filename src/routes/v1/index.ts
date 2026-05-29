@@ -17,6 +17,8 @@ import { settingsRoutes } from '../../modules/settings/settings.routes.js';
 import { contactRoutes } from '../../modules/contact/contact.routes.js';
 import { vendorsRoutes } from '../../modules/vendors/index.js';
 import { adminVendorsRoutes } from '../../modules/admin-vendors/index.js';
+import { sliderRoutes, adminSlidersRoutes } from '../../modules/slider/index.js';
+import { storageRoutes } from '../../modules/storage/index.js';
 
 const v1Router = Router();
 
@@ -38,5 +40,8 @@ v1Router.use('/settings', settingsRoutes);
 v1Router.use('/contact', contactRoutes);
 v1Router.use('/vendors', vendorsRoutes);
 v1Router.use('/admin/vendors', adminVendorsRoutes);
+v1Router.use('/sliders', sliderRoutes);
+v1Router.use('/admin/sliders', adminSlidersRoutes);
+v1Router.use('/admin/storage', storageRoutes);
 
 export { v1Router };

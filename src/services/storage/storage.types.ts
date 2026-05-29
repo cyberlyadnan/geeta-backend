@@ -1,0 +1,46 @@
+export const STORAGE_FOLDERS = {
+  SLIDERS: 'sliders',
+  PRODUCTS: 'products',
+  CATEGORIES: 'categories',
+  VENDORS: 'vendors',
+  USERS: 'users',
+  DOCUMENTS: 'documents',
+  SUPPORT: 'support',
+  REPORTS: 'reports',
+  INVOICES: 'invoices',
+  MARKETING: 'marketing',
+} as const;
+
+export type StorageFolder = (typeof STORAGE_FOLDERS)[keyof typeof STORAGE_FOLDERS];
+
+export const ALLOWED_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+] as const;
+
+export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];
+
+export const MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
+
+export interface PresignedUploadRequest {
+  folder: StorageFolder;
+  fileName: string;
+  contentType: string;
+  fileSize: number;
+}
+
+export interface PresignedUploadResult {
+  uploadUrl: string;
+  key: string;
+  publicUrl: string;
+  contentType: string;
+  uploadHeaders: Record<string, string>;
+  expiresIn: number;
+}
+
+export interface StoredObjectRef {
+  key: string;
+  publicUrl: string;
+}

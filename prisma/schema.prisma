@@ -97,6 +97,13 @@ enum ActivityAction {
   USER_CREATED
 }
 
+enum SlideStatus {
+  ACTIVE
+  INACTIVE
+  SCHEDULED
+  EXPIRED
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────────────────────────────────────
@@ -142,6 +149,8 @@ model User {
   vendorsRejected    VendorProfile[]    @relation("VendorRejectedBy")
   adminNotes         AdminNote[]        @relation("AdminNoteAuthor")
   activityLogs       ActivityLog[]      @relation("ActivityActor")
+  sliderSlidesCreated SliderSlide[]     @relation("SliderSlideCreatedBy")
+  sliderSlidesUpdated SliderSlide[]     @relation("SliderSlideUpdatedBy")
 
   @@index([roleId])
   @@index([status])
@@ -419,4 +428,38 @@ model ContactInquiry {
   @@index([createdAt])
   @@index([email])
   @@map("contact_inquiries")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global sliders (CMS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SliderSlide {
+  id           String      @id @default(cuid())
+  sliderKey    String      @default("global") @map("slider_key")
+  title        String?
+  description  String?     @db.Text
+  imageUrl     String      @map("image_url")
+  imageKey     String      @map("image_key")
+  redirectUrl  String?     @map("redirect_url")
+  displayOrder Int         @default(0) @map("display_order")
+  status       SlideStatus @default(INACTIVE)
+  startDate    DateTime?   @map("start_date")
+  endDate      DateTime?   @map("end_date")
+  notes        String?     @db.Text
+  createdById  String?     @map("created_by_id")
+  updatedById  String?     @map("updated_by_id")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  createdBy User? @relation("SliderSlideCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("SliderSlideUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([sliderKey])
+  @@index([sliderKey, status])
+  @@index([sliderKey, displayOrder])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@map("slider_slides")
 }

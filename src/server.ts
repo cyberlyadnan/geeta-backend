@@ -8,10 +8,14 @@ import { registerEventListeners } from './events/index.js';
 import { logger } from './logs/logger.js';
 import { initializeSocket } from './websocket/index.js';
 import { closeAllQueues } from './queues/index.js';
+import { scheduleSliderExpiryJob } from './jobs/slider-expiry.job.js';
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
   await connectRedis();
+  await scheduleSliderExpiryJob().catch((err: unknown) => {
+    logger.warn('Slider expiry scheduler skipped', { error: err });
+  });
   registerEventListeners();
 
   const app = createApp();

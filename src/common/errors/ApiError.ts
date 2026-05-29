@@ -52,4 +52,12 @@ export class ApiError extends Error {
   static internal(message = 'Internal server error'): ApiError {
     return new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, message, false);
   }
+
+  static serviceUnavailable(
+    message: string,
+    code?: string,
+    details?: Record<string, unknown>,
+  ): ApiError {
+    return new ApiError(StatusCodes.SERVICE_UNAVAILABLE, message, true, undefined, code, details);
+  }
 }

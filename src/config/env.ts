@@ -51,6 +51,16 @@ const envSchema = z.object({
   BULLMQ_PREFIX: z.string().default('geeta-print'),
 
   SOCKET_CORS_ORIGIN: z.string().default('http://localhost:3000'),
+
+  /** Cloudflare R2 (S3-compatible) — required for media uploads */
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  R2_BUCKET_NAME: z.string().optional(),
+  /** Public base URL for objects (custom domain or R2 public bucket URL) */
+  R2_PUBLIC_URL: z.string().url().optional(),
+  /** Defaults to https://<accountId>.r2.cloudflarestorage.com */
+  R2_ENDPOINT: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
