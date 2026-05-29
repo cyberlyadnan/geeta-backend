@@ -20,6 +20,7 @@
     "prisma:migrate:deploy": "dotenv -e .env -e .env.local -- prisma migrate deploy",
     "prisma:studio": "dotenv -e .env -e .env.local -- prisma studio",
     "prisma:seed": "dotenv -e .env -e .env.local -- tsx prisma/seed.ts",
+    "verify:razorpay": "tsx scripts/verify-razorpay.ts",
     "db:push": "prisma db push",
     "postinstall": "prisma generate"
   },
@@ -51,6 +52,7 @@
     "ioredis": "^5.6.1",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "razorpay": "^2.9.6",
     "socket.io": "^4.8.1",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^5.0.0",

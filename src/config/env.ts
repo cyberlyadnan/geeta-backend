@@ -61,6 +61,28 @@ const envSchema = z.object({
   R2_PUBLIC_URL: z.string().url().optional(),
   /** Defaults to https://<accountId>.r2.cloudflarestorage.com */
   R2_ENDPOINT: z.string().url().optional(),
+
+  RAZORPAY_KEY_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v?.trim() ? v.trim() : undefined)),
+  RAZORPAY_KEY_SECRET: z
+    .string()
+    .optional()
+    .transform((v) => (v?.trim() ? v.trim() : undefined)),
+  RAZORPAY_WEBHOOK_SECRET: z
+    .string()
+    .optional()
+    .transform((v) => (v?.trim() ? v.trim() : undefined)),
+
+  WALLET_MIN_RECHARGE_AMOUNT: z.coerce.number().positive().default(100),
+  WALLET_MAX_RECHARGE_AMOUNT: z.coerce.number().positive().default(100_000),
+  WALLET_PAYMENT_EXPIRY_MINUTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30)
+    .transform((v) => Math.max(v, 20)),
 });
 
 export type Env = z.infer<typeof envSchema>;

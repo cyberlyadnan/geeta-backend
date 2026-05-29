@@ -19,6 +19,7 @@ import { vendorsRoutes } from '../../modules/vendors/index.js';
 import { adminVendorsRoutes } from '../../modules/admin-vendors/index.js';
 import { sliderRoutes, adminSlidersRoutes } from '../../modules/slider/index.js';
 import { storageRoutes } from '../../modules/storage/index.js';
+import { adminWalletsRoutes } from '../../modules/admin-wallets/index.js';
 
 const v1Router = Router();
 
@@ -43,5 +44,6 @@ v1Router.use('/admin/vendors', adminVendorsRoutes);
 v1Router.use('/sliders', sliderRoutes);
 v1Router.use('/admin/sliders', adminSlidersRoutes);
 v1Router.use('/admin/storage', storageRoutes);
+v1Router.use('/admin/wallets', adminWalletsRoutes);
 
 export { v1Router };
