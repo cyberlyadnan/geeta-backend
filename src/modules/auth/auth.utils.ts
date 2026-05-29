@@ -15,6 +15,7 @@ export function mapUserToAuthResponse(user: UserWithRole): AuthUserResponse {
     vendorProfile: user.vendorProfile
       ? {
           id: user.vendorProfile.id,
+          vendorCode: user.vendorProfile.vendorCode,
           businessName: user.vendorProfile.businessName,
           accountStatus: user.vendorProfile.accountStatus,
           verificationRemarks: user.vendorProfile.verificationRemarks,

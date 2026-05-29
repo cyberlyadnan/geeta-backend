@@ -18,6 +18,7 @@ export class AdminVendorsService {
       ...(status && { accountStatus: status }),
       ...(search && {
         OR: [
+          { vendorCode: { contains: search, mode: 'insensitive' } },
           { businessName: { contains: search, mode: 'insensitive' } },
           { ownerName: { contains: search, mode: 'insensitive' } },
           { gstNumber: { contains: search, mode: 'insensitive' } },

@@ -18,6 +18,7 @@ export class VendorsService {
     const profile = user.vendorProfile;
 
     return {
+      vendorCode: profile.vendorCode,
       businessName: profile.businessName,
       ownerName: profile.ownerName,
       phone: user.phone,

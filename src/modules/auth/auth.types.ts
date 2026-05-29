@@ -7,6 +7,7 @@ export interface AuthTokens {
 
 export interface VendorProfileSummary {
   id: string;
+  vendorCode: string;
   businessName: string;
   accountStatus: VendorAccountStatus;
   verificationRemarks: string | null;
@@ -31,5 +32,6 @@ export interface LoginResponse {
 export interface VendorRegisterResponse {
   message: string;
   vendorProfileId: string;
+  vendorCode: string;
   accountStatus: VendorAccountStatus;
 }

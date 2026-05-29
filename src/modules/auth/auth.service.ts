@@ -8,6 +8,7 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { passwordService, tokenService } from '../../services/auth/index.js';
 import { activityLogService } from '../../services/activity/index.js';
+import { vendorCodeService } from '../../services/vendor-code/index.js';
 import { parseDurationToMs } from '../../utils/time.js';
 import { jwtConfig } from '../../config/jwt.js';
 import type { LoginInput, RegisterInput, VendorRegisterInput } from './auth.validation.js';
@@ -50,31 +51,35 @@ export class AuthService {
     const { firstName, lastName } = splitOwnerName(input.yourName);
     const passwordHash = await passwordService.hash(input.password);
 
-    const user = await prisma.user.create({
-      data: {
-        email: input.email.toLowerCase(),
-        passwordHash,
-        firstName,
-        lastName,
-        phone,
-        roleId: vendorRole.id,
-        status: UserStatus.PENDING_VERIFICATION,
-        vendorProfile: {
-          create: {
-            businessName: input.businessName,
-            ownerName: input.yourName,
-            gstNumber: input.gstNumber || null,
-            referenceCode: input.referenceCode || null,
-            employeeCode: input.employeeCode || null,
-            country: input.country,
-            pinCode: input.pinCode,
-            fullAddress: input.fullAddress,
-            services: input.services,
-            accountStatus: VendorAccountStatus.PENDING,
+    const user = await prisma.$transaction(async (tx) => {
+      const vendorCode = await vendorCodeService.allocateNext(tx);
+      return tx.user.create({
+        data: {
+          email: input.email.toLowerCase(),
+          passwordHash,
+          firstName,
+          lastName,
+          phone,
+          roleId: vendorRole.id,
+          status: UserStatus.PENDING_VERIFICATION,
+          vendorProfile: {
+            create: {
+              vendorCode,
+              businessName: input.businessName,
+              ownerName: input.yourName,
+              gstNumber: input.gstNumber || null,
+              referenceCode: input.referenceCode || null,
+              employeeCode: input.employeeCode || null,
+              country: input.country,
+              pinCode: input.pinCode,
+              fullAddress: input.fullAddress,
+              services: input.services,
+              accountStatus: VendorAccountStatus.PENDING,
+            },
           },
         },
-      },
-      include: { vendorProfile: true },
+        include: { vendorProfile: true },
+      });
     });
 
     if (!user.vendorProfile) {
@@ -100,6 +105,7 @@ export class AuthService {
       message:
         'Registration submitted successfully. Your account is pending admin verification.',
       vendorProfileId: user.vendorProfile.id,
+      vendorCode: user.vendorProfile.vendorCode,
       accountStatus: VendorAccountStatus.PENDING,
     };
   }

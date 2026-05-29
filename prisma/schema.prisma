@@ -150,8 +150,16 @@ model User {
   @@map("users")
 }
 
+model VendorCodeSequence {
+  id        Int @id @default(1)
+  lastValue Int @default(1000) @map("last_value")
+
+  @@map("vendor_code_sequences")
+}
+
 model VendorProfile {
   id                  String              @id @default(cuid())
+  vendorCode          String              @unique @map("vendor_code")
   userId              String              @unique @map("user_id")
   businessName        String              @map("business_name")
   ownerName           String              @map("owner_name")
@@ -184,6 +192,7 @@ model VendorProfile {
 
   @@index([accountStatus])
   @@index([businessName])
+  @@index([vendorCode])
   @@index([createdAt])
   @@map("vendor_profiles")
 }
