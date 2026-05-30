@@ -15,6 +15,11 @@ export class WalletController {
     return ApiResponse.success(res, summary);
   });
 
+  getRechargeLimits = asyncHandler(async (_req: Request, res: Response) => {
+    const limits = walletService.getRechargeLimits();
+    return ApiResponse.success(res, limits);
+  });
+
   listTransactions = asyncHandler(async (req: Request, res: Response) => {
     const query = req.validatedQuery as ListTransactionsQuery;
     const result = await walletService.listTransactions(req.user!.id, query);

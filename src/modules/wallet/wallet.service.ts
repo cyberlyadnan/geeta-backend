@@ -8,6 +8,13 @@ import { decimalToNumber } from '../../utils/money.js';
 import type { AddMoneyInput, ListTransactionsQuery } from './wallet.validation.js';
 
 export class WalletService {
+  getRechargeLimits() {
+    return {
+      min: walletConfig.minRechargeAmount,
+      max: walletConfig.maxRechargeAmount,
+    };
+  }
+
   async getWallet(userId: string) {
     const wallet = await walletLedgerService.ensureWallet(userId);
     return walletLedgerService.mapWalletSummary(wallet);
@@ -36,10 +43,7 @@ export class WalletService {
 
     return {
       ...summary,
-      rechargeLimits: {
-        min: walletConfig.minRechargeAmount,
-        max: walletConfig.maxRechargeAmount,
-      },
+      rechargeLimits: this.getRechargeLimits(),
       pendingPayments,
       successfulPayments,
       recentActivity: recentTransactions.map((t) => this.mapTransaction(t)),

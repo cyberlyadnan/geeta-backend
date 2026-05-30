@@ -12,6 +12,7 @@ router.use(authenticate);
 router.use(authorize(RoleName.VENDOR));
 
 router.get('/', walletController.getWallet);
+router.get('/recharge-limits', walletController.getRechargeLimits);
 router.get('/summary', walletController.getSummary);
 router.get('/transactions', validate(listTransactionsQuerySchema, 'query'), walletController.listTransactions);
 router.post('/add-money', validate(addMoneySchema), walletController.addMoney);
