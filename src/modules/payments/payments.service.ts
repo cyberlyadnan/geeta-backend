@@ -15,6 +15,10 @@ import { logger } from '../../logs/logger.js';
 import { decimalToNumber, paiseFromRupees, toDecimal } from '../../utils/money.js';
 import type { CreatePaymentInput } from './payments.validation.js';
 
+/** Throttle Razorpay status sync per payment while the client polls */
+const lastRazorpaySyncAttempt = new Map<string, number>();
+const RAZORPAY_SYNC_INTERVAL_MS = 2_000;
+
 export class PaymentsService {
   async createRechargePayment(userId: string, input: CreatePaymentInput) {
     const wallet = await walletLedgerService.ensureWallet(userId);
@@ -94,11 +98,75 @@ export class PaymentsService {
   }
 
   async getPaymentForUser(userId: string, paymentId: string) {
-    const payment = await prisma.payment.findFirst({
+    let payment = await prisma.payment.findFirst({
       where: { id: paymentId, userId },
     });
     if (!payment) throw ApiError.notFound('Payment not found');
-    return this.mapPayment(payment);
+
+    if (
+      payment.status === PaymentStatus.PENDING ||
+      payment.status === PaymentStatus.PROCESSING
+    ) {
+      const synced = await this.syncPendingPaymentFromRazorpay(payment);
+      if (synced) payment = synced;
+    }
+
+    const mapped = this.mapPayment(payment);
+
+    if (payment.status === PaymentStatus.SUCCESS) {
+      const wallet = await walletLedgerService.ensureWallet(userId);
+      return {
+        ...mapped,
+        walletBalance: decimalToNumber(wallet.currentBalance),
+      };
+    }
+
+    return mapped;
+  }
+
+  /**
+   * Webhook fallback: reconcile pending QR payments directly with Razorpay so the
+   * client sees SUCCESS without waiting for delayed webhook delivery.
+   */
+  private async syncPendingPaymentFromRazorpay(
+    payment: {
+      id: string;
+      userId: string;
+      status: PaymentStatus;
+      razorpayQrId: string | null;
+      amount: import('@prisma/client').Prisma.Decimal;
+    },
+  ) {
+    if (!payment.razorpayQrId) return null;
+
+    const now = Date.now();
+    const lastAttempt = lastRazorpaySyncAttempt.get(payment.id) ?? 0;
+    if (now - lastAttempt < RAZORPAY_SYNC_INTERVAL_MS) return null;
+    lastRazorpaySyncAttempt.set(payment.id, now);
+
+    const captured = await razorpayService.fetchQrCapturedPayment(payment.razorpayQrId);
+    if (!captured) return null;
+
+    const expectedPaise = paiseFromRupees(decimalToNumber(payment.amount));
+    if (captured.amountPaise !== expectedPaise) {
+      logger.error('Razorpay sync amount mismatch — wallet not credited', {
+        paymentId: payment.id,
+        expectedPaise,
+        capturedPaise: captured.amountPaise,
+      });
+      return null;
+    }
+
+    await this.finalizeSuccessfulRecharge(
+      payment.id,
+      captured.razorpayPaymentId,
+      payment.razorpayQrId,
+      'Wallet recharge via UPI QR (status sync)',
+    );
+
+    lastRazorpaySyncAttempt.delete(payment.id);
+
+    return prisma.payment.findUnique({ where: { id: payment.id } });
   }
 
   async processWebhook(rawBody: Buffer, signature: string | undefined) {
@@ -237,39 +305,12 @@ export class PaymentsService {
       return payment.id;
     }
 
-    await prisma.$transaction(async (tx) => {
-      const locked = await tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
-      if (locked.status === PaymentStatus.SUCCESS) return;
-
-      await tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: PaymentStatus.SUCCESS,
-          webhookVerified: true,
-          paidAt: new Date(),
-          razorpayPaymentId: razorpayPaymentId ?? locked.razorpayPaymentId,
-          razorpayQrId: razorpayQrId ?? locked.razorpayQrId,
-        },
-      });
-
-      const existingTx = await tx.walletTransaction.findUnique({
-        where: { paymentId: payment.id },
-      });
-      if (existingTx) return;
-
-      await walletLedgerService.creditWallet(
-        {
-          userId: payment.userId,
-          amount: decimalToNumber(payment.amount),
-          type: WalletTransactionType.RECHARGE,
-          paymentId: payment.id,
-          remarks: 'Wallet recharge via UPI QR',
-          paymentMethod: PaymentMethod.UPI_QR,
-          auditAction: FinancialAuditAction.PAYMENT_WEBHOOK,
-        },
-        tx,
-      );
-    });
+    await this.finalizeSuccessfulRecharge(
+      payment.id,
+      razorpayPaymentId,
+      razorpayQrId,
+      'Wallet recharge via UPI QR',
+    );
 
     logger.info('Wallet credited via webhook', {
       paymentId: payment.id,
@@ -280,6 +321,47 @@ export class PaymentsService {
     });
 
     return payment.id;
+  }
+
+  private async finalizeSuccessfulRecharge(
+    paymentId: string,
+    razorpayPaymentId: string | undefined,
+    razorpayQrId: string | undefined,
+    creditRemarks: string,
+  ) {
+    await prisma.$transaction(async (tx) => {
+      const locked = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+      if (locked.status === PaymentStatus.SUCCESS) return;
+
+      await tx.payment.update({
+        where: { id: paymentId },
+        data: {
+          status: PaymentStatus.SUCCESS,
+          webhookVerified: true,
+          paidAt: new Date(),
+          razorpayPaymentId: razorpayPaymentId ?? locked.razorpayPaymentId,
+          razorpayQrId: razorpayQrId ?? locked.razorpayQrId,
+        },
+      });
+
+      const existingTx = await tx.walletTransaction.findUnique({
+        where: { paymentId },
+      });
+      if (existingTx) return;
+
+      await walletLedgerService.creditWallet(
+        {
+          userId: locked.userId,
+          amount: decimalToNumber(locked.amount),
+          type: WalletTransactionType.RECHARGE,
+          paymentId,
+          remarks: creditRemarks,
+          paymentMethod: PaymentMethod.UPI_QR,
+          auditAction: FinancialAuditAction.PAYMENT_WEBHOOK,
+        },
+        tx,
+      );
+    });
   }
 
   private async handlePaymentFailed(payload: {

@@ -139,6 +139,45 @@ export class RazorpayService {
     }
   }
 
+  /**
+   * Poll Razorpay when webhooks are delayed — returns the first captured UPI payment on this QR.
+   */
+  async fetchQrCapturedPayment(
+    qrId: string,
+  ): Promise<{ razorpayPaymentId: string; amountPaise: number } | null> {
+    const razorpay = getRazorpayClient();
+
+    try {
+      const qr = (await razorpay.qrCode.fetch(qrId)) as {
+        payments_count_received?: number;
+      };
+
+      if (!qr.payments_count_received || qr.payments_count_received < 1) {
+        return null;
+      }
+
+      const response = (await razorpay.qrCode.fetchAllPayments(qrId, { count: 5 })) as {
+        items?: Array<{ id?: string; status?: string; amount?: number }>;
+      };
+
+      const captured = response.items?.find((item) => item.status === 'captured' && item.id);
+      if (!captured?.id || captured.amount == null) {
+        return null;
+      }
+
+      return {
+        razorpayPaymentId: captured.id,
+        amountPaise: captured.amount,
+      };
+    } catch (err) {
+      logger.warn('Razorpay QR payment sync failed', {
+        qrId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
   verifyWebhookSignature(rawBody: Buffer | string, signature: string | undefined): boolean {
     if (!signature) return false;
 
