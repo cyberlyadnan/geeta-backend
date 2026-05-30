@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { PaymentStatus } from '@prisma/client';
+import { walletConfig } from '../../config/wallet.js';
 import { prisma } from '../../config/database.js';
 import { walletLedgerService } from '../../services/ledger/index.js';
 import { paymentsService } from '../payments/payments.service.js';
@@ -35,6 +36,10 @@ export class WalletService {
 
     return {
       ...summary,
+      rechargeLimits: {
+        min: walletConfig.minRechargeAmount,
+        max: walletConfig.maxRechargeAmount,
+      },
       pendingPayments,
       successfulPayments,
       recentActivity: recentTransactions.map((t) => this.mapTransaction(t)),
