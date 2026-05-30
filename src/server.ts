@@ -9,6 +9,7 @@ import { logger } from './logs/logger.js';
 import { initializeSocket } from './websocket/index.js';
 import { closeAllQueues } from './queues/index.js';
 import { scheduleSliderExpiryJob } from './jobs/slider-expiry.job.js';
+import { walletConfig } from './config/wallet.js';
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
@@ -28,6 +29,8 @@ async function bootstrap(): Promise<void> {
       port: env.PORT,
       env: env.NODE_ENV,
       api: `${env.API_PREFIX}/${env.API_VERSION}`,
+      walletMinRecharge: walletConfig.minRechargeAmount,
+      walletMaxRecharge: walletConfig.maxRechargeAmount,
     });
   });
 
