@@ -188,6 +188,112 @@ enum ConfigurationRuleType {
   DISABLE
 }
 
+enum PricingAdjustmentType {
+  FIXED
+  PERCENTAGE
+}
+
+enum PricingRuleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum FileRequirementType {
+  REQUIRED
+  OPTIONAL
+}
+
+enum SupportedFileType {
+  PDF
+  AI
+  PSD
+  CDR
+  EPS
+  SVG
+  PNG
+  JPG
+  JPEG
+  ZIP
+  OTHER
+}
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum WorkflowTaskStatus {
+  PENDING
+  READY
+  ASSIGNED
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  REJECTED
+  CANCELLED
+  SKIPPED
+}
+
+enum WorkflowStepType {
+  VERIFICATION
+  PRINTING
+  LAMINATION
+  UV
+  FOILING
+  DIE_CUTTING
+  PACKAGING
+  DISPATCH
+  QUALITY_CHECK
+  CUSTOM
+}
+
+enum WorkflowPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ProductionOrderStatus {
+  DRAFT
+  PENDING_PAYMENT
+  CONFIRMED
+  IN_PRODUCTION
+  ON_HOLD
+  COMPLETED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum WorkflowInstanceStatus {
+  READY
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  ON_HOLD
+}
+
+enum WorkflowHistoryAction {
+  CREATED
+  ASSIGNED
+  STARTED
+  COMPLETED
+  REJECTED
+  REWORKED
+  ON_HOLD
+  COMMENT_ADDED
+}
+
+enum ReworkStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────────────────────────────────────
@@ -243,6 +349,11 @@ model User {
   resolvedContactInquiries ContactInquiry[] @relation("ContactInquiryResolver")
   contactInquiryNotes      ContactInquiryNote[]
   contactInquiryActivities ContactInquiryActivity[]
+  uploadedFileAssets       FileAsset[]
+  productionOrders         ProductionOrder[]
+  assignedWorkflowTasks    WorkflowTask[]           @relation("WorkflowTaskAssignee")
+  workflowTaskHistory      WorkflowTaskHistory[]    @relation("WorkflowTaskHistoryPerformer")
+  reworkRequestsCreated    ReworkRequest[]          @relation("ReworkRequestCreator")
 
   @@index([roleId])
   @@index([status])
@@ -450,6 +561,11 @@ model ProductOffering {
   versions            ProductOfferingVersion[]
   configurationGroups ConfigurationGroup[]
   configurationFields ConfigurationField[]
+  quantityPricing     QuantityPricing[]
+  pricingRules        PricingRule[]
+  fileRequirements    FileRequirement[]
+  workflow            ProductOfferingWorkflow?
+  productionOrderItems ProductionOrderItem[]
 
   @@index([seriesId])
   @@index([sku])
@@ -552,8 +668,9 @@ model ConfigurationOption {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  field       ConfigurationField  @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  field       ConfigurationField           @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   sourceRules ConfigurationRule[]
+  pricing     ConfigurationOptionPricing?
 
   @@unique([fieldId, value])
   @@index([fieldId])
@@ -576,6 +693,430 @@ model ConfigurationRule {
   @@index([sourceOptionId])
   @@index([targetFieldId])
   @@map("configuration_rules")
+}
+
+// =====================================================
+// PRODUCT ENGINE — PHASE 3 (Pricing Engine)
+// Quantity tiers, option adjustments, advanced rules, and immutable price snapshots.
+// =====================================================
+
+model QuantityPricing {
+  id         String   @id @default(cuid())
+  offeringId String   @map("offering_id")
+  quantity   Int
+  basePrice  Decimal  @map("base_price") @db.Decimal(12, 2)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  offering ProductOffering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+
+  @@unique([offeringId, quantity])
+  @@index([offeringId])
+  @@map("quantity_pricing")
+}
+
+model ConfigurationOptionPricing {
+  id              String                @id @default(cuid())
+  optionId        String                @unique @map("option_id")
+  adjustmentType  PricingAdjustmentType @map("adjustment_type")
+  adjustmentValue Decimal               @map("adjustment_value") @db.Decimal(12, 2)
+  isActive        Boolean               @default(true) @map("is_active")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  option ConfigurationOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@index([optionId])
+  @@map("configuration_option_pricing")
+}
+
+model PricingRule {
+  id              String                @id @default(cuid())
+  offeringId      String                @map("offering_id")
+  name            String
+  description     String?               @db.Text
+  condition       Json
+  adjustmentType  PricingAdjustmentType @map("adjustment_type")
+  adjustmentValue Decimal               @map("adjustment_value") @db.Decimal(12, 2)
+  status          PricingRuleStatus     @default(ACTIVE)
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  offering ProductOffering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+
+  @@index([offeringId])
+  @@index([status])
+  @@map("pricing_rules")
+}
+
+/// Immutable breakdown stored when an order/quote is priced — protects historical totals.
+model PriceSnapshot {
+  id              String   @id @default(cuid())
+  subtotal        Decimal  @db.Decimal(12, 2)
+  adjustmentTotal Decimal @map("adjustment_total") @db.Decimal(12, 2)
+  discountTotal   Decimal @map("discount_total") @db.Decimal(12, 2)
+  taxTotal        Decimal @map("tax_total") @db.Decimal(12, 2)
+  grandTotal      Decimal @map("grand_total") @db.Decimal(12, 2)
+  calculation     Json
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  orderItems           OrderItem[]
+  productionOrderItems ProductionOrderItem[]
+
+  @@map("price_snapshots")
+}
+
+// =====================================================
+// PRODUCT ENGINE — PHASE 4 (File Requirement Engine)
+// Cloudflare R2 compatible — metadata in DB, blobs in object storage.
+// =====================================================
+
+model FileRequirement {
+  id              String              @id @default(cuid())
+  offeringId      String              @map("offering_id")
+  code            String
+  label           String
+  description     String?             @db.Text
+  requirementType FileRequirementType @map("requirement_type")
+  maxFileSizeMb   Int?                @map("max_file_size_mb")
+  allowMultiple   Boolean             @default(false) @map("allow_multiple")
+  sortOrder       Int                 @default(0) @map("sort_order")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  offering         ProductOffering           @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  allowedFileTypes FileRequirementFileType[]
+
+  @@unique([offeringId, code])
+  @@index([offeringId])
+  @@map("file_requirements")
+}
+
+model FileRequirementFileType {
+  id            String            @id @default(cuid())
+  requirementId String            @map("requirement_id")
+  fileType      SupportedFileType @map("file_type")
+
+  requirement FileRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  @@unique([requirementId, fileType])
+  @@index([requirementId])
+  @@map("file_requirement_file_types")
+}
+
+/// File metadata — actual bytes live in Cloudflare R2 (`fileKey` / `fileUrl`).
+model FileAsset {
+  id           String   @id @default(cuid())
+  originalName String   @map("original_name")
+  fileName     String   @map("file_name")
+  fileKey      String   @unique @map("file_key")
+  fileUrl      String   @map("file_url") @db.Text
+  mimeType     String   @map("mime_type")
+  extension    String
+  fileSize     Int      @map("file_size")
+  uploadedById String?  @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  orderItemFiles OrderItemFile[]
+
+  @@index([uploadedById])
+  @@index([createdAt])
+  @@map("file_assets")
+}
+
+// =====================================================
+// PRODUCT ENGINE — PHASE 5 (Workflow Engine)
+// Printing ERP production workflow — templates, facilities, SLA.
+// =====================================================
+
+model Facility {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  address   String?  @db.Text
+  phone     String?
+  email     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  departments       Department[]
+  workflowTemplates WorkflowTemplate[]
+
+  @@map("facilities")
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  facilityId  String   @map("facility_id")
+  name        String
+  code        String   @unique
+  description String?  @db.Text
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  facility      Facility               @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  workflowSteps WorkflowTemplateStep[]
+  workflowTasks WorkflowTask[]
+
+  @@index([facilityId])
+  @@map("departments")
+}
+
+model WorkflowTemplate {
+  id          String         @id @default(cuid())
+  facilityId  String         @map("facility_id")
+  name        String
+  code        String         @unique
+  description String?        @db.Text
+  status      WorkflowStatus @default(ACTIVE)
+  isDefault   Boolean        @default(false) @map("is_default")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  facility           Facility                  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  steps              WorkflowTemplateStep[]
+  productOfferings   ProductOfferingWorkflow[]
+  workflowInstances  WorkflowInstance[]
+
+  @@index([facilityId])
+  @@map("workflow_templates")
+}
+
+model WorkflowTemplateStep {
+  id                 String           @id @default(cuid())
+  workflowTemplateId String           @map("workflow_template_id")
+  departmentId       String           @map("department_id")
+  stepName           String           @map("step_name")
+  stepCode           String           @map("step_code")
+  stepType           WorkflowStepType @map("step_type")
+  stepOrder          Int              @map("step_order")
+  expectedMinutes    Int              @map("expected_minutes")
+  allowRework        Boolean          @default(true) @map("allow_rework")
+  allowSkip          Boolean          @default(false) @map("allow_skip")
+  isMandatory        Boolean          @default(true) @map("is_mandatory")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  workflowTemplate WorkflowTemplate   @relation(fields: [workflowTemplateId], references: [id], onDelete: Cascade)
+  department       Department         @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  slaPolicy        WorkflowSlaPolicy?
+  workflowTasks    WorkflowTask[]
+
+  @@unique([workflowTemplateId, stepOrder])
+  @@index([workflowTemplateId])
+  @@index([departmentId])
+  @@map("workflow_template_steps")
+}
+
+/// Links a product offering to its production workflow template (one template per offering).
+model ProductOfferingWorkflow {
+  id                 String   @id @default(cuid())
+  offeringId         String   @unique @map("offering_id")
+  workflowTemplateId String   @map("workflow_template_id")
+  isDefault          Boolean  @default(true) @map("is_default")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  offering         ProductOffering  @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  workflowTemplate WorkflowTemplate @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
+
+  @@index([workflowTemplateId])
+  @@map("product_offering_workflows")
+}
+
+model WorkflowSlaPolicy {
+  id                     String   @id @default(cuid())
+  workflowTemplateStepId String   @unique @map("workflow_template_step_id")
+  warningAfterMinutes    Int      @map("warning_after_minutes")
+  criticalAfterMinutes   Int      @map("critical_after_minutes")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  workflowTemplateStep WorkflowTemplateStep @relation(fields: [workflowTemplateStepId], references: [id], onDelete: Cascade)
+
+  @@map("workflow_sla_policies")
+}
+
+// =====================================================
+// PRODUCT ENGINE — PHASE 6 (Order + Workflow Execution)
+// Production orders, item snapshots, and runtime workflow tasks.
+// Legacy checkout `Order` model remains below for wallet/checkout until unified.
+// =====================================================
+
+model ProductionOrder {
+  id          String                @id @default(cuid())
+  orderNumber String                @unique @map("order_number")
+  customerId  String                @map("customer_id")
+  orderName   String?               @map("order_name")
+  status      ProductionOrderStatus @default(CONFIRMED)
+  subtotal    Decimal               @db.Decimal(12, 2)
+  taxAmount   Decimal               @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount Decimal               @map("total_amount") @db.Decimal(12, 2)
+  notes       String?               @db.Text
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  customer          User                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items             ProductionOrderItem[]
+  workflowInstances WorkflowInstance[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([orderNumber])
+  @@map("production_orders")
+}
+
+model ProductionOrderItem {
+  id              String   @id @default(cuid())
+  orderId         String   @map("order_id")
+  offeringId      String   @map("offering_id")
+  quantity        Int
+  unitPrice       Decimal  @map("unit_price") @db.Decimal(12, 2)
+  totalPrice      Decimal  @map("total_price") @db.Decimal(12, 2)
+  priceSnapshotId String?  @map("price_snapshot_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  order          ProductionOrder          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  offering       ProductOffering          @relation(fields: [offeringId], references: [id], onDelete: Restrict)
+  priceSnapshot  PriceSnapshot?           @relation(fields: [priceSnapshotId], references: [id], onDelete: Restrict)
+  configurations OrderItemConfiguration[]
+  files          OrderItemFile[]
+
+  @@index([orderId])
+  @@index([offeringId])
+  @@index([priceSnapshotId])
+  @@map("production_order_items")
+}
+
+model OrderItemConfiguration {
+  id            String   @id @default(cuid())
+  orderItemId   String   @map("order_item_id")
+  fieldCode     String   @map("field_code")
+  fieldLabel    String   @map("field_label")
+  selectedValue String   @map("selected_value")
+  selectedLabel String   @map("selected_label")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  orderItem ProductionOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([orderItemId])
+  @@map("order_item_configurations")
+}
+
+model OrderItemFile {
+  id                   String   @id @default(cuid())
+  orderItemId          String   @map("order_item_id")
+  fileRequirementCode  String   @map("file_requirement_code")
+  fileRequirementLabel String   @map("file_requirement_label")
+  fileAssetId          String   @map("file_asset_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  orderItem ProductionOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  fileAsset FileAsset           @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  @@index([orderItemId])
+  @@index([fileAssetId])
+  @@map("order_item_files")
+}
+
+model WorkflowInstance {
+  id                 String                 @id @default(cuid())
+  orderId            String                 @map("order_id")
+  workflowTemplateId String                 @map("workflow_template_id")
+  status             WorkflowInstanceStatus @default(READY)
+  currentStepOrder   Int                    @default(1) @map("current_step_order")
+  startedAt          DateTime?              @map("started_at")
+  completedAt        DateTime?              @map("completed_at")
+  createdAt          DateTime               @default(now()) @map("created_at")
+
+  order            ProductionOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  workflowTemplate WorkflowTemplate @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
+  tasks            WorkflowTask[]
+
+  @@index([orderId])
+  @@index([workflowTemplateId])
+  @@index([status])
+  @@map("workflow_instances")
+}
+
+model WorkflowTask {
+  id                     String             @id @default(cuid())
+  workflowInstanceId     String             @map("workflow_instance_id")
+  workflowTemplateStepId String             @map("workflow_template_step_id")
+  departmentId           String             @map("department_id")
+  assignedToId           String?            @map("assigned_to_id")
+  status                 WorkflowTaskStatus @default(PENDING)
+  startedAt              DateTime?          @map("started_at")
+  completedAt            DateTime?          @map("completed_at")
+  dueAt                  DateTime?          @map("due_at")
+  remarks                String?            @db.Text
+  createdAt              DateTime           @default(now()) @map("created_at")
+
+  workflowInstance WorkflowInstance     @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  workflowStep     WorkflowTemplateStep @relation(fields: [workflowTemplateStepId], references: [id], onDelete: Restrict)
+  department       Department           @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignedTo       User?                @relation("WorkflowTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  history          WorkflowTaskHistory[]
+  reworks          ReworkRequest[]
+  slaBreaches      WorkflowSlaBreach[]
+
+  @@index([workflowInstanceId])
+  @@index([departmentId])
+  @@index([assignedToId])
+  @@index([status])
+  @@map("workflow_tasks")
+}
+
+model WorkflowTaskHistory {
+  id            String                @id @default(cuid())
+  taskId        String                @map("task_id")
+  action        WorkflowHistoryAction
+  remarks       String?               @db.Text
+  performedById String?               @map("performed_by_id")
+  createdAt     DateTime              @default(now()) @map("created_at")
+
+  task        WorkflowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  performedBy User?        @relation("WorkflowTaskHistoryPerformer", fields: [performedById], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([performedById])
+  @@map("workflow_task_history")
+}
+
+model ReworkRequest {
+  id          String       @id @default(cuid())
+  taskId      String       @map("task_id")
+  status      ReworkStatus @default(OPEN)
+  reason      String       @db.Text
+  notes       String?      @db.Text
+  createdById String?      @map("created_by_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  task      WorkflowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("ReworkRequestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([createdById])
+  @@index([status])
+  @@map("rework_requests")
+}
+
+model WorkflowSlaBreach {
+  id              String   @id @default(cuid())
+  taskId          String   @map("task_id")
+  expectedMinutes Int      @map("expected_minutes")
+  actualMinutes   Int      @map("actual_minutes")
+  breachMinutes   Int      @map("breach_minutes")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  task WorkflowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("workflow_sla_breaches")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -616,6 +1157,8 @@ model OrderItem {
   orderId                   String  @map("order_id")
   /// Snapshot reference — preserves catalog state at order time
   productOfferingVersionId  String? @map("product_offering_version_id")
+  /// Immutable pricing breakdown at order time
+  priceSnapshotId           String? @map("price_snapshot_id")
   quantity                  Int
   unitPrice                 Decimal @map("unit_price") @db.Decimal(12, 2)
   totalPrice                Decimal @map("total_price") @db.Decimal(12, 2)
@@ -623,9 +1166,11 @@ model OrderItem {
 
   order                  Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productOfferingVersion ProductOfferingVersion? @relation(fields: [productOfferingVersionId], references: [id], onDelete: Restrict)
+  priceSnapshot          PriceSnapshot?          @relation(fields: [priceSnapshotId], references: [id], onDelete: Restrict)
 
   @@index([orderId])
   @@index([productOfferingVersionId])
+  @@index([priceSnapshotId])
   @@map("order_items")
 }
 
