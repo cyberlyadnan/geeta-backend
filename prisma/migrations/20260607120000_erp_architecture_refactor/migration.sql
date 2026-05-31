@@ -83,7 +83,7 @@ ALTER TABLE "configuration_rules" ADD COLUMN "condition" JSONB;
 ALTER TABLE "configuration_rules" ADD COLUMN "sort_order" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE "configuration_rules" ADD COLUMN "updated_at" TIMESTAMP(3);
 
-UPDATE "configuration_rules" cr
+UPDATE "configuration_rules"
 SET
   "product_offering_version_id" = tf."product_offering_version_id",
   "condition" = jsonb_build_object(
@@ -91,11 +91,13 @@ SET
     'operator', '=',
     'value', so."value"
   ),
-  "updated_at" = cr."created_at"
-FROM "configuration_fields" tf
-JOIN "configuration_fields" sf ON sf."id" = cr."source_field_id"
-JOIN "configuration_options" so ON so."id" = cr."source_option_id"
-WHERE tf."id" = cr."target_field_id";
+  "updated_at" = "configuration_rules"."created_at"
+FROM "configuration_fields" tf,
+     "configuration_fields" sf,
+     "configuration_options" so
+WHERE "configuration_rules"."target_field_id" = tf."id"
+  AND "configuration_rules"."source_field_id" = sf."id"
+  AND "configuration_rules"."source_option_id" = so."id";
 
 DELETE FROM "configuration_rules" WHERE "product_offering_version_id" IS NULL;
 
