@@ -155,6 +155,39 @@ enum SlideStatus {
   EXPIRED
 }
 
+/// Catalog entity lifecycle (ProductFamily, ProductSeries, ProductOffering).
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// Lifecycle for immutable sellable configuration snapshots (ProductOfferingVersion).
+enum ProductOfferingVersionStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+  ARCHIVED
+}
+
+enum ConfigurationFieldType {
+  DROPDOWN
+  RADIO
+  CHECKBOX
+  TEXT
+  TEXTAREA
+  NUMBER
+  FILE
+}
+
+enum ConfigurationRuleType {
+  SHOW
+  HIDE
+  REQUIRE
+  DISABLE
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────────────────────────────────────
@@ -319,51 +352,230 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Catalog
-// ─────────────────────────────────────────────────────────────────────────────
+// =====================================================
+// PRODUCT ENGINE — PHASE 1 (Printing ERP Foundation)
+// Category → ProductFamily → ProductSeries → ProductOffering → ProductOfferingVersion
+// Pricing, workflow, inventory, BOM, and GST attach to ProductOfferingVersion later.
+// =====================================================
 
 model Category {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
-  slug        String   @unique
-  description String?
-  parentId    String?  @map("parent_id")
-  sortOrder   Int      @default(0) @map("sort_order")
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  slug        String    @unique
+  description String?   @db.Text
+  imageUrl    String?   @map("image_url")
+  sortOrder   Int       @default(0) @map("sort_order")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
-  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children Category[] @relation("CategoryHierarchy")
-  products Product[]
+  productFamilies ProductFamily[]
 
-  @@index([parentId])
-  @@index([isActive])
+  @@index([isActive, deletedAt])
+  @@index([sortOrder])
   @@map("categories")
 }
 
-model Product {
-  id          String   @id @default(cuid())
+/// Material / substrate under a category — e.g. "800 GSM Cards", "Metal Cards".
+model ProductFamily {
+  id          String        @id @default(cuid())
+  categoryId  String        @map("category_id")
   name        String
-  slug        String   @unique
-  sku         String?  @unique
-  description String?
-  basePrice   Decimal  @map("base_price") @db.Decimal(12, 2)
-  categoryId  String   @map("category_id")
-  metadata    Json     @default("{}")
+  slug        String        @unique
+  description String?       @db.Text
+  sortOrder   Int           @default(0) @map("sort_order")
+  status      ProductStatus @default(ACTIVE)
+  isActive    Boolean       @default(true) @map("is_active")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  deletedAt   DateTime?     @map("deleted_at")
+
+  category Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  series   ProductSeries[]
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([isActive, deletedAt])
+  @@map("product_families")
+}
+
+/// Base finish within a family — e.g. "800 GSM + Matt", "800 GSM + Velvet".
+model ProductSeries {
+  id             String        @id @default(cuid())
+  familyId       String        @map("family_id")
+  name           String
+  slug           String        @unique
+  description    String?       @db.Text
+  productCode    String?       @unique @map("product_code")
+  productionDays Int?          @map("production_days")
+  notes          String?       @db.Text
+  sortOrder      Int           @default(0) @map("sort_order")
+  status         ProductStatus @default(ACTIVE)
+  isActive       Boolean       @default(true) @map("is_active")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  deletedAt      DateTime?     @map("deleted_at")
+
+  family    ProductFamily     @relation(fields: [familyId], references: [id], onDelete: Restrict)
+  offerings ProductOffering[]
+
+  @@index([familyId])
+  @@index([productCode])
+  @@index([status])
+  @@index([isActive, deletedAt])
+  @@map("product_series")
+}
+
+/// Sellable finish combination — e.g. "800 GSM + Matt + UV + Foil + Die Cut".
+/// No fixed pricing; pricing engine attaches via ProductOfferingVersion.
+model ProductOffering {
+  id               String        @id @default(cuid())
+  seriesId         String        @map("series_id")
+  name             String
+  slug             String        @unique
+  shortDescription String?       @map("short_description")
+  description      String?       @db.Text
+  sku              String?       @unique
+  displayName      String?       @map("display_name")
+  sortOrder        Int           @default(0) @map("sort_order")
+  status           ProductStatus @default(ACTIVE)
+  isFeatured       Boolean       @default(false) @map("is_featured")
+  isActive         Boolean       @default(true) @map("is_active")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  deletedAt        DateTime?     @map("deleted_at")
+
+  series              ProductSeries            @relation(fields: [seriesId], references: [id], onDelete: Restrict)
+  versions            ProductOfferingVersion[]
+  configurationGroups ConfigurationGroup[]
+  configurationFields ConfigurationField[]
+
+  @@index([seriesId])
+  @@index([sku])
+  @@index([status])
+  @@index([isActive, deletedAt])
+  @@map("product_offerings")
+}
+
+/// Immutable versioned snapshot for pricing, workflow, file rules, and configuration schema.
+/// Historical orders reference a specific version so catalog changes do not alter past jobs.
+model ProductOfferingVersion {
+  id                  String                       @id @default(cuid())
+  productOfferingId   String                       @map("product_offering_id")
+  versionNumber       Int                          @map("version_number")
+  versionLabel        String                       @map("version_label")
+  status              ProductOfferingVersionStatus @default(DRAFT)
+  effectiveFrom       DateTime                     @default(now()) @map("effective_from")
+  effectiveTo         DateTime?                    @map("effective_to")
+  isCurrent           Boolean                      @default(false) @map("is_current")
+  changelog           String?                      @db.Text
+  pricingProfileKey   String?                      @map("pricing_profile_key")
+  workflowKey         String?                      @map("workflow_key")
+  configurationSchema Json                         @default("{}") @map("configuration_schema")
+  fileRequirements    Json                         @default("{}") @map("file_requirements")
+  metadata            Json                         @default("{}")
+  publishedAt         DateTime?                    @map("published_at")
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
+  deletedAt           DateTime?                    @map("deleted_at")
+
+  productOffering ProductOffering @relation(fields: [productOfferingId], references: [id], onDelete: Restrict)
+  orderItems      OrderItem[]
+
+  @@unique([productOfferingId, versionNumber])
+  @@index([productOfferingId, status, deletedAt])
+  @@index([productOfferingId, isCurrent])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("product_offering_versions")
+}
+
+// =====================================================
+// PRODUCT ENGINE — PHASE 2 (Configuration Engine)
+// Dynamic order-time fields, options, and dependency rules per ProductOffering.
+// =====================================================
+
+model ConfigurationGroup {
+  id          String   @id @default(cuid())
+  offeringId  String   @map("offering_id")
+  name        String
+  code        String
+  description String?  @db.Text
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  offering ProductOffering      @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  fields   ConfigurationField[]
+
+  @@unique([offeringId, code])
+  @@index([offeringId])
+  @@map("configuration_groups")
+}
+
+model ConfigurationField {
+  id          String                 @id @default(cuid())
+  offeringId  String                 @map("offering_id")
+  groupId     String?                @map("group_id")
+  code        String
+  label       String
+  description String?                @db.Text
+  fieldType   ConfigurationFieldType @map("field_type")
+  placeholder String?
+  isRequired  Boolean                @default(false) @map("is_required")
+  isVisible   Boolean                @default(true) @map("is_visible")
+  sortOrder   Int                    @default(0) @map("sort_order")
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+
+  offering    ProductOffering       @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  group       ConfigurationGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  options     ConfigurationOption[]
+  sourceRules ConfigurationRule[]   @relation("ConfigurationRuleSourceField")
+  targetRules ConfigurationRule[]   @relation("ConfigurationRuleTargetField")
+
+  @@unique([offeringId, code])
+  @@index([offeringId])
+  @@index([groupId])
+  @@map("configuration_fields")
+}
+
+model ConfigurationOption {
+  id          String   @id @default(cuid())
+  fieldId     String   @map("field_id")
+  label       String
+  value       String
+  description String?  @db.Text
+  sortOrder   Int      @default(0) @map("sort_order")
+  isDefault   Boolean  @default(false) @map("is_default")
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
 
-  category Category @relation(fields: [categoryId], references: [id])
-  orderItems OrderItem[]
+  field       ConfigurationField  @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  sourceRules ConfigurationRule[]
 
-  @@index([categoryId])
-  @@index([isActive])
-  @@map("products")
+  @@unique([fieldId, value])
+  @@index([fieldId])
+  @@map("configuration_options")
+}
+
+model ConfigurationRule {
+  id             String                @id @default(cuid())
+  sourceFieldId  String                @map("source_field_id")
+  sourceOptionId String                @map("source_option_id")
+  targetFieldId  String                @map("target_field_id")
+  ruleType       ConfigurationRuleType @map("rule_type")
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  sourceField  ConfigurationField  @relation("ConfigurationRuleSourceField", fields: [sourceFieldId], references: [id], onDelete: Cascade)
+  sourceOption ConfigurationOption @relation(fields: [sourceOptionId], references: [id], onDelete: Cascade)
+  targetField  ConfigurationField  @relation("ConfigurationRuleTargetField", fields: [targetFieldId], references: [id], onDelete: Cascade)
+
+  @@index([sourceFieldId])
+  @@index([sourceOptionId])
+  @@index([targetFieldId])
+  @@map("configuration_rules")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -400,19 +612,20 @@ model Order {
 }
 
 model OrderItem {
-  id        String  @id @default(cuid())
-  orderId   String  @map("order_id")
-  productId String  @map("product_id")
-  quantity  Int
-  unitPrice Decimal @map("unit_price") @db.Decimal(12, 2)
-  totalPrice Decimal @map("total_price") @db.Decimal(12, 2)
-  metadata  Json    @default("{}")
+  id                        String  @id @default(cuid())
+  orderId                   String  @map("order_id")
+  /// Snapshot reference — preserves catalog state at order time
+  productOfferingVersionId  String? @map("product_offering_version_id")
+  quantity                  Int
+  unitPrice                 Decimal @map("unit_price") @db.Decimal(12, 2)
+  totalPrice                Decimal @map("total_price") @db.Decimal(12, 2)
+  metadata                  Json    @default("{}")
 
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id])
+  order                  Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productOfferingVersion ProductOfferingVersion? @relation(fields: [productOfferingVersionId], references: [id], onDelete: Restrict)
 
   @@index([orderId])
-  @@index([productId])
+  @@index([productOfferingVersionId])
   @@map("order_items")
 }
 
