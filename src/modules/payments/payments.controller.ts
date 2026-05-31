@@ -19,6 +19,12 @@ export class PaymentsController {
     return ApiResponse.success(res, result);
   });
 
+  cancel = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await paymentsService.cancelPaymentForUser(req.user!.id, id);
+    return ApiResponse.success(res, result, 'Payment cancelled');
+  });
+
   webhook = asyncHandler(async (req: Request, res: Response) => {
     const signature = req.headers['x-razorpay-signature'] as string | undefined;
     const rawBody = req.body as Buffer;

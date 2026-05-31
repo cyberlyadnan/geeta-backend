@@ -124,6 +124,49 @@ export class PaymentsService {
     return mapped;
   }
 
+  async cancelPaymentForUser(userId: string, paymentId: string) {
+    const payment = await prisma.payment.findFirst({
+      where: { id: paymentId, userId },
+    });
+    if (!payment) throw ApiError.notFound('Payment not found');
+
+    if (payment.status === PaymentStatus.SUCCESS) {
+      throw ApiError.badRequest('Payment already completed and cannot be cancelled');
+    }
+
+    if (
+      payment.status === PaymentStatus.EXPIRED ||
+      payment.status === PaymentStatus.CANCELLED ||
+      payment.status === PaymentStatus.FAILED ||
+      payment.status === PaymentStatus.REFUNDED
+    ) {
+      return this.mapPayment(payment);
+    }
+
+    if (payment.razorpayQrId) {
+      await razorpayService.closeQrCode(payment.razorpayQrId);
+    }
+
+    const existingMetadata =
+      payment.metadata && typeof payment.metadata === 'object' && !Array.isArray(payment.metadata)
+        ? (payment.metadata as Record<string, unknown>)
+        : {};
+
+    const updated = await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: PaymentStatus.CANCELLED,
+        metadata: {
+          ...existingMetadata,
+          cancelledByUser: true,
+          cancelledAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return this.mapPayment(updated);
+  }
+
   /**
    * Webhook fallback: reconcile pending QR payments directly with Razorpay so the
    * client sees SUCCESS without waiting for delayed webhook delivery.
@@ -137,6 +180,15 @@ export class PaymentsService {
       amount: import('@prisma/client').Prisma.Decimal;
     },
   ) {
+    if (
+      payment.status === PaymentStatus.CANCELLED ||
+      payment.status === PaymentStatus.SUCCESS ||
+      payment.status === PaymentStatus.FAILED ||
+      payment.status === PaymentStatus.EXPIRED
+    ) {
+      return null;
+    }
+
     if (!payment.razorpayQrId) return null;
 
     const now = Date.now();
@@ -380,7 +432,9 @@ export class PaymentsService {
       },
     });
 
-    if (!payment || payment.status === PaymentStatus.SUCCESS) return undefined;
+    if (!payment || payment.status === PaymentStatus.SUCCESS || payment.status === PaymentStatus.CANCELLED) {
+      return undefined;
+    }
 
     await prisma.payment.update({
       where: { id: payment.id },
@@ -409,7 +463,9 @@ export class PaymentsService {
         ],
       },
     });
-    if (!payment || payment.status === PaymentStatus.SUCCESS) return undefined;
+    if (!payment || payment.status === PaymentStatus.SUCCESS || payment.status === PaymentStatus.CANCELLED) {
+      return undefined;
+    }
 
     await prisma.payment.update({
       where: { id: payment.id },
@@ -435,12 +491,28 @@ export class PaymentsService {
     createdAt: Date;
     updatedAt: Date;
   }) {
+    const metadata =
+      payment.metadata && typeof payment.metadata === 'object' && !Array.isArray(payment.metadata)
+        ? (payment.metadata as Record<string, unknown>)
+        : {};
+    const cancelledByUser = metadata['cancelledByUser'] === true;
+
+    const displayStatus =
+      payment.status === PaymentStatus.CANCELLED ||
+      (payment.status === PaymentStatus.EXPIRED && cancelledByUser)
+        ? ('CANCELLED' as const)
+        : payment.status === PaymentStatus.PENDING || payment.status === PaymentStatus.PROCESSING
+          ? ('AWAITING_PAYMENT' as const)
+          : payment.status;
+
     return {
       id: payment.id,
       userId: payment.userId,
       amount: decimalToNumber(payment.amount),
       currency: payment.currency,
       status: payment.status,
+      displayStatus,
+      cancelledByUser,
       paymentMethod: payment.paymentMethod,
       checkoutMode: 'upi_qr' as const,
       qrImageUrl: payment.qrImageUrl,

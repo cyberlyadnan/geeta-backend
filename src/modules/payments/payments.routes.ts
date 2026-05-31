@@ -24,4 +24,12 @@ router.get(
   paymentsController.getById,
 );
 
+router.post(
+  '/:id/cancel',
+  authenticate,
+  authorize(RoleName.VENDOR),
+  validate(paymentIdParamSchema, 'params'),
+  paymentsController.cancel,
+);
+
 export { router as paymentsRoutes };

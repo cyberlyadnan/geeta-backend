@@ -178,6 +178,18 @@ export class RazorpayService {
     }
   }
 
+  async closeQrCode(qrId: string): Promise<void> {
+    const razorpay = getRazorpayClient();
+    try {
+      await razorpay.qrCode.close(qrId);
+    } catch (err) {
+      logger.warn('Razorpay QR close failed', {
+        qrId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   verifyWebhookSignature(rawBody: Buffer | string, signature: string | undefined): boolean {
     if (!signature) return false;
 
