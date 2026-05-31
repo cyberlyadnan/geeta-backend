@@ -294,6 +294,37 @@ enum ReworkStatus {
   CLOSED
 }
 
+enum QuoteStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum MachineStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  DECOMMISSIONED
+}
+
+enum ProductionJobCardStatus {
+  PENDING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum MaterialStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────────────────────────────────────
@@ -354,6 +385,8 @@ model User {
   assignedWorkflowTasks    WorkflowTask[]           @relation("WorkflowTaskAssignee")
   workflowTaskHistory      WorkflowTaskHistory[]    @relation("WorkflowTaskHistoryPerformer")
   reworkRequestsCreated    ReworkRequest[]          @relation("ReworkRequestCreator")
+  quotes                   Quote[]
+  auditLogs                AuditLog[]
 
   @@index([roleId])
   @@index([status])
@@ -466,7 +499,10 @@ model RefreshToken {
 // =====================================================
 // PRODUCT ENGINE — PHASE 1 (Printing ERP Foundation)
 // Category → ProductFamily → ProductSeries → ProductOffering → ProductOfferingVersion
-// Pricing, workflow, inventory, BOM, and GST attach to ProductOfferingVersion later.
+//
+// VERSIONING RULE: All sellable definition (config, pricing, files, workflow, BOM)
+// attaches to ProductOfferingVersion — never to ProductOffering directly.
+// ProductOffering is the stable catalog identity; versions are immutable snapshots.
 // =====================================================
 
 model Category {
@@ -539,7 +575,7 @@ model ProductSeries {
 }
 
 /// Sellable finish combination — e.g. "800 GSM + Matt + UV + Foil + Die Cut".
-/// No fixed pricing; pricing engine attaches via ProductOfferingVersion.
+/// Identity and merchandising only; all definition lives on ProductOfferingVersion.
 model ProductOffering {
   id               String        @id @default(cuid())
   seriesId         String        @map("series_id")
@@ -557,15 +593,8 @@ model ProductOffering {
   updatedAt        DateTime      @updatedAt @map("updated_at")
   deletedAt        DateTime?     @map("deleted_at")
 
-  series              ProductSeries            @relation(fields: [seriesId], references: [id], onDelete: Restrict)
-  versions            ProductOfferingVersion[]
-  configurationGroups ConfigurationGroup[]
-  configurationFields ConfigurationField[]
-  quantityPricing     QuantityPricing[]
-  pricingRules        PricingRule[]
-  fileRequirements    FileRequirement[]
-  workflow            ProductOfferingWorkflow?
-  productionOrderItems ProductionOrderItem[]
+  series   ProductSeries            @relation(fields: [seriesId], references: [id], onDelete: Restrict)
+  versions ProductOfferingVersion[]
 
   @@index([seriesId])
   @@index([sku])
@@ -574,8 +603,8 @@ model ProductOffering {
   @@map("product_offerings")
 }
 
-/// Immutable versioned snapshot for pricing, workflow, file rules, and configuration schema.
-/// Historical orders reference a specific version so catalog changes do not alter past jobs.
+/// Immutable versioned snapshot — source of truth for config, pricing, files, workflow, BOM.
+/// Quotes, orders, and production jobs must pin a specific version at creation time.
 model ProductOfferingVersion {
   id                  String                       @id @default(cuid())
   productOfferingId   String                       @map("product_offering_id")
@@ -588,6 +617,7 @@ model ProductOfferingVersion {
   changelog           String?                      @db.Text
   pricingProfileKey   String?                      @map("pricing_profile_key")
   workflowKey         String?                      @map("workflow_key")
+  /// Denormalized publish cache — relational models are authoritative.
   configurationSchema Json                         @default("{}") @map("configuration_schema")
   fileRequirements    Json                         @default("{}") @map("file_requirements")
   metadata            Json                         @default("{}")
@@ -596,8 +626,18 @@ model ProductOfferingVersion {
   updatedAt           DateTime                     @updatedAt @map("updated_at")
   deletedAt           DateTime?                    @map("deleted_at")
 
-  productOffering ProductOffering @relation(fields: [productOfferingId], references: [id], onDelete: Restrict)
-  orderItems      OrderItem[]
+  productOffering       ProductOffering         @relation(fields: [productOfferingId], references: [id], onDelete: Restrict)
+  configurationGroups   ConfigurationGroup[]
+  configurationFields   ConfigurationField[]
+  configurationRules    ConfigurationRule[]
+  quantityPricing       QuantityPricing[]
+  pricingRules          PricingRule[]
+  fileRequirementsRel   FileRequirement[]
+  workflow              ProductOfferingWorkflow?
+  bomTemplate           BomTemplate?
+  orderItems            OrderItem[]
+  productionOrderItems  ProductionOrderItem[]
+  quoteItems            QuoteItem[]
 
   @@unique([productOfferingId, versionNumber])
   @@index([productOfferingId, status, deletedAt])
@@ -608,50 +648,49 @@ model ProductOfferingVersion {
 
 // =====================================================
 // PRODUCT ENGINE — PHASE 2 (Configuration Engine)
-// Dynamic order-time fields, options, and dependency rules per ProductOffering.
+// Dynamic order-time fields, options, and dependency rules per ProductOfferingVersion.
 // =====================================================
 
 model ConfigurationGroup {
-  id          String   @id @default(cuid())
-  offeringId  String   @map("offering_id")
-  name        String
-  code        String
-  description String?  @db.Text
-  sortOrder   Int      @default(0) @map("sort_order")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                       String   @id @default(cuid())
+  productOfferingVersionId String   @map("product_offering_version_id")
+  name                     String
+  code                     String
+  description              String?  @db.Text
+  sortOrder                Int      @default(0) @map("sort_order")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
 
-  offering ProductOffering      @relation(fields: [offeringId], references: [id], onDelete: Cascade)
-  fields   ConfigurationField[]
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  fields                 ConfigurationField[]
 
-  @@unique([offeringId, code])
-  @@index([offeringId])
+  @@unique([productOfferingVersionId, code])
+  @@index([productOfferingVersionId])
   @@map("configuration_groups")
 }
 
 model ConfigurationField {
-  id          String                 @id @default(cuid())
-  offeringId  String                 @map("offering_id")
-  groupId     String?                @map("group_id")
-  code        String
-  label       String
-  description String?                @db.Text
-  fieldType   ConfigurationFieldType @map("field_type")
-  placeholder String?
-  isRequired  Boolean                @default(false) @map("is_required")
-  isVisible   Boolean                @default(true) @map("is_visible")
-  sortOrder   Int                    @default(0) @map("sort_order")
-  createdAt   DateTime               @default(now()) @map("created_at")
-  updatedAt   DateTime               @updatedAt @map("updated_at")
+  id                       String                 @id @default(cuid())
+  productOfferingVersionId String                 @map("product_offering_version_id")
+  groupId                  String?                @map("group_id")
+  code                     String
+  label                    String
+  description              String?                @db.Text
+  fieldType                ConfigurationFieldType @map("field_type")
+  placeholder              String?
+  isRequired               Boolean                @default(false) @map("is_required")
+  isVisible                Boolean                @default(true) @map("is_visible")
+  sortOrder                Int                    @default(0) @map("sort_order")
+  createdAt                DateTime               @default(now()) @map("created_at")
+  updatedAt                DateTime               @updatedAt @map("updated_at")
 
-  offering    ProductOffering       @relation(fields: [offeringId], references: [id], onDelete: Cascade)
-  group       ConfigurationGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  options     ConfigurationOption[]
-  sourceRules ConfigurationRule[]   @relation("ConfigurationRuleSourceField")
-  targetRules ConfigurationRule[]   @relation("ConfigurationRuleTargetField")
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  group                  ConfigurationGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  options                ConfigurationOption[]
+  targetRules            ConfigurationRule[]
 
-  @@unique([offeringId, code])
-  @@index([offeringId])
+  @@unique([productOfferingVersionId, code])
+  @@index([productOfferingVersionId])
   @@index([groupId])
   @@map("configuration_fields")
 }
@@ -668,29 +707,30 @@ model ConfigurationOption {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  field       ConfigurationField           @relation(fields: [fieldId], references: [id], onDelete: Cascade)
-  sourceRules ConfigurationRule[]
-  pricing     ConfigurationOptionPricing?
+  field   ConfigurationField           @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  pricing ConfigurationOptionPricing?
 
   @@unique([fieldId, value])
   @@index([fieldId])
   @@map("configuration_options")
 }
 
+/// JSON condition engine — supports AND/OR nesting and future custom operators.
+/// Example: { "and": [{ "field": "foil", "operator": "!=", "value": "not_required" }] }
 model ConfigurationRule {
-  id             String                @id @default(cuid())
-  sourceFieldId  String                @map("source_field_id")
-  sourceOptionId String                @map("source_option_id")
-  targetFieldId  String                @map("target_field_id")
-  ruleType       ConfigurationRuleType @map("rule_type")
-  createdAt      DateTime              @default(now()) @map("created_at")
+  id                       String                @id @default(cuid())
+  productOfferingVersionId String                @map("product_offering_version_id")
+  targetFieldId            String                @map("target_field_id")
+  ruleType                 ConfigurationRuleType @map("rule_type")
+  condition                Json
+  sortOrder                Int                   @default(0) @map("sort_order")
+  createdAt                DateTime              @default(now()) @map("created_at")
+  updatedAt                DateTime              @updatedAt @map("updated_at")
 
-  sourceField  ConfigurationField  @relation("ConfigurationRuleSourceField", fields: [sourceFieldId], references: [id], onDelete: Cascade)
-  sourceOption ConfigurationOption @relation(fields: [sourceOptionId], references: [id], onDelete: Cascade)
-  targetField  ConfigurationField  @relation("ConfigurationRuleTargetField", fields: [targetFieldId], references: [id], onDelete: Cascade)
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  targetField            ConfigurationField     @relation(fields: [targetFieldId], references: [id], onDelete: Cascade)
 
-  @@index([sourceFieldId])
-  @@index([sourceOptionId])
+  @@index([productOfferingVersionId])
   @@index([targetFieldId])
   @@map("configuration_rules")
 }
@@ -701,18 +741,18 @@ model ConfigurationRule {
 // =====================================================
 
 model QuantityPricing {
-  id         String   @id @default(cuid())
-  offeringId String   @map("offering_id")
-  quantity   Int
-  basePrice  Decimal  @map("base_price") @db.Decimal(12, 2)
-  isActive   Boolean  @default(true) @map("is_active")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id                       String   @id @default(cuid())
+  productOfferingVersionId String   @map("product_offering_version_id")
+  quantity                 Int
+  basePrice                Decimal  @map("base_price") @db.Decimal(12, 2)
+  isActive                 Boolean  @default(true) @map("is_active")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
 
-  offering ProductOffering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
 
-  @@unique([offeringId, quantity])
-  @@index([offeringId])
+  @@unique([productOfferingVersionId, quantity])
+  @@index([productOfferingVersionId])
   @@map("quantity_pricing")
 }
 
@@ -732,20 +772,20 @@ model ConfigurationOptionPricing {
 }
 
 model PricingRule {
-  id              String                @id @default(cuid())
-  offeringId      String                @map("offering_id")
-  name            String
-  description     String?               @db.Text
-  condition       Json
-  adjustmentType  PricingAdjustmentType @map("adjustment_type")
-  adjustmentValue Decimal               @map("adjustment_value") @db.Decimal(12, 2)
-  status          PricingRuleStatus     @default(ACTIVE)
-  createdAt       DateTime              @default(now()) @map("created_at")
-  updatedAt       DateTime              @updatedAt @map("updated_at")
+  id                       String                @id @default(cuid())
+  productOfferingVersionId String                @map("product_offering_version_id")
+  name                     String
+  description              String?               @db.Text
+  condition                Json
+  adjustmentType           PricingAdjustmentType @map("adjustment_type")
+  adjustmentValue          Decimal               @map("adjustment_value") @db.Decimal(12, 2)
+  status                   PricingRuleStatus     @default(ACTIVE)
+  createdAt                DateTime              @default(now()) @map("created_at")
+  updatedAt                DateTime              @updatedAt @map("updated_at")
 
-  offering ProductOffering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
 
-  @@index([offeringId])
+  @@index([productOfferingVersionId])
   @@index([status])
   @@map("pricing_rules")
 }
@@ -763,6 +803,7 @@ model PriceSnapshot {
 
   orderItems           OrderItem[]
   productionOrderItems ProductionOrderItem[]
+  quoteItems           QuoteItem[]
 
   @@map("price_snapshots")
 }
@@ -773,23 +814,23 @@ model PriceSnapshot {
 // =====================================================
 
 model FileRequirement {
-  id              String              @id @default(cuid())
-  offeringId      String              @map("offering_id")
-  code            String
-  label           String
-  description     String?             @db.Text
-  requirementType FileRequirementType @map("requirement_type")
-  maxFileSizeMb   Int?                @map("max_file_size_mb")
-  allowMultiple   Boolean             @default(false) @map("allow_multiple")
-  sortOrder       Int                 @default(0) @map("sort_order")
-  createdAt       DateTime            @default(now()) @map("created_at")
-  updatedAt       DateTime            @updatedAt @map("updated_at")
+  id                       String              @id @default(cuid())
+  productOfferingVersionId String              @map("product_offering_version_id")
+  code                     String
+  label                    String
+  description              String?             @db.Text
+  requirementType          FileRequirementType @map("requirement_type")
+  maxFileSizeMb            Int?                @map("max_file_size_mb")
+  allowMultiple            Boolean             @default(false) @map("allow_multiple")
+  sortOrder                Int                 @default(0) @map("sort_order")
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
 
-  offering         ProductOffering           @relation(fields: [offeringId], references: [id], onDelete: Cascade)
-  allowedFileTypes FileRequirementFileType[]
+  productOfferingVersion ProductOfferingVersion    @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  allowedFileTypes       FileRequirementFileType[]
 
-  @@unique([offeringId, code])
-  @@index([offeringId])
+  @@unique([productOfferingVersionId, code])
+  @@index([productOfferingVersionId])
   @@map("file_requirements")
 }
 
@@ -844,6 +885,7 @@ model Facility {
 
   departments       Department[]
   workflowTemplates WorkflowTemplate[]
+  machines          Machine[]
 
   @@map("facilities")
 }
@@ -859,9 +901,11 @@ model Department {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  facility      Facility               @relation(fields: [facilityId], references: [id], onDelete: Restrict)
-  workflowSteps WorkflowTemplateStep[]
-  workflowTasks WorkflowTask[]
+  facility              Facility               @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  workflowSteps         WorkflowTemplateStep[]
+  workflowTasks         WorkflowTask[]         @relation("WorkflowTaskStepDepartment")
+  assignedWorkflowTasks WorkflowTask[]         @relation("WorkflowTaskAssignedDepartment")
+  machines              Machine[]
 
   @@index([facilityId])
   @@map("departments")
@@ -878,10 +922,10 @@ model WorkflowTemplate {
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  facility           Facility                  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
-  steps              WorkflowTemplateStep[]
-  productOfferings   ProductOfferingWorkflow[]
-  workflowInstances  WorkflowInstance[]
+  facility                  Facility                  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  steps                     WorkflowTemplateStep[]
+  productOfferingWorkflows  ProductOfferingWorkflow[]
+  workflowInstances         WorkflowInstance[]
 
   @@index([facilityId])
   @@map("workflow_templates")
@@ -913,19 +957,40 @@ model WorkflowTemplateStep {
   @@map("workflow_template_steps")
 }
 
-/// Links a product offering to its production workflow template (one template per offering).
+/// Links a product offering version to its production workflow template (one per version).
 model ProductOfferingWorkflow {
-  id                 String   @id @default(cuid())
-  offeringId         String   @unique @map("offering_id")
-  workflowTemplateId String   @map("workflow_template_id")
-  isDefault          Boolean  @default(true) @map("is_default")
-  createdAt          DateTime @default(now()) @map("created_at")
+  id                       String   @id @default(cuid())
+  productOfferingVersionId String   @unique @map("product_offering_version_id")
+  workflowTemplateId       String   @map("workflow_template_id")
+  isDefault                Boolean  @default(true) @map("is_default")
+  createdAt                DateTime @default(now()) @map("created_at")
 
-  offering         ProductOffering  @relation(fields: [offeringId], references: [id], onDelete: Cascade)
-  workflowTemplate WorkflowTemplate @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  workflowTemplate       WorkflowTemplate       @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
 
   @@index([workflowTemplateId])
   @@map("product_offering_workflows")
+}
+
+model Machine {
+  id           String        @id @default(cuid())
+  facilityId   String        @map("facility_id")
+  departmentId String        @map("department_id")
+  machineCode  String        @unique @map("machine_code")
+  machineName  String        @map("machine_name")
+  status       MachineStatus @default(ACTIVE)
+  metadata     Json          @default("{}")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  facility       Facility       @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  department     Department     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignedTasks  WorkflowTask[]
+
+  @@index([facilityId])
+  @@index([departmentId])
+  @@index([status])
+  @@map("machines")
 }
 
 model WorkflowSlaPolicy {
@@ -944,7 +1009,11 @@ model WorkflowSlaPolicy {
 // =====================================================
 // PRODUCT ENGINE — PHASE 6 (Order + Workflow Execution)
 // Production orders, item snapshots, and runtime workflow tasks.
-// Legacy checkout `Order` model remains below for wallet/checkout until unified.
+//
+// ORDER STRATEGY:
+// - ProductionOrder = primary ERP business order (config, pricing, workflow pinned).
+// - Order (below) = legacy checkout/wallet layer — retained until unified migration.
+// Future: Order.productionOrderId or wallet → ProductionOrder bridge.
 // =====================================================
 
 model ProductionOrder {
@@ -957,37 +1026,42 @@ model ProductionOrder {
   taxAmount   Decimal               @map("tax_amount") @db.Decimal(12, 2)
   totalAmount Decimal               @map("total_amount") @db.Decimal(12, 2)
   notes       String?               @db.Text
+  quoteId     String?               @map("quote_id")
   createdAt   DateTime              @default(now()) @map("created_at")
   updatedAt   DateTime              @updatedAt @map("updated_at")
 
   customer          User                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  quote             Quote?                @relation(fields: [quoteId], references: [id], onDelete: SetNull)
   items             ProductionOrderItem[]
   workflowInstances WorkflowInstance[]
+  jobCards          ProductionJobCard[]
 
   @@index([customerId])
+  @@index([quoteId])
   @@index([status])
   @@index([orderNumber])
   @@map("production_orders")
 }
 
 model ProductionOrderItem {
-  id              String   @id @default(cuid())
-  orderId         String   @map("order_id")
-  offeringId      String   @map("offering_id")
-  quantity        Int
-  unitPrice       Decimal  @map("unit_price") @db.Decimal(12, 2)
-  totalPrice      Decimal  @map("total_price") @db.Decimal(12, 2)
-  priceSnapshotId String?  @map("price_snapshot_id")
-  createdAt       DateTime @default(now()) @map("created_at")
+  id                       String   @id @default(cuid())
+  orderId                  String   @map("order_id")
+  productOfferingVersionId String   @map("product_offering_version_id")
+  quantity                 Int
+  unitPrice                Decimal  @map("unit_price") @db.Decimal(12, 2)
+  totalPrice               Decimal  @map("total_price") @db.Decimal(12, 2)
+  priceSnapshotId          String?  @map("price_snapshot_id")
+  createdAt                DateTime @default(now()) @map("created_at")
 
-  order          ProductionOrder          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  offering       ProductOffering          @relation(fields: [offeringId], references: [id], onDelete: Restrict)
-  priceSnapshot  PriceSnapshot?           @relation(fields: [priceSnapshotId], references: [id], onDelete: Restrict)
-  configurations OrderItemConfiguration[]
-  files          OrderItemFile[]
+  order                  ProductionOrder          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productOfferingVersion ProductOfferingVersion   @relation(fields: [productOfferingVersionId], references: [id], onDelete: Restrict)
+  priceSnapshot          PriceSnapshot?           @relation(fields: [priceSnapshotId], references: [id], onDelete: Restrict)
+  configurations         OrderItemConfiguration[]
+  files                  OrderItemFile[]
+  jobCards               ProductionJobCard[]
 
   @@index([orderId])
-  @@index([offeringId])
+  @@index([productOfferingVersionId])
   @@index([priceSnapshotId])
   @@map("production_order_items")
 }
@@ -997,6 +1071,8 @@ model OrderItemConfiguration {
   orderItemId   String   @map("order_item_id")
   fieldCode     String   @map("field_code")
   fieldLabel    String   @map("field_label")
+  fieldType     String?  @map("field_type")
+  optionId      String?  @map("option_id")
   selectedValue String   @map("selected_value")
   selectedLabel String   @map("selected_label")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -1004,6 +1080,8 @@ model OrderItemConfiguration {
   orderItem ProductionOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
   @@index([orderItemId])
+  @@index([optionId])
+  @@index([fieldCode])
   @@map("order_item_configurations")
 }
 
@@ -1036,6 +1114,7 @@ model WorkflowInstance {
   order            ProductionOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   workflowTemplate WorkflowTemplate @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
   tasks            WorkflowTask[]
+  jobCards         ProductionJobCard[]
 
   @@index([orderId])
   @@index([workflowTemplateId])
@@ -1049,25 +1128,35 @@ model WorkflowTask {
   workflowTemplateStepId String             @map("workflow_template_step_id")
   departmentId           String             @map("department_id")
   assignedToId           String?            @map("assigned_to_id")
+  assignedDepartmentId   String?            @map("assigned_department_id")
+  assignedMachineId      String?            @map("assigned_machine_id")
   status                 WorkflowTaskStatus @default(PENDING)
+  queuedAt               DateTime?          @map("queued_at")
+  assignedAt             DateTime?          @map("assigned_at")
   startedAt              DateTime?          @map("started_at")
   completedAt            DateTime?          @map("completed_at")
   dueAt                  DateTime?          @map("due_at")
   remarks                String?            @db.Text
   createdAt              DateTime           @default(now()) @map("created_at")
 
-  workflowInstance WorkflowInstance     @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
-  workflowStep     WorkflowTemplateStep @relation(fields: [workflowTemplateStepId], references: [id], onDelete: Restrict)
-  department       Department           @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  assignedTo       User?                @relation("WorkflowTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  history          WorkflowTaskHistory[]
-  reworks          ReworkRequest[]
-  slaBreaches      WorkflowSlaBreach[]
+  workflowInstance   WorkflowInstance     @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  workflowStep       WorkflowTemplateStep @relation(fields: [workflowTemplateStepId], references: [id], onDelete: Restrict)
+  department         Department           @relation("WorkflowTaskStepDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
+  assignedTo         User?                @relation("WorkflowTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedDepartment Department?          @relation("WorkflowTaskAssignedDepartment", fields: [assignedDepartmentId], references: [id], onDelete: SetNull)
+  assignedMachine    Machine?             @relation(fields: [assignedMachineId], references: [id], onDelete: SetNull)
+  history            WorkflowTaskHistory[]
+  reworks            ReworkRequest[]
+  slaBreaches        WorkflowSlaBreach[]
 
   @@index([workflowInstanceId])
   @@index([departmentId])
   @@index([assignedToId])
+  @@index([assignedDepartmentId])
+  @@index([assignedMachineId])
   @@index([status])
+  @@index([queuedAt])
+  @@index([assignedAt])
   @@map("workflow_tasks")
 }
 
@@ -1119,8 +1208,195 @@ model WorkflowSlaBreach {
   @@map("workflow_sla_breaches")
 }
 
+// =====================================================
+// QUOTATION ENGINE
+// Flow: Configure → Quote → Approve → Convert to ProductionOrder
+// =====================================================
+
+model Quote {
+  id           String      @id @default(cuid())
+  quoteNumber  String      @unique @map("quote_number")
+  customerId   String      @map("customer_id")
+  status       QuoteStatus @default(DRAFT)
+  subtotal     Decimal     @db.Decimal(12, 2)
+  taxAmount    Decimal     @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount  Decimal     @map("total_amount") @db.Decimal(12, 2)
+  validityDate DateTime    @map("validity_date")
+  notes        String?     @db.Text
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  customer         User              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items            QuoteItem[]
+  productionOrders ProductionOrder[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([validityDate])
+  @@index([quoteNumber])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id                       String   @id @default(cuid())
+  quoteId                  String   @map("quote_id")
+  productOfferingVersionId String   @map("product_offering_version_id")
+  priceSnapshotId          String?  @map("price_snapshot_id")
+  quantity                 Int
+  unitPrice                Decimal  @map("unit_price") @db.Decimal(12, 2)
+  totalPrice               Decimal  @map("total_price") @db.Decimal(12, 2)
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  quote                  Quote                  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Restrict)
+  priceSnapshot          PriceSnapshot?         @relation(fields: [priceSnapshotId], references: [id], onDelete: Restrict)
+
+  @@index([quoteId])
+  @@index([productOfferingVersionId])
+  @@index([priceSnapshotId])
+  @@map("quote_items")
+}
+
+// =====================================================
+// JOB CARD SYSTEM — shop floor execution unit
+// Workers operate from job cards, not raw order records.
+// =====================================================
+
+model ProductionJobCard {
+  id                     String                  @id @default(cuid())
+  jobCardNumber          String                  @unique @map("job_card_number")
+  productionOrderId      String                  @map("production_order_id")
+  productionOrderItemId  String                  @map("production_order_item_id")
+  workflowInstanceId     String                  @map("workflow_instance_id")
+  currentStep            Int                     @default(1) @map("current_step")
+  status                 ProductionJobCardStatus @default(PENDING)
+  qrCode                 String                  @unique @map("qr_code")
+  remarks                String?                 @db.Text
+  snapshot               Json                    @default("{}")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+
+  productionOrder     ProductionOrder     @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  productionOrderItem ProductionOrderItem @relation(fields: [productionOrderItemId], references: [id], onDelete: Cascade)
+  workflowInstance    WorkflowInstance    @relation(fields: [workflowInstanceId], references: [id], onDelete: Restrict)
+
+  @@index([productionOrderId])
+  @@index([productionOrderItemId])
+  @@index([workflowInstanceId])
+  @@index([status])
+  @@map("production_job_cards")
+}
+
+// =====================================================
+// INVENTORY & BOM FOUNDATION (placeholder — no transactions yet)
+// Future: paper, lamination film, UV chemical, foil, packaging materials.
+// =====================================================
+
+model MaterialCategory {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  description String?  @db.Text
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  materials Material[]
+
+  @@index([isActive])
+  @@map("material_categories")
+}
+
+model Material {
+  id          String         @id @default(cuid())
+  categoryId  String         @map("category_id")
+  code        String         @unique
+  name        String
+  unit        String
+  status      MaterialStatus @default(ACTIVE)
+  metadata    Json           @default("{}")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  category       MaterialCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  bomTemplateItems BomTemplateItem[]
+
+  @@index([categoryId])
+  @@index([status])
+  @@map("materials")
+}
+
+model BomTemplate {
+  id                       String   @id @default(cuid())
+  productOfferingVersionId String   @unique @map("product_offering_version_id")
+  name                     String
+  code                     String
+  description              String?  @db.Text
+  isActive                 Boolean  @default(true) @map("is_active")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  items                  BomTemplateItem[]
+
+  @@index([code])
+  @@map("bom_templates")
+}
+
+model BomTemplateItem {
+  id            String  @id @default(cuid())
+  bomTemplateId String  @map("bom_template_id")
+  materialId    String  @map("material_id")
+  quantity      Decimal @db.Decimal(14, 4)
+  unit          String?
+  notes         String? @db.Text
+  sortOrder     Int     @default(0) @map("sort_order")
+
+  bomTemplate BomTemplate @relation(fields: [bomTemplateId], references: [id], onDelete: Cascade)
+  material    Material    @relation(fields: [materialId], references: [id], onDelete: Restrict)
+
+  @@unique([bomTemplateId, materialId])
+  @@index([bomTemplateId])
+  @@index([materialId])
+  @@map("bom_template_items")
+}
+
+// =====================================================
+// ENTERPRISE AUDIT LOG
+// Compliance and accountability for catalog, pricing, workflow, and order changes.
+// =====================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  action      String
+  oldValues   Json?    @map("old_values")
+  newValues   Json?    @map("new_values")
+  changedById String?  @map("changed_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  changedBy User? @relation(fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([changedById])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Orders
+// LEGACY CHECKOUT ORDERS (wallet / e-commerce layer)
+//
+// This model serves the existing wallet and Razorpay checkout flow.
+// ProductionOrder (above) is the primary ERP business order.
+//
+// Migration path (future):
+// 1. Checkout creates Order + payment via wallet/Razorpay.
+// 2. On confirmation, spawn ProductionOrder with version-pinned line items.
+// 3. Link via Order.metadata.productionOrderId or dedicated FK when ready.
+// 4. Deprecate OrderItem catalog fields once all flows use ProductionOrder.
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Order {
@@ -1155,7 +1431,7 @@ model Order {
 model OrderItem {
   id                        String  @id @default(cuid())
   orderId                   String  @map("order_id")
-  /// Snapshot reference — preserves catalog state at order time
+  /// Legacy checkout line item — prefer ProductionOrderItem for ERP operations.
   productOfferingVersionId  String? @map("product_offering_version_id")
   /// Immutable pricing breakdown at order time
   priceSnapshotId           String? @map("price_snapshot_id")
