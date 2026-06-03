@@ -23,3 +23,15 @@ export const rateLimiter = rateLimit({
     message: 'Too many requests, please try again later',
   },
 });
+
+/** Stricter limit for unauthenticated vendor document access (phone + file id). */
+export const complianceFileAccessRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many document access attempts. Please try again later.',
+  },
+});

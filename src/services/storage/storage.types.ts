@@ -50,6 +50,15 @@ export interface PresignedUploadResult {
   expiresIn: number;
 }
 
+/** Vendor compliance uploads — no permanent public URL returned to clients. */
+export interface VendorCompliancePresignResult {
+  uploadUrl: string;
+  key: string;
+  contentType: string;
+  uploadHeaders: Record<string, string>;
+  expiresIn: number;
+}
+
 export interface StoredObjectRef {
   key: string;
   publicUrl: string;

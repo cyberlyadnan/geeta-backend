@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
+import { secureFileAccessService } from '../../services/storage/secure-file-access.service.js';
 import { adminVendorsService } from './admin-vendors.service.js';
 import type { ListVendorsQuery, VendorActivityFeedQuery } from './admin-vendors.validation.js';
 
@@ -55,6 +56,15 @@ export class AdminVendorsController {
       requestMeta(req),
     );
     return ApiResponse.created(res, result, 'Note added');
+  });
+
+  fileAssetAccess = asyncHandler(async (req: Request, res: Response) => {
+    const { id, fileAssetId } = req.validatedParams as { id: string; fileAssetId: string };
+    const download = await secureFileAccessService.createAdminVendorComplianceDownload(
+      id,
+      fileAssetId,
+    );
+    return ApiResponse.success(res, download);
   });
 }
 

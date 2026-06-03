@@ -64,14 +64,26 @@ const submissionItemSchema = z.discriminatedUnion('itemType', [
   z.object({
     itemId: z.string().min(1),
     itemType: z.literal(VendorComplianceItemType.DOCUMENT),
-    fileKey: z.string().min(1),
-    fileUrl: z.string().url(),
+    fileKey: z.string().min(1).max(512),
     originalName: z.string().min(1).max(255),
     mimeType: z.string().min(1),
     extension: z.string().min(1).max(16),
     fileSize: z.coerce.number().int().positive(),
   }),
 ]);
+
+export const vendorComplianceFileAccessSchema = z.object({
+  phone: z
+    .string()
+    .transform((v) => v.replace(/\s/g, ''))
+    .pipe(z.string().regex(/^[6-9]\d{9}$/)),
+  fileAssetId: z.string().min(1),
+});
+
+export const adminFileAssetAccessParamsSchema = z.object({
+  id: z.string().min(1),
+  fileAssetId: z.string().min(1),
+});
 
 export const submitComplianceSchema = z.object({
   phone: z

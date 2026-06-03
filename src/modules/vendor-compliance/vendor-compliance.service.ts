@@ -9,6 +9,12 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { activityLogService } from '../../services/activity/index.js';
+import {
+  sanitizeComplianceRequest,
+  sanitizeComplianceRequests,
+  toSafeFileAsset,
+} from '../../services/storage/file-asset.mapper.js';
+import { assertVendorComplianceFileKey } from '../../services/storage/secure-file-access.service.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import type {
   CreateComplianceRequestInput,
@@ -72,11 +78,12 @@ export class VendorComplianceService {
 
   async listByVendor(vendorId: string) {
     await this.assertVendorProfile(vendorId);
-    return prisma.vendorComplianceRequest.findMany({
+    const items = await prisma.vendorComplianceRequest.findMany({
       where: { vendorProfileId: vendorId },
       orderBy: { createdAt: 'desc' },
       include: REQUEST_INCLUDE,
     });
+    return sanitizeComplianceRequests(items);
   }
 
   async getById(vendorId: string, requestId: string) {
@@ -87,7 +94,7 @@ export class VendorComplianceService {
     if (!request) {
       throw ApiError.notFound('Compliance request not found');
     }
-    return request;
+    return sanitizeComplianceRequest(request);
   }
 
   async create(
@@ -161,7 +168,7 @@ export class VendorComplianceService {
       });
     }
 
-    return request;
+    return sanitizeComplianceRequest(request);
   }
 
   private async sendInternal(
@@ -221,7 +228,7 @@ export class VendorComplianceService {
       userAgent: meta?.userAgent,
     });
 
-    return request;
+    return sanitizeComplianceRequest(request);
   }
 
   async cancel(
@@ -258,7 +265,7 @@ export class VendorComplianceService {
       userAgent: meta?.userAgent,
     });
 
-    return request;
+    return sanitizeComplianceRequest(request);
   }
 
   async reviewResponse(
@@ -276,7 +283,7 @@ export class VendorComplianceService {
       throw ApiError.notFound('Response not found');
     }
 
-    return prisma.vendorComplianceResponse.update({
+    const updated = await prisma.vendorComplianceResponse.update({
       where: { id: responseId },
       data: {
         status,
@@ -292,6 +299,11 @@ export class VendorComplianceService {
         requestItem: true,
       },
     });
+
+    return {
+      ...updated,
+      fileAsset: toSafeFileAsset(updated.fileAsset),
+    };
   }
 
   async presignUpload(input: VendorCompliancePresignInput) {
@@ -383,12 +395,14 @@ export class VendorComplianceService {
             },
           });
         } else {
+          assertVendorComplianceFileKey(entry.fileKey, profile.id);
+
           const fileAsset = await tx.fileAsset.create({
             data: {
               originalName: entry.originalName,
               fileName: entry.originalName,
               fileKey: entry.fileKey,
-              fileUrl: entry.fileUrl,
+              fileUrl: '',
               mimeType: entry.mimeType,
               extension: entry.extension,
               fileSize: entry.fileSize,
@@ -522,7 +536,7 @@ export class VendorComplianceService {
             ? {
                 id: response.id,
                 textAnswer: response.textAnswer,
-                fileUrl: response.fileAsset?.fileUrl ?? null,
+                fileAssetId: response.fileAsset?.id ?? null,
                 fileName: response.fileAsset?.originalName ?? null,
                 status: response.status,
                 submittedAt: response.submittedAt,

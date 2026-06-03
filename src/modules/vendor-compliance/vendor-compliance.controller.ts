@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
+import { secureFileAccessService } from '../../services/storage/secure-file-access.service.js';
 import { vendorComplianceService } from './vendor-compliance.service.js';
 
 function requestMeta(req: Request) {
@@ -89,6 +90,15 @@ export class VendorCompliancePublicController {
   presignUpload = asyncHandler(async (req: Request, res: Response) => {
     const result = await vendorComplianceService.presignUpload(req.body);
     return ApiResponse.success(res, result);
+  });
+
+  fileAccess = asyncHandler(async (req: Request, res: Response) => {
+    const { phone, fileAssetId } = req.body as { phone: string; fileAssetId: string };
+    const download = await secureFileAccessService.createVendorComplianceDownload(
+      phone,
+      fileAssetId,
+    );
+    return ApiResponse.success(res, download);
   });
 
   submit = asyncHandler(async (req: Request, res: Response) => {

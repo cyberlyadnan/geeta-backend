@@ -8,6 +8,7 @@ import {
   vendorComplianceAdminRoutes,
 } from '../vendor-compliance/index.js';
 import { adminVendorsController } from './admin-vendors.controller.js';
+import { adminFileAssetAccessParamsSchema } from '../vendor-compliance/vendor-compliance.validation.js';
 import {
   createAdminNoteSchema,
   listVendorsQuerySchema,
@@ -30,6 +31,11 @@ router.get(
 router.get('/', validate(listVendorsQuerySchema, 'query'), adminVendorsController.list);
 router.use('/:vendorId/compliance-requests', vendorComplianceAdminRoutes);
 router.use('/:vendorId/compliance-responses', vendorComplianceAdminReviewRoutes);
+router.post(
+  '/:id/file-assets/:fileAssetId/access',
+  validate(adminFileAssetAccessParamsSchema, 'params'),
+  adminVendorsController.fileAssetAccess,
+);
 router.get('/:id', validate(vendorIdParamSchema, 'params'), adminVendorsController.getById);
 router.patch(
   '/:id/status',

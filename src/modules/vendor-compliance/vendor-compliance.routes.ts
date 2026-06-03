@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { RoleName } from '@prisma/client';
 import { authenticate } from '../../middleware/authenticate.js';
 import { authorize } from '../../middleware/authorize.js';
+import { complianceFileAccessRateLimit } from '../../middleware/security.js';
 import { validate } from '../../validators/validate.js';
 import {
   vendorComplianceAdminController,
@@ -13,6 +14,7 @@ import {
   reviewResponseSchema,
   responseParamsSchema,
   submitComplianceSchema,
+  vendorComplianceFileAccessSchema,
   vendorCompliancePresignSchema,
   vendorIdParamSchema,
 } from './vendor-compliance.validation.js';
@@ -60,6 +62,12 @@ publicRouter.post(
   '/presign-upload',
   validate(vendorCompliancePresignSchema),
   vendorCompliancePublicController.presignUpload,
+);
+publicRouter.post(
+  '/file-access',
+  complianceFileAccessRateLimit,
+  validate(vendorComplianceFileAccessSchema),
+  vendorCompliancePublicController.fileAccess,
 );
 publicRouter.post(
   '/submit',

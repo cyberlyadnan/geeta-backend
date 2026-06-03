@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { assertR2Config, getPresignS3Client, getS3Client } from './storage.provider.js';
 import {
@@ -10,9 +10,21 @@ import {
   normalizeImageContentType,
   normalizeVendorDocumentContentType,
 } from './storage.utils.js';
-import type { PresignedUploadRequest, PresignedUploadResult } from './storage.types.js';
+import type {
+  PresignedUploadRequest,
+  PresignedUploadResult,
+  VendorCompliancePresignResult,
+} from './storage.types.js';
 
-const PRESIGN_EXPIRY_SECONDS = 600;
+const PRESIGN_UPLOAD_EXPIRY_SECONDS = 600;
+/** Short-lived download URLs — not shareable long-term. */
+const PRESIGN_DOWNLOAD_EXPIRY_SECONDS = 300;
+
+export interface PresignedDownloadResult {
+  url: string;
+  expiresIn: number;
+  expiresAt: string;
+}
 
 export class StorageService {
   createPresignedUpload(input: PresignedUploadRequest): Promise<PresignedUploadResult> {
@@ -31,7 +43,7 @@ export class StorageService {
     const client = getPresignS3Client();
 
     return getSignedUrl(client, command, {
-      expiresIn: PRESIGN_EXPIRY_SECONDS,
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
       /** Must match headers sent by the browser PUT */
       signableHeaders: new Set(['content-type']),
     }).then((uploadUrl) => ({
@@ -40,8 +52,34 @@ export class StorageService {
       publicUrl,
       contentType,
       uploadHeaders: { 'Content-Type': contentType },
-      expiresIn: PRESIGN_EXPIRY_SECONDS,
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
     }));
+  }
+
+  async createPresignedDownload(
+    key: string,
+    options?: { fileName?: string; mimeType?: string },
+  ): Promise<PresignedDownloadResult> {
+    if (!key?.trim()) {
+      throw new Error('File key is required');
+    }
+    const config = assertR2Config();
+    const fileName = options?.fileName?.trim() || 'document';
+    const disposition = `inline; filename="${fileName.replace(/"/g, '')}"`;
+
+    const command = new GetObjectCommand({
+      Bucket: config.bucketName,
+      Key: key,
+      ResponseContentDisposition: disposition,
+      ...(options?.mimeType ? { ResponseContentType: options.mimeType } : {}),
+    });
+
+    const client = getPresignS3Client();
+    const expiresIn = PRESIGN_DOWNLOAD_EXPIRY_SECONDS;
+    const url = await getSignedUrl(client, command, { expiresIn });
+    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+    return { url, expiresIn, expiresAt };
   }
 
   async deleteObject(key: string): Promise<void> {
@@ -66,12 +104,11 @@ export class StorageService {
     fileName: string,
     contentType: string,
     fileSize: number,
-  ): Promise<PresignedUploadResult> {
+  ): Promise<VendorCompliancePresignResult> {
     const normalized = normalizeVendorDocumentContentType(contentType);
     assertValidVendorDocumentUpload(normalized, fileSize);
     const config = assertR2Config();
     const key = buildVendorComplianceObjectKey(vendorProfileId, fileName, normalized);
-    const publicUrl = buildPublicUrl(config.publicUrl, key);
 
     const command = new PutObjectCommand({
       Bucket: config.bucketName,
@@ -82,15 +119,14 @@ export class StorageService {
     const client = getPresignS3Client();
 
     return getSignedUrl(client, command, {
-      expiresIn: PRESIGN_EXPIRY_SECONDS,
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
       signableHeaders: new Set(['content-type']),
     }).then((uploadUrl) => ({
       uploadUrl,
       key,
-      publicUrl,
       contentType: normalized,
       uploadHeaders: { 'Content-Type': normalized },
-      expiresIn: PRESIGN_EXPIRY_SECONDS,
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
     }));
   }
 }
