@@ -957,7 +957,7 @@ model FileRequirementFileType {
   @@map("file_requirement_file_types")
 }
 
-/// File metadata — actual bytes live in Cloudflare R2 (`fileKey` / `fileUrl`).
+/// File metadata — bytes in Cloudflare R2 (`fileKey`). `fileUrl` is legacy/public only for marketing assets; vendor docs use presigned access.
 model FileAsset {
   id           String   @id @default(cuid())
   originalName String   @map("original_name")
