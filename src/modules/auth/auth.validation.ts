@@ -6,10 +6,10 @@ const phoneSchema = z
   .pipe(z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit mobile number'));
 
 const registrationServiceIds = z.enum([
-  'printing',
-  'exhibition',
-  'magazine',
-  'magazine_ad',
+  'uv_printing',
+  'digital_printing',
+  'offset_printing',
+  'flex_printing',
 ]);
 
 export const registerSchema = z.object({
