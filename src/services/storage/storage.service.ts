@@ -3,9 +3,12 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { assertR2Config, getPresignS3Client, getS3Client } from './storage.provider.js';
 import {
   assertValidImageUpload,
+  assertValidVendorDocumentUpload,
   buildObjectKey,
   buildPublicUrl,
+  buildVendorComplianceObjectKey,
   normalizeImageContentType,
+  normalizeVendorDocumentContentType,
 } from './storage.utils.js';
 import type { PresignedUploadRequest, PresignedUploadResult } from './storage.types.js';
 
@@ -56,6 +59,39 @@ export class StorageService {
   getPublicUrlForKey(key: string): string {
     const config = assertR2Config();
     return buildPublicUrl(config.publicUrl, key);
+  }
+
+  createPresignedVendorComplianceUpload(
+    vendorProfileId: string,
+    fileName: string,
+    contentType: string,
+    fileSize: number,
+  ): Promise<PresignedUploadResult> {
+    const normalized = normalizeVendorDocumentContentType(contentType);
+    assertValidVendorDocumentUpload(normalized, fileSize);
+    const config = assertR2Config();
+    const key = buildVendorComplianceObjectKey(vendorProfileId, fileName, normalized);
+    const publicUrl = buildPublicUrl(config.publicUrl, key);
+
+    const command = new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: key,
+      ContentType: normalized,
+    });
+
+    const client = getPresignS3Client();
+
+    return getSignedUrl(client, command, {
+      expiresIn: PRESIGN_EXPIRY_SECONDS,
+      signableHeaders: new Set(['content-type']),
+    }).then((uploadUrl) => ({
+      uploadUrl,
+      key,
+      publicUrl,
+      contentType: normalized,
+      uploadHeaders: { 'Content-Type': normalized },
+      expiresIn: PRESIGN_EXPIRY_SECONDS,
+    }));
   }
 }
 

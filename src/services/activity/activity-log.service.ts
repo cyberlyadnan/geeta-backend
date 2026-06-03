@@ -33,17 +33,42 @@ export class ActivityLogService {
       where: { vendorProfileId },
       orderBy: { createdAt: 'desc' },
       take: limit,
+      include: this.actorInclude(),
+    });
+  }
+
+  /** Cross-vendor feed for admin dashboard (registrations, status, compliance, notes). */
+  async listRecentVendorActivity(limit = 25) {
+    return prisma.activityLog.findMany({
+      where: { vendorProfileId: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
       include: {
-        actor: {
+        ...this.actorInclude(),
+        vendorProfile: {
           select: {
             id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
+            vendorCode: true,
+            businessName: true,
+            ownerName: true,
+            accountStatus: true,
           },
         },
       },
     });
+  }
+
+  private actorInclude() {
+    return {
+      actor: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+        },
+      },
+    } as const;
   }
 }
 

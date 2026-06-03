@@ -223,6 +223,11 @@ export class AdminVendorsService {
     return note;
   }
 
+  async getActivityFeed(limit = 20) {
+    const items = await activityLogService.listRecentVendorActivity(limit);
+    return { items };
+  }
+
   async getStats() {
     const [pending, verified, rejected, suspended, total] = await Promise.all([
       prisma.vendorProfile.count({ where: { accountStatus: VendorAccountStatus.PENDING } }),

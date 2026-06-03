@@ -24,6 +24,16 @@ export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];
 
 export const MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 
+export const ALLOWED_VENDOR_DOCUMENT_MIME_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+] as const;
+
+export const MAX_VENDOR_DOCUMENT_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+
 export interface PresignedUploadRequest {
   folder: StorageFolder;
   fileName: string;

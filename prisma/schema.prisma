@@ -143,9 +143,34 @@ enum ActivityAction {
   VENDOR_REJECTED
   VENDOR_SUSPENDED
   ADMIN_NOTE_ADDED
+  VENDOR_COMPLIANCE_REQUEST_CREATED
+  VENDOR_COMPLIANCE_REQUEST_SENT
+  VENDOR_COMPLIANCE_SUBMITTED
   USER_LOGIN
   USER_LOGIN_BLOCKED
   USER_CREATED
+}
+
+enum VendorComplianceRequestStatus {
+  DRAFT
+  PENDING_VENDOR
+  PARTIALLY_SUBMITTED
+  SUBMITTED
+  UNDER_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum VendorComplianceItemType {
+  DOCUMENT
+  QUESTION
+}
+
+enum VendorComplianceResponseStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
 }
 
 enum SlideStatus {
@@ -387,6 +412,9 @@ model User {
   reworkRequestsCreated    ReworkRequest[]          @relation("ReworkRequestCreator")
   quotes                   Quote[]
   auditLogs                AuditLog[]
+  vendorComplianceCreated  VendorComplianceRequest[] @relation("VendorComplianceCreatedBy")
+  vendorComplianceReviewed VendorComplianceRequest[] @relation("VendorComplianceReviewedBy")
+  vendorComplianceItemReviewed VendorComplianceResponse[] @relation("VendorComplianceResponseReviewedBy")
 
   @@index([roleId])
   @@index([status])
@@ -432,14 +460,97 @@ model VendorProfile {
   user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   verifiedBy User? @relation("VendorVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
   rejectedBy User? @relation("VendorRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
-  adminNotes AdminNote[]
-  activities ActivityLog[] @relation("VendorActivity")
+  adminNotes         AdminNote[]
+  activities         ActivityLog[]              @relation("VendorActivity")
+  complianceRequests VendorComplianceRequest[]
+  complianceResponses VendorComplianceResponse[]
 
   @@index([accountStatus])
   @@index([businessName])
   @@index([vendorCode])
   @@index([createdAt])
   @@map("vendor_profiles")
+}
+
+// =====================================================
+// VENDOR COMPLIANCE — dynamic document & question requests from admin
+// Flow: Admin creates request → Vendor submits on status page → Admin reviews
+// =====================================================
+
+model VendorComplianceRequest {
+  id              String                        @id @default(cuid())
+  vendorProfileId String                        @map("vendor_profile_id")
+  referenceCode   String                        @unique @map("reference_code")
+  title           String?
+  instructions    String?                       @db.Text
+  status          VendorComplianceRequestStatus @default(DRAFT)
+  dueAt           DateTime?                     @map("due_at")
+  createdById     String                        @map("created_by_id")
+  sentAt          DateTime?                     @map("sent_at")
+  submittedAt     DateTime?                     @map("submitted_at")
+  reviewedAt      DateTime?                     @map("reviewed_at")
+  reviewedById    String?                       @map("reviewed_by_id")
+  cancelledAt     DateTime?                     @map("cancelled_at")
+  createdAt       DateTime                      @default(now()) @map("created_at")
+  updatedAt       DateTime                      @updatedAt @map("updated_at")
+
+  vendorProfile VendorProfile                 @relation(fields: [vendorProfileId], references: [id], onDelete: Cascade)
+  createdBy     User                          @relation("VendorComplianceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  reviewedBy    User?                         @relation("VendorComplianceReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  items         VendorComplianceRequestItem[]
+
+  @@index([vendorProfileId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("vendor_compliance_requests")
+}
+
+model VendorComplianceRequestItem {
+  id                 String                 @id @default(cuid())
+  requestId          String                 @map("request_id")
+  itemType           VendorComplianceItemType @map("item_type")
+  code               String?
+  label              String
+  description        String?                @db.Text
+  isRequired         Boolean                @default(true) @map("is_required")
+  sortOrder          Int                    @default(0) @map("sort_order")
+  maxFileSizeMb      Int?                   @map("max_file_size_mb")
+  acceptedFileTypes  Json                   @default("[]") @map("accepted_file_types")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  request   VendorComplianceRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  responses VendorComplianceResponse[]
+
+  @@index([requestId])
+  @@index([itemType])
+  @@map("vendor_compliance_request_items")
+}
+
+model VendorComplianceResponse {
+  id              String                         @id @default(cuid())
+  requestItemId   String                         @map("request_item_id")
+  vendorProfileId String                         @map("vendor_profile_id")
+  textAnswer      String?                        @map("text_answer") @db.Text
+  fileAssetId     String?                        @map("file_asset_id")
+  status          VendorComplianceResponseStatus @default(SUBMITTED)
+  adminRemarks    String?                        @map("admin_remarks") @db.Text
+  reviewedById    String?                        @map("reviewed_by_id")
+  reviewedAt      DateTime?                      @map("reviewed_at")
+  submittedAt     DateTime                       @default(now()) @map("submitted_at")
+  createdAt       DateTime                       @default(now()) @map("created_at")
+  updatedAt       DateTime                       @updatedAt @map("updated_at")
+
+  requestItem   VendorComplianceRequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  vendorProfile VendorProfile               @relation(fields: [vendorProfileId], references: [id], onDelete: Cascade)
+  fileAsset     FileAsset?                  @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
+  reviewedBy    User?                       @relation("VendorComplianceResponseReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([requestItemId, vendorProfileId])
+  @@index([vendorProfileId])
+  @@index([fileAssetId])
+  @@index([status])
+  @@map("vendor_compliance_responses")
 }
 
 model AdminNote {
@@ -859,8 +970,9 @@ model FileAsset {
   uploadedById String?  @map("uploaded_by_id")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
-  orderItemFiles OrderItemFile[]
+  uploadedBy          User?                        @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  orderItemFiles      OrderItemFile[]
+  complianceResponses VendorComplianceResponse[]
 
   @@index([uploadedById])
   @@index([createdAt])

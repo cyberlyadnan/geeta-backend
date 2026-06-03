@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
+import { vendorComplianceService } from '../vendor-compliance/vendor-compliance.service.js';
 
 const SUPPORT_PHONE = process.env['SUPPORT_PHONE'] ?? '+91 93198 23229';
 const SUPPORT_EMAIL = process.env['SUPPORT_EMAIL'] ?? 'support@geetaprint.com';
@@ -17,6 +18,8 @@ export class VendorsService {
 
     const profile = user.vendorProfile;
 
+    const pendingRequests = await vendorComplianceService.getPendingForVendor(profile.id);
+
     return {
       vendorCode: profile.vendorCode,
       businessName: profile.businessName,
@@ -30,6 +33,9 @@ export class VendorsService {
       verifiedAt: profile.verifiedAt,
       supportPhone: SUPPORT_PHONE,
       supportEmail: SUPPORT_EMAIL,
+      pendingComplianceRequests: vendorComplianceService.mapRequestForVendorStatus(
+        pendingRequests,
+      ),
     };
   }
 }

@@ -23,6 +23,11 @@ export const vendorIdParamSchema = z.object({
   id: z.string().min(1),
 });
 
+export const vendorActivityFeedQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
 export type ListVendorsQuery = z.infer<typeof listVendorsQuerySchema>;
+export type VendorActivityFeedQuery = z.infer<typeof vendorActivityFeedQuerySchema>;
 export type UpdateVendorStatusInput = z.infer<typeof updateVendorStatusSchema>;
 export type CreateAdminNoteInput = z.infer<typeof createAdminNoteSchema>;

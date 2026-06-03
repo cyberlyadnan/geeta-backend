@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { adminVendorsService } from './admin-vendors.service.js';
-import type { ListVendorsQuery } from './admin-vendors.validation.js';
+import type { ListVendorsQuery, VendorActivityFeedQuery } from './admin-vendors.validation.js';
 
 function requestMeta(req: Request) {
   return {
@@ -20,6 +20,12 @@ export class AdminVendorsController {
 
   stats = asyncHandler(async (_req: Request, res: Response) => {
     const result = await adminVendorsService.getStats();
+    return ApiResponse.success(res, result);
+  });
+
+  activityFeed = asyncHandler(async (req: Request, res: Response) => {
+    const { limit } = req.validatedQuery as VendorActivityFeedQuery;
+    const result = await adminVendorsService.getActivityFeed(limit);
     return ApiResponse.success(res, result);
   });
 
