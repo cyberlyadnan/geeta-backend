@@ -17,7 +17,8 @@ import type { CreatePaymentInput } from './payments.validation.js';
 
 /** Throttle Razorpay status sync per payment while the client polls */
 const lastRazorpaySyncAttempt = new Map<string, number>();
-const RAZORPAY_SYNC_INTERVAL_MS = 2_000;
+/** Aligned with client poll interval — first sync is always immediate */
+const RAZORPAY_SYNC_INTERVAL_MS = 800;
 
 export class PaymentsService {
   async createRechargePayment(userId: string, input: CreatePaymentInput) {
@@ -39,17 +40,6 @@ export class PaymentsService {
         idempotencyKey,
         expiresAt,
         metadata: { purpose: 'wallet_recharge' },
-      },
-    });
-
-    await prisma.financialAuditLog.create({
-      data: {
-        action: FinancialAuditAction.PAYMENT_CREATED,
-        targetUserId: userId,
-        walletId: wallet.id,
-        paymentId: payment.id,
-        amount: payment.amount,
-        remarks: `Recharge initiated for ₹${input.amount}`,
       },
     });
 
@@ -75,6 +65,24 @@ export class PaymentsService {
           },
         },
       });
+
+      void prisma.financialAuditLog
+        .create({
+          data: {
+            action: FinancialAuditAction.PAYMENT_CREATED,
+            targetUserId: userId,
+            walletId: wallet.id,
+            paymentId: payment.id,
+            amount: payment.amount,
+            remarks: `Recharge initiated for ₹${input.amount}`,
+          },
+        })
+        .catch((err: unknown) => {
+          logger.warn('Payment created audit log failed', {
+            paymentId: payment.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
 
       return this.mapPayment(updated);
     } catch (err) {
@@ -114,10 +122,13 @@ export class PaymentsService {
     const mapped = this.mapPayment(payment);
 
     if (payment.status === PaymentStatus.SUCCESS) {
-      const wallet = await walletLedgerService.ensureWallet(userId);
+      const wallet = await prisma.wallet.findUnique({
+        where: { userId },
+        select: { currentBalance: true },
+      });
       return {
         ...mapped,
-        walletBalance: decimalToNumber(wallet.currentBalance),
+        walletBalance: wallet ? decimalToNumber(wallet.currentBalance) : undefined,
       };
     }
 
@@ -192,8 +203,9 @@ export class PaymentsService {
     if (!payment.razorpayQrId) return null;
 
     const now = Date.now();
-    const lastAttempt = lastRazorpaySyncAttempt.get(payment.id) ?? 0;
-    if (now - lastAttempt < RAZORPAY_SYNC_INTERVAL_MS) return null;
+    const lastAttempt = lastRazorpaySyncAttempt.get(payment.id);
+    const isFirstSync = lastAttempt === undefined;
+    if (!isFirstSync && now - lastAttempt < RAZORPAY_SYNC_INTERVAL_MS) return null;
     lastRazorpaySyncAttempt.set(payment.id, now);
 
     const captured = await razorpayService.fetchQrCapturedPayment(payment.razorpayQrId);

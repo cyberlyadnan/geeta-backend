@@ -10,10 +10,23 @@ import { initializeSocket } from './websocket/index.js';
 import { closeAllQueues } from './queues/index.js';
 import { scheduleSliderExpiryJob } from './jobs/slider-expiry.job.js';
 import { walletConfig } from './config/wallet.js';
+import { isRazorpayConfigured } from './services/razorpay/razorpay.errors.js';
+import { getRazorpayClient } from './services/razorpay/razorpay.client.js';
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
   await connectRedis();
+
+  if (isRazorpayConfigured(env.RAZORPAY_KEY_ID, env.RAZORPAY_KEY_SECRET)) {
+    try {
+      getRazorpayClient();
+      logger.debug('Razorpay client warmed on startup');
+    } catch (err: unknown) {
+      logger.warn('Razorpay warmup skipped', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
   await scheduleSliderExpiryJob().catch((err: unknown) => {
     logger.warn('Slider expiry scheduler skipped', { error: err });
   });

@@ -70,7 +70,7 @@ export class RazorpayService {
       close_by: closeBy,
     };
 
-    logger.info('Creating Razorpay UPI QR', {
+    logger.debug('Creating Razorpay UPI QR', {
       keyMode,
       amountPaise,
       referenceId: input.referenceId,
@@ -104,7 +104,7 @@ export class RazorpayService {
         );
       }
 
-      logger.info('Razorpay UPI QR created', {
+      logger.debug('Razorpay UPI QR created', {
         qrId: qr.id,
         imageUrl: qr.image_url,
         keyMode,
@@ -148,14 +148,6 @@ export class RazorpayService {
     const razorpay = getRazorpayClient();
 
     try {
-      const qr = (await razorpay.qrCode.fetch(qrId)) as {
-        payments_count_received?: number;
-      };
-
-      if (!qr.payments_count_received || qr.payments_count_received < 1) {
-        return null;
-      }
-
       const response = (await razorpay.qrCode.fetchAllPayments(qrId, { count: 5 })) as {
         items?: Array<{ id?: string; status?: string; amount?: number }>;
       };

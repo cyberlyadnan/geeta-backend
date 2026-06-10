@@ -1,9 +1,7 @@
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
+import { resolveSupportContact } from '../../config/business-contact.js';
 import { vendorComplianceService } from '../vendor-compliance/vendor-compliance.service.js';
-
-const SUPPORT_PHONE = process.env['SUPPORT_PHONE'] ?? '+91 93198 23229';
-const SUPPORT_EMAIL = process.env['SUPPORT_EMAIL'] ?? 'support@geetaprint.com';
 
 export class VendorsService {
   async getStatusByPhone(phone: string) {
@@ -31,8 +29,7 @@ export class VendorsService {
       registeredAt: profile.createdAt,
       updatedAt: profile.updatedAt,
       verifiedAt: profile.verifiedAt,
-      supportPhone: SUPPORT_PHONE,
-      supportEmail: SUPPORT_EMAIL,
+      ...resolveSupportContact(),
       pendingComplianceRequests: vendorComplianceService.mapRequestForVendorStatus(
         pendingRequests,
       ),

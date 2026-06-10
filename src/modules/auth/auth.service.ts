@@ -17,10 +17,8 @@ import type {
   LoginResponse,
   VendorRegisterResponse,
 } from './auth.types.js';
+import { resolveSupportContact } from '../../config/business-contact.js';
 import { extractPermissions, mapUserToAuthResponse, splitOwnerName } from './auth.utils.js';
-
-const SUPPORT_PHONE = process.env['SUPPORT_PHONE'] ?? '+91 93198 23229';
-const SUPPORT_EMAIL = process.env['SUPPORT_EMAIL'] ?? 'support@geetaprint.com';
 
 export class AuthService {
   async registerVendor(
@@ -198,7 +196,7 @@ export class AuthService {
       throw ApiError.forbidden('Vendor profile not found', 'VENDOR_PROFILE_MISSING');
     }
 
-    const support = { supportPhone: SUPPORT_PHONE, supportEmail: SUPPORT_EMAIL };
+    const support = resolveSupportContact();
 
     switch (profile.accountStatus) {
       case VendorAccountStatus.PENDING:
