@@ -1,13 +1,17 @@
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { resolveSupportContact } from '../../config/business-contact.js';
+import { USER_PUBLIC_SELECT } from '../../common/security/user.serialization.js';
 import { vendorComplianceService } from '../vendor-compliance/vendor-compliance.service.js';
 
 export class VendorsService {
   async getStatusByPhone(phone: string) {
     const user = await prisma.user.findFirst({
       where: { phone, deletedAt: null },
-      include: { vendorProfile: true },
+      select: {
+        ...USER_PUBLIC_SELECT,
+        vendorProfile: true,
+      },
     });
 
     if (!user?.vendorProfile) {

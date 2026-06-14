@@ -8,6 +8,14 @@ import type {
   ListVendorsQuery,
   UpdateVendorStatusInput,
 } from './admin-vendors.validation.js';
+import {
+  VENDOR_ADMIN_DETAIL_INCLUDE,
+  VENDOR_ADMIN_USER_SELECT,
+  mapVendorDetailToDto,
+  mapVendorListItemToDto,
+  mapVendorStatusUpdateToDto,
+} from './admin-vendors.serialization.js';
+import { USER_SUMMARY_SELECT } from '../../common/security/user.serialization.js';
 
 export class AdminVendorsService {
   async list(query: ListVendorsQuery) {
@@ -35,24 +43,14 @@ export class AdminVendorsService {
         take: limit,
         orderBy: { [sortBy]: sortOrder },
         include: {
-          user: {
-            select: {
-              id: true,
-              email: true,
-              phone: true,
-              firstName: true,
-              lastName: true,
-              status: true,
-              createdAt: true,
-            },
-          },
+          user: { select: VENDOR_ADMIN_USER_SELECT },
         },
       }),
       prisma.vendorProfile.count({ where }),
     ]);
 
     return {
-      items,
+      items: items.map(mapVendorListItemToDto),
       meta: {
         page,
         limit,
@@ -65,34 +63,7 @@ export class AdminVendorsService {
   async getById(id: string) {
     const profile = await prisma.vendorProfile.findUnique({
       where: { id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            phone: true,
-            firstName: true,
-            lastName: true,
-            status: true,
-            lastLoginAt: true,
-            createdAt: true,
-          },
-        },
-        verifiedBy: {
-          select: { id: true, firstName: true, lastName: true, email: true },
-        },
-        rejectedBy: {
-          select: { id: true, firstName: true, lastName: true, email: true },
-        },
-        adminNotes: {
-          orderBy: { createdAt: 'desc' },
-          include: {
-            author: {
-              select: { id: true, firstName: true, lastName: true, email: true },
-            },
-          },
-        },
-      },
+      include: VENDOR_ADMIN_DETAIL_INCLUDE,
     });
 
     if (!profile) {
@@ -101,7 +72,7 @@ export class AdminVendorsService {
 
     const activities = await activityLogService.listByVendor(id, 100);
 
-    return { profile, activities };
+    return mapVendorDetailToDto(profile, activities);
   }
 
   async updateStatus(
@@ -112,7 +83,7 @@ export class AdminVendorsService {
   ) {
     const profile = await prisma.vendorProfile.findUnique({
       where: { id },
-      include: { user: true },
+      select: { id: true, userId: true, accountStatus: true, verificationRemarks: true, user: { select: { status: true } } },
     });
 
     if (!profile) {
@@ -138,7 +109,7 @@ export class AdminVendorsService {
     const updated = await prisma.vendorProfile.update({
       where: { id },
       data,
-      include: { user: { include: { role: true } } },
+      include: { user: { select: VENDOR_ADMIN_USER_SELECT } },
     });
 
     let userStatus: UserStatus = profile.user.status;
@@ -182,7 +153,7 @@ export class AdminVendorsService {
       userAgent: meta?.userAgent,
     });
 
-    return updated;
+    return mapVendorStatusUpdateToDto(updated);
   }
 
   async addNote(
@@ -203,9 +174,7 @@ export class AdminVendorsService {
         content: input.content,
       },
       include: {
-        author: {
-          select: { id: true, firstName: true, lastName: true, email: true },
-        },
+        author: { select: USER_SUMMARY_SELECT },
       },
     });
 

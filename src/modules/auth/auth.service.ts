@@ -18,6 +18,10 @@ import type {
   VendorRegisterResponse,
 } from './auth.types.js';
 import { resolveSupportContact } from '../../config/business-contact.js';
+import {
+  USER_LOGIN_SELECT,
+  USER_SESSION_SELECT,
+} from '../../common/security/user.serialization.js';
 import { extractPermissions, mapUserToAuthResponse, splitOwnerName } from './auth.utils.js';
 
 export class AuthService {
@@ -134,7 +138,7 @@ export class AuthService {
         status: UserStatus.PENDING_VERIFICATION,
         wallet: { create: {} },
       },
-      include: { role: true, vendorProfile: true },
+      select: USER_SESSION_SELECT,
     });
 
     const tokens = await this.issueTokens(user.id, user.email, user.role);
@@ -144,7 +148,7 @@ export class AuthService {
   async login(input: LoginInput, meta?: { ipAddress?: string; userAgent?: string }): Promise<LoginResponse> {
     const user = await prisma.user.findFirst({
       where: { phone: input.phone, deletedAt: null },
-      include: { role: true, vendorProfile: true },
+      select: USER_LOGIN_SELECT,
     });
 
     if (!user) {
@@ -250,7 +254,10 @@ export class AuthService {
         revokedAt: null,
         expiresAt: { gt: new Date() },
       },
-      include: { user: { include: { role: true, vendorProfile: true } } },
+      select: {
+        id: true,
+        user: { select: USER_SESSION_SELECT },
+      },
     });
 
     if (!stored) {
@@ -279,7 +286,7 @@ export class AuthService {
   async getMe(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId, deletedAt: null },
-      include: { role: true, vendorProfile: true },
+      select: USER_SESSION_SELECT,
     });
     if (!user) {
       throw ApiError.notFound('User not found');
