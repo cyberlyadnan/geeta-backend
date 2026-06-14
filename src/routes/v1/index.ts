@@ -26,11 +26,13 @@ import {
   adminPricingRulesRoutes,
   adminCategoriesRoutes,
 } from '../../modules/admin-products/index.js';
+import { publicCatalogRoutes } from '../../modules/products/public-products.routes.js';
 
 const v1Router = Router();
 
 v1Router.use('/auth', authRoutes);
 v1Router.use('/users', usersRoutes);
+v1Router.use('/public', publicCatalogRoutes);
 v1Router.use('/products', productsRoutes);
 v1Router.use('/categories', categoriesRoutes);
 v1Router.use('/orders', ordersRoutes);

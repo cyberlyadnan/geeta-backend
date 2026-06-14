@@ -98,15 +98,20 @@ export class AdminProductsService {
     };
   }
 
-  async getById(id: string) {
+  async getById(id: string, options?: { includeActivityLogs?: boolean }) {
     const product = await prisma.productOffering.findFirst({
       where: { id, deletedAt: null },
       include: PRODUCT_DETAIL_INCLUDE,
     });
     if (!product) throw ApiError.notFound('Product not found');
 
+    const dto = mapProductDetailToDto(product);
+    if (options?.includeActivityLogs === false) {
+      return dto;
+    }
+
     const logs = await catalogAuditService.listProductAudit(id, 30);
-    return { ...mapProductDetailToDto(product), activityLogs: logs };
+    return { ...dto, activityLogs: logs };
   }
 
   private async resolveCategoryId(categoryId: string, subcategoryId?: string) {
@@ -277,7 +282,7 @@ export class AdminProductsService {
       },
     });
 
-    await catalogAuditService.logProductActivity({
+    void catalogAuditService.logProductActivity({
       action: ActivityAction.PRODUCT_UPDATED,
       productId: id,
       actorId,
@@ -286,7 +291,7 @@ export class AdminProductsService {
       userAgent: meta?.userAgent,
     });
 
-    return this.getById(id);
+    return this.getById(id, { includeActivityLogs: false });
   }
 
   async delete(id: string, actorId: string) {
