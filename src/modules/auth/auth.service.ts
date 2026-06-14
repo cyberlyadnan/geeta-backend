@@ -146,18 +146,23 @@ export class AuthService {
   }
 
   async login(input: LoginInput, meta?: { ipAddress?: string; userAgent?: string }): Promise<LoginResponse> {
+    const where =
+      'email' in input
+        ? { email: input.email.toLowerCase(), deletedAt: null }
+        : { phone: input.phone, deletedAt: null };
+
     const user = await prisma.user.findFirst({
-      where: { phone: input.phone, deletedAt: null },
+      where,
       select: USER_LOGIN_SELECT,
     });
 
     if (!user) {
-      throw ApiError.unauthorized('Invalid mobile number or password');
+      throw ApiError.unauthorized('Invalid credentials');
     }
 
     const valid = await passwordService.compare(input.password, user.passwordHash);
     if (!valid) {
-      throw ApiError.unauthorized('Invalid mobile number or password');
+      throw ApiError.unauthorized('Invalid credentials');
     }
 
     if (user.role.name === RoleName.VENDOR) {

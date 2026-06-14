@@ -1,8 +1,9 @@
 ﻿import { z } from 'zod';
+import { normalizeIndianPhone } from './auth.utils.js';
 
 const phoneSchema = z
   .string()
-  .transform((v) => v.replace(/\s/g, ''))
+  .transform((v) => normalizeIndianPhone(v))
   .pipe(z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit mobile number'));
 
 const registrationServiceIds = z.enum([
@@ -35,10 +36,16 @@ export const vendorRegisterSchema = z.object({
   services: z.array(registrationServiceIds).min(1),
 });
 
-export const loginSchema = z.object({
-  phone: phoneSchema,
-  password: z.string().min(1),
-});
+export const loginSchema = z.union([
+  z.object({
+    phone: phoneSchema,
+    password: z.string().min(1),
+  }),
+  z.object({
+    email: z.string().email('Enter a valid email address'),
+    password: z.string().min(1),
+  }),
+]);
 
 export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1),

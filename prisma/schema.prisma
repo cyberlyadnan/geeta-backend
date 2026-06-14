@@ -146,6 +146,12 @@ enum ActivityAction {
   VENDOR_COMPLIANCE_REQUEST_CREATED
   VENDOR_COMPLIANCE_REQUEST_SENT
   VENDOR_COMPLIANCE_SUBMITTED
+  PRODUCT_CREATED
+  PRODUCT_UPDATED
+  PRODUCT_STATUS_CHANGED
+  PRODUCT_PRICING_CHANGED
+  PRODUCT_ATTRIBUTE_ADDED
+  PRODUCT_ATTRIBUTE_REMOVED
   USER_LOGIN
   USER_LOGIN_BLOCKED
   USER_CREATED
@@ -186,6 +192,13 @@ enum ProductStatus {
   ACTIVE
   INACTIVE
   ARCHIVED
+}
+
+/// Who can see a sellable product in catalog APIs
+enum ProductVisibility {
+  PUBLIC
+  VENDOR_ONLY
+  HIDDEN
 }
 
 /// Lifecycle for immutable sellable configuration snapshots (ProductOfferingVersion).
@@ -618,18 +631,23 @@ model RefreshToken {
 
 model Category {
   id          String    @id @default(cuid())
+  parentId    String?   @map("parent_id")
   name        String
   slug        String    @unique
   description String?   @db.Text
   imageUrl    String?   @map("image_url")
+  imageKey    String?   @map("image_key")
   sortOrder   Int       @default(0) @map("sort_order")
   isActive    Boolean   @default(true) @map("is_active")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
+  parent          Category?       @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Category[]      @relation("CategoryHierarchy")
   productFamilies ProductFamily[]
 
+  @@index([parentId])
   @@index([isActive, deletedAt])
   @@index([sortOrder])
   @@map("categories")
@@ -688,30 +706,53 @@ model ProductSeries {
 /// Sellable finish combination — e.g. "800 GSM + Matt + UV + Foil + Die Cut".
 /// Identity and merchandising only; all definition lives on ProductOfferingVersion.
 model ProductOffering {
-  id               String        @id @default(cuid())
-  seriesId         String        @map("series_id")
+  id               String             @id @default(cuid())
+  seriesId         String             @map("series_id")
   name             String
-  slug             String        @unique
-  shortDescription String?       @map("short_description")
-  description      String?       @db.Text
-  sku              String?       @unique
-  displayName      String?       @map("display_name")
-  sortOrder        Int           @default(0) @map("sort_order")
-  status           ProductStatus @default(ACTIVE)
-  isFeatured       Boolean       @default(false) @map("is_featured")
-  isActive         Boolean       @default(true) @map("is_active")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
-  deletedAt        DateTime?     @map("deleted_at")
+  slug             String             @unique
+  shortDescription String?            @map("short_description")
+  description      String?            @db.Text
+  sku              String?            @unique
+  displayName      String?            @map("display_name")
+  thumbnailUrl     String?            @map("thumbnail_url")
+  thumbnailKey     String?            @map("thumbnail_key")
+  visibility       ProductVisibility  @default(VENDOR_ONLY)
+  sortOrder        Int                @default(0) @map("sort_order")
+  status           ProductStatus      @default(DRAFT)
+  isFeatured       Boolean            @default(false) @map("is_featured")
+  isActive         Boolean            @default(true) @map("is_active")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  deletedAt        DateTime?          @map("deleted_at")
 
   series   ProductSeries            @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   versions ProductOfferingVersion[]
+  images   ProductImage[]
 
   @@index([seriesId])
   @@index([sku])
   @@index([status])
+  @@index([visibility])
   @@index([isActive, deletedAt])
   @@map("product_offerings")
+}
+
+/// Gallery / marketing images stored in Cloudflare R2
+model ProductImage {
+  id                String   @id @default(cuid())
+  productOfferingId String   @map("product_offering_id")
+  imageUrl          String   @map("image_url") @db.Text
+  imageKey          String   @map("image_key")
+  altText           String?  @map("alt_text")
+  sortOrder         Int      @default(0) @map("sort_order")
+  isThumbnail       Boolean  @default(false) @map("is_thumbnail")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  productOffering ProductOffering @relation(fields: [productOfferingId], references: [id], onDelete: Cascade)
+
+  @@index([productOfferingId])
+  @@index([sortOrder])
+  @@map("product_images")
 }
 
 /// Immutable versioned snapshot — source of truth for config, pricing, files, workflow, BOM.
@@ -799,6 +840,7 @@ model ConfigurationField {
   group                  ConfigurationGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
   options                ConfigurationOption[]
   targetRules            ConfigurationRule[]
+  pricingRules           PricingRule[]
 
   @@unique([productOfferingVersionId, code])
   @@index([productOfferingVersionId])
@@ -818,8 +860,9 @@ model ConfigurationOption {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  field   ConfigurationField           @relation(fields: [fieldId], references: [id], onDelete: Cascade)
-  pricing ConfigurationOptionPricing?
+  field        ConfigurationField           @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  pricing      ConfigurationOptionPricing?
+  pricingRules PricingRule[]
 
   @@unique([fieldId, value])
   @@index([fieldId])
@@ -885,19 +928,27 @@ model ConfigurationOptionPricing {
 model PricingRule {
   id                       String                @id @default(cuid())
   productOfferingVersionId String                @map("product_offering_version_id")
+  configurationFieldId     String?               @map("configuration_field_id")
+  configurationOptionId    String?               @map("configuration_option_id")
   name                     String
   description              String?               @db.Text
-  condition                Json
+  condition                Json                  @default("{}")
   adjustmentType           PricingAdjustmentType @map("adjustment_type")
   adjustmentValue          Decimal               @map("adjustment_value") @db.Decimal(12, 2)
+  priority                 Int                   @default(0)
   status                   PricingRuleStatus     @default(ACTIVE)
   createdAt                DateTime              @default(now()) @map("created_at")
   updatedAt                DateTime              @updatedAt @map("updated_at")
 
   productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  configurationField     ConfigurationField?    @relation(fields: [configurationFieldId], references: [id], onDelete: SetNull)
+  configurationOption    ConfigurationOption?   @relation(fields: [configurationOptionId], references: [id], onDelete: SetNull)
 
   @@index([productOfferingVersionId])
+  @@index([configurationFieldId])
+  @@index([configurationOptionId])
   @@index([status])
+  @@index([priority])
   @@map("pricing_rules")
 }
 
