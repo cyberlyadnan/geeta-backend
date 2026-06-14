@@ -69,6 +69,11 @@ export class ProductsService {
     const limit = Math.min(params?.limit ?? 50, 100);
     const skip = (page - 1) * limit;
 
+    let categoryIds: string[] | undefined;
+    if (params?.categoryId) {
+      categoryIds = await this.resolveCategoryTreeIds(params.categoryId);
+    }
+
     const where: Prisma.ProductOfferingWhereInput = {
       ...this.vendorVisibilityFilter(),
       ...(params?.search && {
@@ -77,8 +82,8 @@ export class ProductsService {
           { shortDescription: { contains: params.search, mode: 'insensitive' } },
         ],
       }),
-      ...(params?.categoryId && {
-        series: { family: { categoryId: params.categoryId } },
+      ...(categoryIds && {
+        series: { family: { categoryId: { in: categoryIds } } },
       }),
     };
 
@@ -97,6 +102,27 @@ export class ProductsService {
       items: items.map(mapVendorProductListItem),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  /** Include products in subcategories when filtering by a parent category. */
+  private async resolveCategoryTreeIds(rootId: string): Promise<string[]> {
+    const all = await prisma.category.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: { id: true, parentId: true },
+    });
+
+    const ids = new Set<string>([rootId]);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const cat of all) {
+        if (cat.parentId && ids.has(cat.parentId) && !ids.has(cat.id)) {
+          ids.add(cat.id);
+          added = true;
+        }
+      }
+    }
+    return [...ids];
   }
 
   async findById(id: string) {
