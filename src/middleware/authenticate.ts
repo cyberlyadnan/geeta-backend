@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ApiError } from '../common/errors/ApiError.js';
+import { setRequestUserId } from '../observability/request-context.js';
 import { tokenService } from '../services/auth/token.service.js';
 
 export async function authenticate(
@@ -23,6 +24,8 @@ export async function authenticate(
       role: payload.role as import('@prisma/client').RoleName,
       permissions: payload.permissions ?? [],
     };
+
+    setRequestUserId(payload.sub);
 
     next();
   } catch (error) {

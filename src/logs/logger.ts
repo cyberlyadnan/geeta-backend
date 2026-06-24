@@ -31,7 +31,7 @@ if (env.NODE_ENV !== 'test') {
   transports.push(
     new DailyRotateFile({
       dirname: logDir,
-      filename: 'app-%DATE%.log',
+      filename: 'application-%DATE%.log',
       datePattern: 'YYYY-MM-DD',
       maxFiles: '30d',
       format: fileFormat,

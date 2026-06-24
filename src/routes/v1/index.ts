@@ -28,6 +28,7 @@ import {
 } from '../../modules/admin-products/index.js';
 import { publicCatalogRoutes } from '../../modules/products/public-products.routes.js';
 import { deliveryRoutes, adminDeliveryRoutes } from '../../modules/delivery/index.js';
+import { adminMonitoringRoutes } from '../../modules/admin-monitoring/index.js';
 
 const v1Router = Router();
 
@@ -60,5 +61,6 @@ v1Router.use('/admin/products', adminProductsRoutes);
 v1Router.use('/admin/attributes', adminAttributesRoutes);
 v1Router.use('/admin/pricing-rules', adminPricingRulesRoutes);
 v1Router.use('/admin/categories', adminCategoriesRoutes);
+v1Router.use('/admin/monitoring', adminMonitoringRoutes);
 
 export { v1Router };

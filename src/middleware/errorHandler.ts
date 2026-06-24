@@ -4,15 +4,25 @@ import { StatusCodes } from 'http-status-codes';
 import { ZodError } from 'zod';
 import { ApiError } from '../common/errors/ApiError.js';
 import { env } from '../config/env.js';
+import { errorTracker } from '../observability/error-tracker.service.js';
 import { logger } from '../logs/logger.js';
 
 export function errorHandler(
   err: Error,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ): void {
   if (err instanceof ApiError) {
+    errorTracker.track({
+      category: 'api',
+      message: err.message,
+      statusCode: err.statusCode,
+      path: req.originalUrl,
+      method: req.method,
+      userId: req.user?.id,
+    });
+
     res.status(err.statusCode).json({
       success: false,
       message: err.message,
@@ -30,6 +40,16 @@ export function errorHandler(
       errors[path] = errors[path] ?? [];
       errors[path].push(issue.message);
     }
+
+    errorTracker.track({
+      category: 'validation',
+      message: 'Validation failed',
+      statusCode: StatusCodes.BAD_REQUEST,
+      path: req.originalUrl,
+      method: req.method,
+      userId: req.user?.id,
+    });
+
     res.status(StatusCodes.BAD_REQUEST).json({
       success: false,
       message: 'Validation failed',
@@ -39,6 +59,21 @@ export function errorHandler(
   }
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    errorTracker.track({
+      category: 'database',
+      message: err.message,
+      statusCode:
+        err.code === 'P2002'
+          ? StatusCodes.CONFLICT
+          : err.code === 'P2025'
+            ? StatusCodes.NOT_FOUND
+            : StatusCodes.INTERNAL_SERVER_ERROR,
+      path: req.originalUrl,
+      method: req.method,
+      userId: req.user?.id,
+      stack: err.stack,
+    });
+
     if (err.code === 'P2002') {
       res.status(StatusCodes.CONFLICT).json({
         success: false,
@@ -54,6 +89,16 @@ export function errorHandler(
       return;
     }
   }
+
+  errorTracker.track({
+    category: 'unhandled',
+    message: err.message,
+    statusCode: StatusCodes.INTERNAL_SERVER_ERROR,
+    path: req.originalUrl,
+    method: req.method,
+    userId: req.user?.id,
+    stack: err.stack,
+  });
 
   logger.error('Unhandled error', {
     message: err.message,

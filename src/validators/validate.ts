@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { ZodSchema, ZodError } from 'zod';
 import { ApiError } from '../common/errors/ApiError.js';
+import { beginValidation, endValidation } from '../observability/request-context.js';
 
 type RequestTarget = 'body' | 'query' | 'params';
 
@@ -20,25 +21,30 @@ function formatZodErrors(error: ZodError): Record<string, string[]> {
  */
 export function validate<T>(schema: ZodSchema<T>, target: RequestTarget = 'body') {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    const result = schema.safeParse(req[target]);
+    beginValidation();
+    try {
+      const result = schema.safeParse(req[target]);
 
-    if (!result.success) {
-      next(ApiError.badRequest('Validation failed', formatZodErrors(result.error)));
-      return;
+      if (!result.success) {
+        next(ApiError.badRequest('Validation failed', formatZodErrors(result.error)));
+        return;
+      }
+
+      switch (target) {
+        case 'body':
+          req.body = result.data;
+          break;
+        case 'query':
+          req.validatedQuery = result.data;
+          break;
+        case 'params':
+          req.validatedParams = result.data;
+          break;
+      }
+
+      next();
+    } finally {
+      endValidation();
     }
-
-    switch (target) {
-      case 'body':
-        req.body = result.data;
-        break;
-      case 'query':
-        req.validatedQuery = result.data;
-        break;
-      case 'params':
-        req.validatedParams = result.data;
-        break;
-    }
-
-    next();
   };
 }

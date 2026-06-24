@@ -1,8 +1,11 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
+import { setupSwagger } from './config/swagger-ui.js';
 import { apiRouter } from './routes/index.js';
+import { healthRoutes } from './modules/health/index.js';
 import { paymentsWebhookRoutes } from './modules/payments/payments.webhook.routes.js';
+import { performanceMiddleware } from './observability/performance.middleware.js';
 import {
   compressionMiddleware,
   corsMiddleware,
@@ -18,9 +21,13 @@ export function createApp(): express.Application {
 
   app.set('trust proxy', 1);
 
+  app.use(performanceMiddleware);
   app.use(helmetMiddleware);
   app.use(corsMiddleware);
   app.use(compressionMiddleware);
+
+  app.use('/health', healthRoutes);
+  setupSwagger(app);
 
   app.use(
     `${env.API_PREFIX}/${env.API_VERSION}/payments`,

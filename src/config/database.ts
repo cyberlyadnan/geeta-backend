@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { env } from './env.js';
 import { logger } from '../logs/logger.js';
+import { prismaPerformanceService } from '../observability/prisma-performance.service.js';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -14,16 +15,15 @@ const isSupabasePooler =
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log:
-      env.NODE_ENV === 'development'
-        ? [{ emit: 'event', level: 'query' }, 'error', 'warn']
-        : ['error'],
+    log: [{ emit: 'event', level: 'query' }, 'error', 'warn'],
     datasources: {
       db: {
         url: env.DATABASE_URL,
       },
     },
   });
+
+prismaPerformanceService.init(prisma);
 
 if (env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;

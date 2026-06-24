@@ -1,4 +1,12 @@
-﻿import { Router } from 'express';
+﻿/**
+ * @openapi
+ * /auth/login:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Authenticate user
+ *     security: []
+ */
+import { Router } from 'express';
 import { authController } from './auth.controller.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import { validate } from '../../validators/validate.js';
