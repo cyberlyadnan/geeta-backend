@@ -7,17 +7,11 @@ import { deliveryController } from './delivery.controller.js';
 import {
   calculateOrderDeliverySchema,
   updateAdminDeliverySettingsSchema,
-  updateDeliveryPreferenceSchema,
 } from './delivery.validation.js';
 
 const vendorRouter = Router();
 vendorRouter.use(authenticate);
 vendorRouter.get('/settings', deliveryController.getVendorSettings);
-vendorRouter.patch(
-  '/preference',
-  validate(updateDeliveryPreferenceSchema),
-  deliveryController.updateVendorPreference,
-);
 vendorRouter.post(
   '/calculate',
   validate(calculateOrderDeliverySchema),

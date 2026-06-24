@@ -3,8 +3,29 @@ import { ApiError } from '../../common/errors/ApiError.js';
 import { resolveSupportContact } from '../../config/business-contact.js';
 import { USER_PUBLIC_SELECT } from '../../common/security/user.serialization.js';
 import { vendorComplianceService } from '../vendor-compliance/vendor-compliance.service.js';
+import {
+  mapVendorSettingsProfile,
+  VENDOR_SETTINGS_PROFILE_SELECT,
+  VENDOR_SETTINGS_USER_SELECT,
+} from './vendors.serialization.js';
 
 export class VendorsService {
+  async getMyProfile(userId: string) {
+    const profile = await prisma.vendorProfile.findUnique({
+      where: { userId },
+      select: {
+        ...VENDOR_SETTINGS_PROFILE_SELECT,
+        user: { select: VENDOR_SETTINGS_USER_SELECT },
+      },
+    });
+
+    if (!profile) {
+      throw ApiError.forbidden('Vendor profile not found');
+    }
+
+    return mapVendorSettingsProfile(profile);
+  }
+
   async getStatusByPhone(phone: string) {
     const user = await prisma.user.findFirst({
       where: { phone, deletedAt: null },

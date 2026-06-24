@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import { vendorCompliancePublicRoutes } from '../vendor-compliance/index.js';
 import { vendorsController } from './vendors.controller.js';
+import { authenticate } from '../../middleware/authenticate.js';
 import { validate } from '../../validators/validate.js';
 import { vendorStatusByPhoneSchema } from './vendors.validation.js';
 
 const router = Router();
 
 router.use('/compliance', vendorCompliancePublicRoutes);
+
+router.get('/me', authenticate, vendorsController.getMyProfile);
 
 router.get(
   '/status/:phone',
