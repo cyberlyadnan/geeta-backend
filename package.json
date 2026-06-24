@@ -21,7 +21,7 @@
     "prisma:studio": "dotenv -e .env -e .env.local -- prisma studio",
     "prisma:seed": "dotenv -e .env -e .env.local -- tsx prisma/seed.ts",
     "verify:razorpay": "tsx scripts/verify-razorpay.ts",
-    "db:push": "prisma db push",
+    "db:security-lockdown": "dotenv -e .env -e .env.local -- prisma db execute --file scripts/supabase-rls-lockdown.sql --schema prisma/schema.prisma",
     "postinstall": "prisma generate"
   },
   "keywords": [

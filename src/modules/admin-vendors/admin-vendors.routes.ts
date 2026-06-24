@@ -12,6 +12,7 @@ import { adminFileAssetAccessParamsSchema } from '../vendor-compliance/vendor-co
 import {
   createAdminNoteSchema,
   listVendorsQuerySchema,
+  updateVendorDeliveryPreferenceSchema,
   updateVendorStatusSchema,
   vendorActivityFeedQuerySchema,
   vendorIdParamSchema,
@@ -42,6 +43,12 @@ router.patch(
   validate(vendorIdParamSchema, 'params'),
   validate(updateVendorStatusSchema),
   adminVendorsController.updateStatus,
+);
+router.patch(
+  '/:id/delivery-preference',
+  validate(vendorIdParamSchema, 'params'),
+  validate(updateVendorDeliveryPreferenceSchema),
+  adminVendorsController.updateDeliveryPreference,
 );
 router.post(
   '/:id/notes',

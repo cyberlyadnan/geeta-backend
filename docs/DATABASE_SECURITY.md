@@ -24,12 +24,15 @@ Supabase provides **managed PostgreSQL** only. All reads/writes go through Expre
 
 | Finding | Fix |
 |---------|-----|
-| `rls_disabled_in_public` | RLS enabled + forced on all 67 application tables |
+| `rls_disabled_in_public` | RLS enabled + forced on **all** public tables (dynamic migration) |
 | `sensitive_columns_exposed` | RLS + revoke `anon`/`authenticated` + deny-all policies |
 
-**Migration:** `prisma/migrations/20260610120000_supabase_rls_lockdown/`
+**Migrations:**
 
-**Supabase SQL Editor (one-shot):** `scripts/supabase-rls-lockdown.sql`
+- `prisma/migrations/20260610120000_supabase_rls_lockdown/` — initial table list
+- `prisma/migrations/20260612120000_supabase_rls_complete_lockdown/` — **dynamic** lockdown (covers new tables like `product_images`)
+
+**One-shot (re-run after adding tables):** `npm run db:security-lockdown` or paste `scripts/supabase-rls-lockdown.sql` in Supabase SQL Editor
 
 ### Why RLS does not break Prisma
 
@@ -119,9 +122,9 @@ Confirmed: **no** `@supabase/*` packages or `createClient` in `frontend/`. All d
 
 ## Deploy checklist
 
-1. Run migration: `npx prisma migrate deploy` (production)  
-2. Or paste `scripts/supabase-rls-lockdown.sql` in Supabase SQL Editor  
-3. Re-run **Security Advisor** in Supabase Dashboard  
+1. Run migration: `npm run prisma:migrate:deploy` (production)  
+2. Or re-run lockdown anytime: `npm run db:security-lockdown`  
+3. Re-run **Security Advisor** in Supabase Dashboard (may take up to 24h to clear email alerts)  
 4. Confirm Express health + login + wallet + admin vendor flows  
 5. Rotate `DATABASE_URL` password if it was ever committed  
 

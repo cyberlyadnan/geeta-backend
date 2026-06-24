@@ -5,52 +5,30 @@
 --   • rls_disabled_in_public
 --   • sensitive_columns_exposed
 --
--- Run via: prisma migrate deploy  OR  paste into Supabase SQL Editor
+-- Run via: npm run db:security-lockdown  OR  paste into Supabase SQL Editor
 --
 -- IMPORTANT: Prisma connects as the `postgres` database role (superuser on Supabase).
 -- Superusers bypass RLS — your Express backend continues to work unchanged.
 -- RLS blocks Supabase PostgREST / anon / authenticated API access to raw tables.
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 1. Enable RLS on every application table in public schema
+-- 1. Enable RLS on ALL public tables (except Prisma migrations metadata)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
   tbl text;
-  tables text[] := ARRAY[
-    'roles', 'users', 'vendor_code_sequences', 'vendor_profiles',
-    'vendor_compliance_requests', 'vendor_compliance_request_items', 'vendor_compliance_responses',
-    'admin_notes', 'activity_logs', 'refresh_tokens',
-    'categories', 'product_families', 'product_series', 'product_offerings', 'product_offering_versions',
-    'configuration_groups', 'configuration_fields', 'configuration_options', 'configuration_rules',
-    'quantity_pricing', 'configuration_option_pricing', 'pricing_rules', 'price_snapshots',
-    'file_requirements', 'file_requirement_file_types', 'file_assets',
-    'facilities', 'departments', 'workflow_templates', 'workflow_template_steps',
-    'product_offering_workflows', 'machines', 'workflow_sla_policies',
-    'production_orders', 'production_order_items', 'order_item_configurations', 'order_item_files',
-    'workflow_instances', 'workflow_tasks', 'workflow_task_history', 'rework_requests', 'workflow_sla_breaches',
-    'quotes', 'quote_items', 'production_job_cards',
-    'material_categories', 'materials', 'bom_templates', 'bom_template_items',
-    'audit_logs', 'orders', 'order_items',
-    'wallets', 'wallet_transactions', 'payments', 'payment_webhook_logs',
-    'financial_audit_logs', 'wallet_balance_snapshots',
-    'contact_inquiries', 'contact_inquiry_notes', 'contact_inquiry_activities',
-    'slider_slides'
-  ];
 BEGIN
-  FOREACH tbl IN ARRAY tables
+  FOR tbl IN
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename <> '_prisma_migrations'
+    ORDER BY tablename
   LOOP
-    IF EXISTS (
-      SELECT 1 FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = tbl
-    ) THEN
-      EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl);
-      EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', tbl);
-      RAISE NOTICE 'RLS enabled on public.%', tbl;
-    ELSE
-      RAISE NOTICE 'Skipped (not found): public.%', tbl;
-    END IF;
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl);
+    EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', tbl);
+    RAISE NOTICE 'RLS enabled on public.%', tbl;
   END LOOP;
 END $$;
 
@@ -62,40 +40,20 @@ DO $$
 DECLARE
   tbl text;
   role_name text;
-  tables text[] := ARRAY[
-    'roles', 'users', 'vendor_code_sequences', 'vendor_profiles',
-    'vendor_compliance_requests', 'vendor_compliance_request_items', 'vendor_compliance_responses',
-    'admin_notes', 'activity_logs', 'refresh_tokens',
-    'categories', 'product_families', 'product_series', 'product_offerings', 'product_offering_versions',
-    'configuration_groups', 'configuration_fields', 'configuration_options', 'configuration_rules',
-    'quantity_pricing', 'configuration_option_pricing', 'pricing_rules', 'price_snapshots',
-    'file_requirements', 'file_requirement_file_types', 'file_assets',
-    'facilities', 'departments', 'workflow_templates', 'workflow_template_steps',
-    'product_offering_workflows', 'machines', 'workflow_sla_policies',
-    'production_orders', 'production_order_items', 'order_item_configurations', 'order_item_files',
-    'workflow_instances', 'workflow_tasks', 'workflow_task_history', 'rework_requests', 'workflow_sla_breaches',
-    'quotes', 'quote_items', 'production_job_cards',
-    'material_categories', 'materials', 'bom_templates', 'bom_template_items',
-    'audit_logs', 'orders', 'order_items',
-    'wallets', 'wallet_transactions', 'payments', 'payment_webhook_logs',
-    'financial_audit_logs', 'wallet_balance_snapshots',
-    'contact_inquiries', 'contact_inquiry_notes', 'contact_inquiry_activities',
-    'slider_slides'
-  ];
-  api_roles text[] := ARRAY['anon', 'authenticated'];
+  api_roles text[] := ARRAY['anon', 'authenticated', 'service_role'];
 BEGIN
   FOREACH role_name IN ARRAY api_roles
   LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
-      FOREACH tbl IN ARRAY tables
+      FOR tbl IN
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = 'public'
+          AND tablename <> '_prisma_migrations'
       LOOP
-        IF EXISTS (
-          SELECT 1 FROM information_schema.tables
-          WHERE table_schema = 'public' AND table_name = tbl
-        ) THEN
-          EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I', tbl, role_name);
-        END IF;
+        EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I', tbl, role_name);
       END LOOP;
+      -- Re-grant service_role schema usage only (no table SELECT) — optional belt-and-suspenders
       RAISE NOTICE 'Revoked table access from role %', role_name;
     END IF;
   END LOOP;
@@ -110,62 +68,37 @@ DO $$
 DECLARE
   tbl text;
   pol_name text;
-  tables text[] := ARRAY[
-    'roles', 'users', 'vendor_code_sequences', 'vendor_profiles',
-    'vendor_compliance_requests', 'vendor_compliance_request_items', 'vendor_compliance_responses',
-    'admin_notes', 'activity_logs', 'refresh_tokens',
-    'categories', 'product_families', 'product_series', 'product_offerings', 'product_offering_versions',
-    'configuration_groups', 'configuration_fields', 'configuration_options', 'configuration_rules',
-    'quantity_pricing', 'configuration_option_pricing', 'pricing_rules', 'price_snapshots',
-    'file_requirements', 'file_requirement_file_types', 'file_assets',
-    'facilities', 'departments', 'workflow_templates', 'workflow_template_steps',
-    'product_offering_workflows', 'machines', 'workflow_sla_policies',
-    'production_orders', 'production_order_items', 'order_item_configurations', 'order_item_files',
-    'workflow_instances', 'workflow_tasks', 'workflow_task_history', 'rework_requests', 'workflow_sla_breaches',
-    'quotes', 'quote_items', 'production_job_cards',
-    'material_categories', 'materials', 'bom_templates', 'bom_template_items',
-    'audit_logs', 'orders', 'order_items',
-    'wallets', 'wallet_transactions', 'payments', 'payment_webhook_logs',
-    'financial_audit_logs', 'wallet_balance_snapshots',
-    'contact_inquiries', 'contact_inquiry_notes', 'contact_inquiry_activities',
-    'slider_slides'
-  ];
+  api_roles text[] := ARRAY['anon', 'authenticated'];
+  role_name text;
 BEGIN
-  FOREACH tbl IN ARRAY tables
+  FOR tbl IN
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename <> '_prisma_migrations'
   LOOP
-    IF NOT EXISTS (
-      SELECT 1 FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = tbl
-    ) THEN
-      CONTINUE;
-    END IF;
+    FOREACH role_name IN ARRAY api_roles
+    LOOP
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+        CONTINUE;
+      END IF;
 
-    pol_name := 'backend_only_deny_anon_' || tbl;
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = tbl AND policyname = pol_name
-    ) THEN
-      EXECUTE format(
-        'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR ALL TO anon USING (false) WITH CHECK (false)',
-        pol_name, tbl
-      );
-    END IF;
-
-    pol_name := 'backend_only_deny_authenticated_' || tbl;
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = tbl AND policyname = pol_name
-    ) THEN
-      EXECUTE format(
-        'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR ALL TO authenticated USING (false) WITH CHECK (false)',
-        pol_name, tbl
-      );
-    END IF;
+      pol_name := 'backend_only_deny_' || role_name || '_' || tbl;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = tbl AND policyname = pol_name
+      ) THEN
+        EXECUTE format(
+          'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR ALL TO %I USING (false) WITH CHECK (false)',
+          pol_name, tbl, role_name
+        );
+      END IF;
+    END LOOP;
   END LOOP;
 END $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 4. Revoke default PUBLIC grants on future tables (optional hardening)
+-- 4. Revoke default PUBLIC grants (defence in depth)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -173,5 +106,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
 
--- Prisma migrations table — keep RLS off (internal only, not exposed via API)
--- _prisma_migrations is intentionally excluded from the list above.
+-- Grant usage to postgres role only (Prisma connection)
+GRANT USAGE ON SCHEMA public TO postgres;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres;

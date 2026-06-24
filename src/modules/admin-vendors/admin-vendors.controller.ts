@@ -58,6 +58,17 @@ export class AdminVendorsController {
     return ApiResponse.created(res, result, 'Note added');
   });
 
+  updateDeliveryPreference = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminVendorsService.updateDeliveryPreference(
+      id,
+      req.body,
+      req.user!.id,
+      requestMeta(req),
+    );
+    return ApiResponse.success(res, result, 'Delivery preference updated');
+  });
+
   fileAssetAccess = asyncHandler(async (req: Request, res: Response) => {
     const { id, fileAssetId } = req.validatedParams as { id: string; fileAssetId: string };
     const download = await secureFileAccessService.createAdminVendorComplianceDownload(

@@ -35,6 +35,7 @@ export function mapVendorListItemToDto(profile: VendorListItem) {
     businessName: profile.businessName,
     ownerName: profile.ownerName,
     accountStatus: profile.accountStatus,
+    deliveryPreference: profile.deliveryPreference,
     country: profile.country,
     pinCode: profile.pinCode,
     gstNumber: profile.gstNumber,

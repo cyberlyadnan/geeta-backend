@@ -6,6 +6,7 @@ import { activityLogService } from '../../services/activity/index.js';
 import type {
   CreateAdminNoteInput,
   ListVendorsQuery,
+  UpdateVendorDeliveryPreferenceInput,
   UpdateVendorStatusInput,
 } from './admin-vendors.validation.js';
 import {
@@ -19,11 +20,12 @@ import { USER_SUMMARY_SELECT } from '../../common/security/user.serialization.js
 
 export class AdminVendorsService {
   async list(query: ListVendorsQuery) {
-    const { page, limit, search, status, sortBy, sortOrder } = query;
+    const { page, limit, search, status, deliveryPreference, sortBy, sortOrder } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.VendorProfileWhereInput = {
       ...(status && { accountStatus: status }),
+      ...(deliveryPreference && { deliveryPreference }),
       ...(search && {
         OR: [
           { vendorCode: { contains: search, mode: 'insensitive' } },
@@ -154,6 +156,51 @@ export class AdminVendorsService {
     });
 
     return mapVendorStatusUpdateToDto(updated);
+  }
+
+  async updateDeliveryPreference(
+    id: string,
+    input: UpdateVendorDeliveryPreferenceInput,
+    adminId: string,
+    meta?: { ipAddress?: string; userAgent?: string },
+  ) {
+    const profile = await prisma.vendorProfile.findUnique({
+      where: { id },
+      select: { id: true, deliveryPreference: true },
+    });
+
+    if (!profile) {
+      throw ApiError.notFound('Vendor not found');
+    }
+
+    const updated = await prisma.vendorProfile.update({
+      where: { id },
+      data: { deliveryPreference: input.deliveryPreference },
+      include: { user: { select: VENDOR_ADMIN_USER_SELECT } },
+    });
+
+    await activityLogService.log({
+      action: ActivityAction.VENDOR_DELIVERY_PREFERENCE_CHANGED,
+      entityType: 'vendor_profile',
+      entityId: id,
+      vendorProfileId: id,
+      actorId: adminId,
+      metadata: {
+        from: profile.deliveryPreference,
+        to: input.deliveryPreference,
+        updatedByAdmin: true,
+      },
+      ipAddress: meta?.ipAddress,
+      userAgent: meta?.userAgent,
+    });
+
+    return {
+      id: updated.id,
+      vendorCode: updated.vendorCode,
+      businessName: updated.businessName,
+      deliveryPreference: updated.deliveryPreference,
+      updatedAt: updated.updatedAt,
+    };
   }
 
   async addNote(

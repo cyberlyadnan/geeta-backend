@@ -1,5 +1,6 @@
 import {
   ActivityAction,
+  DeliveryPreference,
   RoleName,
   UserStatus,
   VendorAccountStatus,
@@ -76,6 +77,7 @@ export class AuthService {
               pinCode: input.pinCode,
               fullAddress: input.fullAddress,
               services: input.services,
+              deliveryPreference: input.deliveryPreference as DeliveryPreference,
               accountStatus: VendorAccountStatus.PENDING,
             },
           },

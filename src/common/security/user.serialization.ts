@@ -36,6 +36,7 @@ export const VENDOR_PROFILE_PUBLIC_SELECT = {
   businessName: true,
   accountStatus: true,
   verificationRemarks: true,
+  deliveryPreference: true,
 } as const satisfies Prisma.VendorProfileSelect;
 
 export const VENDOR_PROFILE_AUTH_SELECT = VENDOR_PROFILE_PUBLIC_SELECT;
@@ -84,6 +85,7 @@ export interface SafeVendorProfileSummaryDto {
   businessName: string;
   accountStatus: VendorProfile['accountStatus'];
   verificationRemarks: string | null;
+  deliveryPreference: VendorProfile['deliveryPreference'];
 }
 
 export interface SafeAuthUserDto {
@@ -141,7 +143,10 @@ export function mapUserPublicToDto(user: UserPublicRecord): SafeUserPublicDto {
 }
 
 export function mapVendorProfileSummaryToDto(
-  profile: Pick<VendorProfile, 'id' | 'vendorCode' | 'businessName' | 'accountStatus' | 'verificationRemarks'> | null | undefined,
+  profile: Pick<
+    VendorProfile,
+    'id' | 'vendorCode' | 'businessName' | 'accountStatus' | 'verificationRemarks' | 'deliveryPreference'
+  > | null | undefined,
 ): SafeVendorProfileSummaryDto | null {
   if (!profile) return null;
   return {
@@ -150,6 +155,7 @@ export function mapVendorProfileSummaryToDto(
     businessName: profile.businessName,
     accountStatus: profile.accountStatus,
     verificationRemarks: profile.verificationRemarks,
+    deliveryPreference: profile.deliveryPreference,
   };
 }
 

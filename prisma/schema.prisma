@@ -136,12 +136,35 @@ enum VendorAccountStatus {
   BLOCKED
 }
 
+enum DeliveryPreference {
+  ALWAYS_DELIVERY_REQUIRED
+  SELF_PICKUP_ONLY
+  ASK_ON_EVERY_ORDER
+}
+
+enum DeliveryType {
+  DELIVERY
+  SELF_PICKUP
+}
+
+enum DeliveryStatus {
+  PENDING
+  SCHEDULED
+  DISPATCHED
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
 enum ActivityAction {
   VENDOR_REGISTERED
   VENDOR_STATUS_CHANGED
   VENDOR_VERIFIED
   VENDOR_REJECTED
   VENDOR_SUSPENDED
+  VENDOR_DELIVERY_PREFERENCE_CHANGED
+  DELIVERY_SETTINGS_UPDATED
   ADMIN_NOTE_ADDED
   VENDOR_COMPLIANCE_REQUEST_CREATED
   VENDOR_COMPLIANCE_REQUEST_SENT
@@ -428,6 +451,7 @@ model User {
   vendorComplianceCreated  VendorComplianceRequest[] @relation("VendorComplianceCreatedBy")
   vendorComplianceReviewed VendorComplianceRequest[] @relation("VendorComplianceReviewedBy")
   vendorComplianceItemReviewed VendorComplianceResponse[] @relation("VendorComplianceResponseReviewedBy")
+  deliverySettingsUpdated      DeliverySettings[]          @relation("DeliverySettingsUpdatedBy")
 
   @@index([roleId])
   @@index([status])
@@ -462,6 +486,7 @@ model VendorProfile {
   businessType        String?             @map("business_type")
   services            Json                @default("[]")
   accountStatus       VendorAccountStatus @default(PENDING) @map("account_status")
+  deliveryPreference  DeliveryPreference  @default(ASK_ON_EVERY_ORDER) @map("delivery_preference")
   verificationRemarks String?             @map("verification_remarks") @db.Text
   verifiedAt          DateTime?           @map("verified_at")
   verifiedById        String?             @map("verified_by_id")
@@ -479,10 +504,28 @@ model VendorProfile {
   complianceResponses VendorComplianceResponse[]
 
   @@index([accountStatus])
+  @@index([deliveryPreference])
   @@index([businessName])
   @@index([vendorCode])
   @@index([createdAt])
   @@map("vendor_profiles")
+}
+
+/// Platform-wide delivery configuration (singleton row id = "default")
+model DeliverySettings {
+  id                    String   @id @default("default")
+  defaultDeliveryCharge Decimal  @default(100) @map("default_delivery_charge") @db.Decimal(12, 2)
+  isDeliveryEnabled     Boolean  @default(true) @map("is_delivery_enabled")
+  isPickupEnabled       Boolean  @default(true) @map("is_pickup_enabled")
+  /// Future: zone pricing, courier providers, free-delivery rules, weight tiers
+  futureConfig          Json     @default("{}") @map("future_config")
+  updatedById           String?  @map("updated_by_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("DeliverySettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("delivery_settings")
 }
 
 // =====================================================
@@ -1185,13 +1228,18 @@ model ProductionOrder {
   customerId  String                @map("customer_id")
   orderName   String?               @map("order_name")
   status      ProductionOrderStatus @default(CONFIRMED)
-  subtotal    Decimal               @db.Decimal(12, 2)
-  taxAmount   Decimal               @map("tax_amount") @db.Decimal(12, 2)
-  totalAmount Decimal               @map("total_amount") @db.Decimal(12, 2)
-  notes       String?               @db.Text
-  quoteId     String?               @map("quote_id")
-  createdAt   DateTime              @default(now()) @map("created_at")
-  updatedAt   DateTime              @updatedAt @map("updated_at")
+  subtotal        Decimal               @db.Decimal(12, 2)
+  deliveryCharge  Decimal               @default(0) @map("delivery_charge") @db.Decimal(12, 2)
+  taxAmount       Decimal               @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount     Decimal               @map("total_amount") @db.Decimal(12, 2)
+  deliveryRequired Boolean              @default(false) @map("delivery_required")
+  deliveryType    DeliveryType?         @map("delivery_type")
+  deliveryAddress String?               @map("delivery_address") @db.Text
+  deliveryStatus  DeliveryStatus?       @map("delivery_status")
+  notes           String?               @db.Text
+  quoteId         String?               @map("quote_id")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
 
   customer          User                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   quote             Quote?                @relation(fields: [quoteId], references: [id], onDelete: SetNull)

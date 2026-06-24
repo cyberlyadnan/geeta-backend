@@ -34,6 +34,9 @@ export const vendorRegisterSchema = z.object({
   gstNumber: z.string().max(20).optional(),
   fullAddress: z.string().min(10).max(2000),
   services: z.array(registrationServiceIds).min(1),
+  deliveryPreference: z
+    .enum(['ALWAYS_DELIVERY_REQUIRED', 'SELF_PICKUP_ONLY', 'ASK_ON_EVERY_ORDER'])
+    .default('ASK_ON_EVERY_ORDER'),
 });
 
 export const loginSchema = z.union([
