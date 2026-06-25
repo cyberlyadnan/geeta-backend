@@ -20,7 +20,9 @@
     "prisma:migrate:deploy": "dotenv -e .env -e .env.local -- prisma migrate deploy",
     "prisma:studio": "dotenv -e .env -e .env.local -- prisma studio",
     "prisma:seed": "dotenv -e .env -e .env.local -- tsx prisma/seed.ts",
-    "verify:razorpay": "tsx scripts/verify-razorpay.ts",
+    "perf:api": "dotenv -e .env -e .env.local -- tsx scripts/perf/api-probe.ts",
+    "perf:network": "dotenv -e .env -e .env.local -- tsx scripts/perf/network-benchmark.ts",
+    "perf:explain": "dotenv -e .env -e .env.local -- tsx scripts/perf/explain-analyze.ts",
     "db:security-lockdown": "dotenv -e .env -e .env.local -- prisma db execute --file scripts/supabase-rls-lockdown.sql --schema prisma/schema.prisma",
     "postinstall": "prisma generate"
   },

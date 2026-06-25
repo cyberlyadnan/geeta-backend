@@ -504,6 +504,7 @@ model VendorProfile {
   complianceResponses VendorComplianceResponse[]
 
   @@index([accountStatus])
+  @@index([accountStatus, createdAt(sort: Desc)])
   @@index([deliveryPreference])
   @@index([businessName])
   @@index([vendorCode])
@@ -642,9 +643,12 @@ model ActivityLog {
   actor         User?          @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([vendorProfileId])
+  @@index([vendorProfileId, createdAt(sort: Desc)])
   @@index([entityType, entityId])
+  @@index([entityType, entityId, createdAt(sort: Desc)])
   @@index([action])
   @@index([createdAt])
+  @@index([actorId, createdAt(sort: Desc)])
   @@map("activity_logs")
 }
 
@@ -659,6 +663,7 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, revokedAt])
   @@index([expiresAt])
   @@map("refresh_tokens")
 }
@@ -1248,9 +1253,12 @@ model ProductionOrder {
   jobCards          ProductionJobCard[]
 
   @@index([customerId])
+  @@index([customerId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
   @@index([quoteId])
   @@index([status])
   @@index([orderNumber])
+  @@index([deliveryStatus])
   @@map("production_orders")
 }
 
@@ -1633,9 +1641,11 @@ model Order {
   walletTransactions WalletTransaction[]
 
   @@index([userId])
+  @@index([userId, createdAt(sort: Desc)])
   @@index([status])
   @@index([orderNumber])
   @@index([createdAt])
+  @@index([deletedAt])
   @@map("orders")
 }
 

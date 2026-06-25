@@ -25,8 +25,6 @@ import {
   USER_SESSION_SELECT,
 } from '../../common/security/user.serialization.js';
 import { extractPermissions, mapUserToAuthResponse, splitOwnerName } from './auth.utils.js';
-import { logger } from '../../logs/logger.js';
-
 const authMeCaches = new Map<string, TtlCache<ReturnType<typeof mapUserToAuthResponse>>>();
 
 function authMeCacheFor(userId: string) {
@@ -103,7 +101,7 @@ export class AuthService {
       throw ApiError.internal('Vendor profile creation failed');
     }
 
-    await activityLogService.log({
+    activityLogService.logAsync({
       action: ActivityAction.VENDOR_REGISTERED,
       entityType: 'vendor_profile',
       entityId: user.vendorProfile.id,
@@ -128,14 +126,13 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<LoginResponse> {
-    const existing = await prisma.user.findUnique({ where: { email: input.email } });
+    const [existing, customerRole] = await Promise.all([
+      prisma.user.findUnique({ where: { email: input.email } }),
+      prisma.role.findUnique({ where: { name: RoleName.CUSTOMER } }),
+    ]);
     if (existing) {
       throw ApiError.conflict('Email already registered');
     }
-
-    const customerRole = await prisma.role.findUnique({
-      where: { name: RoleName.CUSTOMER },
-    });
     if (!customerRole) {
       throw ApiError.internal('Default role not configured. Run database seed.');
     }
@@ -188,8 +185,7 @@ export class AuthService {
 
     const tokens = await this.issueTokensWithLoginUpdate(user.id, user.email, user.role);
 
-    void activityLogService
-      .log({
+    activityLogService.logAsync({
         action: ActivityAction.USER_LOGIN,
         entityType: 'user',
         entityId: user.id,
@@ -197,12 +193,6 @@ export class AuthService {
         actorId: user.id,
         ipAddress: meta?.ipAddress,
         userAgent: meta?.userAgent,
-      })
-      .catch((err) => {
-        logger.warn('Login activity log failed (non-blocking)', {
-          userId: user.id,
-          message: err instanceof Error ? err.message : String(err),
-        });
       });
 
     return { user: mapUserToAuthResponse(user), tokens };
@@ -229,7 +219,7 @@ export class AuthService {
       case VendorAccountStatus.PENDING:
       case VendorAccountStatus.UNDER_REVIEW:
       case VendorAccountStatus.DOCUMENT_REQUIRED:
-        await activityLogService.log({
+        activityLogService.logAsync({
           action: ActivityAction.USER_LOGIN_BLOCKED,
           entityType: 'vendor_profile',
           entityId: profile.id,
@@ -291,12 +281,24 @@ export class AuthService {
       await this.assertVendorCanLogin(stored.user);
     }
 
-    await prisma.refreshToken.update({
-      where: { id: stored.id },
-      data: { revokedAt: new Date() },
-    });
+    const tokens = this.buildTokenPair(stored.user.id, stored.user.email, stored.user.role);
+    const expiresAt = new Date(Date.now() + parseDurationToMs(jwtConfig.refreshExpiresIn));
 
-    return this.issueTokens(stored.user.id, stored.user.email, stored.user.role);
+    await prisma.$transaction([
+      prisma.refreshToken.update({
+        where: { id: stored.id },
+        data: { revokedAt: new Date() },
+      }),
+      prisma.refreshToken.create({
+        data: {
+          token: tokens.refreshToken,
+          userId: stored.user.id,
+          expiresAt,
+        },
+      }),
+    ]);
+
+    return tokens;
   }
 
   async logout(refreshToken: string): Promise<void> {

@@ -41,7 +41,6 @@ export const adminMonitoringService = {
   async getDashboard(options?: { refresh?: boolean }) {
     if (options?.refresh) {
       dashboardCache.invalidate();
-      await healthService.checkDatabase({ force: true });
     }
     return dashboardCache.getOrLoad(buildDashboard);
   },

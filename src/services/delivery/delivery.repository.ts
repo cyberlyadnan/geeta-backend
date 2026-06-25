@@ -1,31 +1,41 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
+import { TtlCache } from '../../common/cache/ttl-cache.js';
 import type { DeliveryPlatformSettings } from './delivery.types.js';
+
+const deliverySettingsCache = new TtlCache<
+  DeliveryPlatformSettings & { id: string; updatedAt: Date }
+>(Number(process.env['DELIVERY_SETTINGS_CACHE_TTL_MS'] ?? 60_000));
 
 export class DeliverySettingsRepository {
   async getOrCreate(): Promise<DeliveryPlatformSettings & { id: string; updatedAt: Date }> {
-    let row = await prisma.deliverySettings.findUnique({ where: { id: 'default' } });
-    if (!row) {
-      row = await prisma.deliverySettings.create({
-        data: {
+    return deliverySettingsCache.getOrLoad(async () => {
+      const row = await prisma.deliverySettings.upsert({
+        where: { id: 'default' },
+        create: {
           id: 'default',
           defaultDeliveryCharge: 100,
           isDeliveryEnabled: true,
           isPickupEnabled: true,
         },
+        update: {},
       });
-    }
 
-    return {
-      id: row.id,
-      defaultDeliveryCharge: Number(row.defaultDeliveryCharge),
-      isDeliveryEnabled: row.isDeliveryEnabled,
-      isPickupEnabled: row.isPickupEnabled,
-      currency: 'INR',
-      futureConfig: (row.futureConfig as Record<string, unknown>) ?? {},
-      updatedAt: row.updatedAt,
-    };
+      return {
+        id: row.id,
+        defaultDeliveryCharge: Number(row.defaultDeliveryCharge),
+        isDeliveryEnabled: row.isDeliveryEnabled,
+        isPickupEnabled: row.isPickupEnabled,
+        currency: 'INR',
+        futureConfig: (row.futureConfig as Record<string, unknown>) ?? {},
+        updatedAt: row.updatedAt,
+      };
+    });
+  }
+
+  invalidateCache(): void {
+    deliverySettingsCache.invalidate();
   }
 
   async update(
@@ -63,6 +73,7 @@ export class DeliverySettingsRepository {
       },
     });
 
+    this.invalidateCache();
     return row;
   }
 }

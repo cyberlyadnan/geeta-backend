@@ -10,6 +10,7 @@ import {
   getRequestContext,
 } from './request-context.js';
 import { buildRouteLabel, metricsStore } from './metrics-store.js';
+import { logRequestBreakdown } from './request-breakdown.js';
 import { normalizeRoutePath, roundMs } from './utils.js';
 
 export function performanceMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -29,11 +30,13 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
     startTime,
     startHrTime,
     validationMs: 0,
+    authenticationMs: 0,
     databaseMs: 0,
     responseMs: 0,
     queries: [],
     queryPatterns: new Map<string, number>(),
     nPlusOneReported: new Set<string>(),
+    operations: [],
   };
 
   bindRequestContext(req, ctx);
@@ -82,6 +85,20 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
       ...entry,
       queryCount: activeCtx?.queries.length ?? 0,
     });
+
+    const breakdownEnabled =
+      process.env['OBSERVABILITY_REQUEST_BREAKDOWN'] !== 'false' &&
+      (durationMs >= 50 || (activeCtx?.queries.length ?? 0) > 0);
+    if (breakdownEnabled) {
+      logRequestBreakdown({
+        req,
+        method: req.method,
+        route: routeLabel,
+        durationMs,
+        phases,
+        statusCode: res.statusCode,
+      });
+    }
 
     logger.debug('HTTP request', {
       requestId,

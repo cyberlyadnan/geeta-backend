@@ -21,6 +21,11 @@ import type {
   UpdateContactInquiryInput,
   UpdateContactInquiryStatusInput,
 } from './contact.validation.js';
+import { TtlCache } from '../../common/cache/ttl-cache.js';
+
+const contactStatsCache = new TtlCache<Awaited<ReturnType<ContactService['getStats']>>>(
+  Number(process.env['CONTACT_STATS_CACHE_TTL_MS'] ?? 30_000),
+);
 
 export class ContactService {
   private async logActivity(
@@ -93,49 +98,52 @@ export class ContactService {
   }
 
   async getStats() {
-    const [total, statusGroups, priorityGroups, subjectGroups, newCount] = await Promise.all([
-      prisma.contactInquiry.count(),
-      prisma.contactInquiry.groupBy({
-        by: ['status'],
-        _count: { _all: true },
-      }),
-      prisma.contactInquiry.groupBy({
-        by: ['priority'],
-        _count: { _all: true },
-      }),
-      prisma.contactInquiry.groupBy({
-        by: ['subject'],
-        _count: { _all: true },
-      }),
-      prisma.contactInquiry.count({ where: { status: ContactInquiryStatus.NEW } }),
-    ]);
+    return contactStatsCache.getOrLoad(async () => {
+      const [statusGroups, priorityGroups, subjectGroups] = await Promise.all([
+        prisma.contactInquiry.groupBy({
+          by: ['status'],
+          _count: { _all: true },
+        }),
+        prisma.contactInquiry.groupBy({
+          by: ['priority'],
+          _count: { _all: true },
+        }),
+        prisma.contactInquiry.groupBy({
+          by: ['subject'],
+          _count: { _all: true },
+        }),
+      ]);
 
-    const byStatus = Object.fromEntries(
-      statusGroups.map((row) => [row.status, row._count._all]),
-    ) as Partial<Record<ContactInquiryStatus, number>>;
+      const byStatus = Object.fromEntries(
+        statusGroups.map((row) => [row.status, row._count._all]),
+      ) as Partial<Record<ContactInquiryStatus, number>>;
 
-    const byPriority = Object.fromEntries(
-      priorityGroups.map((row) => [row.priority, row._count._all]),
-    ) as Partial<Record<ContactInquiryPriority, number>>;
+      const total = statusGroups.reduce((sum, row) => sum + row._count._all, 0);
+      const newCount = byStatus.NEW ?? 0;
 
-    const bySubject = Object.fromEntries(
-      subjectGroups.map((row) => [row.subject, row._count._all]),
-    );
+      const byPriority = Object.fromEntries(
+        priorityGroups.map((row) => [row.priority, row._count._all]),
+      ) as Partial<Record<ContactInquiryPriority, number>>;
 
-    return {
-      total,
-      new: newCount,
-      open:
-        (byStatus.NEW ?? 0) +
-        (byStatus.READ ?? 0) +
-        (byStatus.IN_PROGRESS ?? 0),
-      inProgress: byStatus.IN_PROGRESS ?? 0,
-      resolved: byStatus.RESOLVED ?? 0,
-      archived: byStatus.ARCHIVED ?? 0,
-      byStatus,
-      byPriority,
-      bySubject,
-    };
+      const bySubject = Object.fromEntries(
+        subjectGroups.map((row) => [row.subject, row._count._all]),
+      );
+
+      return {
+        total,
+        new: newCount,
+        open:
+          (byStatus.NEW ?? 0) +
+          (byStatus.READ ?? 0) +
+          (byStatus.IN_PROGRESS ?? 0),
+        inProgress: byStatus.IN_PROGRESS ?? 0,
+        resolved: byStatus.RESOLVED ?? 0,
+        archived: byStatus.ARCHIVED ?? 0,
+        byStatus,
+        byPriority,
+        bySubject,
+      };
+    });
   }
 
   async findAll(query: ListContactInquiriesInput) {

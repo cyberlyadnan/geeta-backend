@@ -4,9 +4,16 @@ export type ErrorCategory = 'api' | 'validation' | 'database' | 'unhandled';
 
 export interface RequestPhaseTimings {
   validationMs: number;
+  authenticationMs: number;
   businessLogicMs: number;
   databaseMs: number;
   responseMs: number;
+}
+
+export interface RequestOperationTiming {
+  label: string;
+  durationMs: number;
+  category: 'validation' | 'auth' | 'database' | 'business' | 'serialization';
 }
 
 export interface RequestLogEntry {
@@ -107,6 +114,7 @@ export interface RequestTimeline {
   phases: RequestPhaseTimings;
   totalMs: number;
   queries: PrismaQueryEntry[];
+  operations?: RequestOperationTiming[];
 }
 
 /** Pluggable exporter for Prometheus / OpenTelemetry / Datadog */

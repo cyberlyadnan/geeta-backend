@@ -38,7 +38,7 @@ function recordQueryEvent(input: {
   metricsStore.recordQuery(entry);
 
   if (ctx) {
-    const count = (ctx.queryPatterns.get(normalizedQuery) ?? 0) + 1;
+    const count = ctx.queryPatterns.get(normalizedQuery) ?? 0;
     if (
       count >= metricsStore.getNPlusOneThreshold() &&
       !ctx.nPlusOneReported.has(normalizedQuery)

@@ -90,16 +90,17 @@ export class AdminVendorsService {
   }
 
   async getById(id: string) {
-    const profile = await prisma.vendorProfile.findUnique({
-      where: { id },
-      include: VENDOR_ADMIN_DETAIL_INCLUDE,
-    });
+    const [profile, activities] = await Promise.all([
+      prisma.vendorProfile.findUnique({
+        where: { id },
+        include: VENDOR_ADMIN_DETAIL_INCLUDE,
+      }),
+      activityLogService.listByVendor(id, 100),
+    ]);
 
     if (!profile) {
       throw ApiError.notFound('Vendor not found');
     }
-
-    const activities = await activityLogService.listByVendor(id, 100);
 
     return mapVendorDetailToDto(profile, activities);
   }
@@ -167,7 +168,7 @@ export class AdminVendorsService {
             ? ActivityAction.VENDOR_SUSPENDED
             : ActivityAction.VENDOR_STATUS_CHANGED;
 
-    await activityLogService.log({
+    activityLogService.logAsync({
       action,
       entityType: 'vendor_profile',
       entityId: id,
@@ -207,7 +208,7 @@ export class AdminVendorsService {
       include: { user: { select: VENDOR_ADMIN_USER_SELECT } },
     });
 
-    await activityLogService.log({
+    activityLogService.logAsync({
       action: ActivityAction.VENDOR_DELIVERY_PREFERENCE_CHANGED,
       entityType: 'vendor_profile',
       entityId: id,
@@ -253,7 +254,7 @@ export class AdminVendorsService {
       },
     });
 
-    await activityLogService.log({
+    activityLogService.logAsync({
       action: ActivityAction.ADMIN_NOTE_ADDED,
       entityType: 'admin_note',
       entityId: note.id,

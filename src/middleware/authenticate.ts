@@ -1,6 +1,10 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ApiError } from '../common/errors/ApiError.js';
-import { setRequestUserId } from '../observability/request-context.js';
+import {
+  beginAuthentication,
+  endAuthentication,
+  setRequestUserId,
+} from '../observability/request-context.js';
 import { tokenService } from '../services/auth/token.service.js';
 
 export async function authenticate(
@@ -8,6 +12,7 @@ export async function authenticate(
   _res: Response,
   next: NextFunction,
 ): Promise<void> {
+  beginAuthentication(req);
   try {
     const authHeader = req.headers.authorization;
 
@@ -26,9 +31,11 @@ export async function authenticate(
     };
 
     setRequestUserId(payload.sub, req);
+    endAuthentication(req, 'JWT verification');
 
     next();
   } catch (error) {
+    endAuthentication(req, 'JWT verification (failed)');
     next(error instanceof ApiError ? error : ApiError.unauthorized('Invalid or expired token'));
   }
 }

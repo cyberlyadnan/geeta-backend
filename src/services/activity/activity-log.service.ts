@@ -1,5 +1,6 @@
 import type { ActivityAction, Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { logger } from '../../logs/logger.js';
 
 export interface LogActivityInput {
   action: ActivityAction;
@@ -25,6 +26,17 @@ export class ActivityLogService {
         ipAddress: input.ipAddress,
         userAgent: input.userAgent,
       },
+    });
+  }
+
+  /** Non-blocking write — use on request hot paths (login, mutations). */
+  logAsync(input: LogActivityInput): void {
+    void this.log(input).catch((err) => {
+      logger.warn('Activity log failed (non-blocking)', {
+        action: input.action,
+        entityId: input.entityId,
+        message: err instanceof Error ? err.message : String(err),
+      });
     });
   }
 
