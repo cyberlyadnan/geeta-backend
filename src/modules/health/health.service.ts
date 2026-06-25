@@ -2,6 +2,7 @@ import { prisma } from '../../config/database.js';
 import { env } from '../../config/env.js';
 import { isRedisConnected, isRedisEnabled } from '../../config/redis.js';
 import { metricsStore } from '../../observability/metrics-store.js';
+import { TtlCache } from '../../common/cache/ttl-cache.js';
 import type { SystemHealthStatus } from '../../observability/types.js';
 
 type HealthCheckStatus = 'up' | 'down' | 'degraded' | 'disabled';
@@ -10,7 +11,12 @@ export interface HealthComponent {
   status: HealthCheckStatus;
   latencyMs?: number;
   message?: string;
+  cached?: boolean;
 }
+
+const databaseHealthCache = new TtlCache<HealthComponent>(
+  Number(process.env['HEALTH_DB_CACHE_TTL_MS'] ?? 30_000),
+);
 
 function isStorageConfigured(): boolean {
   return Boolean(
@@ -21,20 +27,34 @@ function isStorageConfigured(): boolean {
   );
 }
 
+async function probeDatabase(): Promise<HealthComponent> {
+  const start = performance.now();
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    const latencyMs = Math.round(performance.now() - start);
+    const status: HealthCheckStatus = latencyMs > 500 ? 'degraded' : 'up';
+    return { status, latencyMs, cached: false };
+  } catch (error) {
+    return {
+      status: 'down',
+      message: error instanceof Error ? error.message : 'Database unreachable',
+      cached: false,
+    };
+  }
+}
+
 export const healthService = {
-  async checkDatabase(): Promise<HealthComponent> {
-    const start = performance.now();
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      const latencyMs = Math.round(performance.now() - start);
-      const status: HealthCheckStatus = latencyMs > 500 ? 'degraded' : 'up';
-      return { status, latencyMs };
-    } catch (error) {
-      return {
-        status: 'down',
-        message: error instanceof Error ? error.message : 'Database unreachable',
-      };
+  async checkDatabase(options?: { force?: boolean }): Promise<HealthComponent> {
+    if (options?.force) {
+      databaseHealthCache.invalidate();
     }
+
+    const cached = databaseHealthCache.cached;
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+
+    return databaseHealthCache.getOrLoad(probeDatabase);
   },
 
   checkRedis(): HealthComponent {

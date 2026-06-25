@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
+import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { passwordService, tokenService } from '../../services/auth/index.js';
 import { activityLogService } from '../../services/activity/index.js';
 import { vendorCodeService } from '../../services/vendor-code/index.js';
@@ -24,6 +25,18 @@ import {
   USER_SESSION_SELECT,
 } from '../../common/security/user.serialization.js';
 import { extractPermissions, mapUserToAuthResponse, splitOwnerName } from './auth.utils.js';
+import { logger } from '../../logs/logger.js';
+
+const authMeCaches = new Map<string, TtlCache<ReturnType<typeof mapUserToAuthResponse>>>();
+
+function authMeCacheFor(userId: string) {
+  let cache = authMeCaches.get(userId);
+  if (!cache) {
+    cache = new TtlCache(Number(process.env['AUTH_ME_CACHE_TTL_MS'] ?? 10_000));
+    authMeCaches.set(userId, cache);
+  }
+  return cache;
+}
 
 export class AuthService {
   async registerVendor(
@@ -173,22 +186,25 @@ export class AuthService {
       throw ApiError.forbidden('Account is not active');
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
+    const tokens = await this.issueTokensWithLoginUpdate(user.id, user.email, user.role);
 
-    await activityLogService.log({
-      action: ActivityAction.USER_LOGIN,
-      entityType: 'user',
-      entityId: user.id,
-      vendorProfileId: user.vendorProfile?.id,
-      actorId: user.id,
-      ipAddress: meta?.ipAddress,
-      userAgent: meta?.userAgent,
-    });
+    void activityLogService
+      .log({
+        action: ActivityAction.USER_LOGIN,
+        entityType: 'user',
+        entityId: user.id,
+        vendorProfileId: user.vendorProfile?.id,
+        actorId: user.id,
+        ipAddress: meta?.ipAddress,
+        userAgent: meta?.userAgent,
+      })
+      .catch((err) => {
+        logger.warn('Login activity log failed (non-blocking)', {
+          userId: user.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
 
-    const tokens = await this.issueTokens(user.id, user.email, user.role);
     return { user: mapUserToAuthResponse(user), tokens };
   }
 
@@ -291,21 +307,48 @@ export class AuthService {
   }
 
   async getMe(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId, deletedAt: null },
-      select: USER_SESSION_SELECT,
+    return authMeCacheFor(userId).getOrLoad(async () => {
+      const user = await prisma.user.findUnique({
+        where: { id: userId, deletedAt: null },
+        select: USER_SESSION_SELECT,
+      });
+      if (!user) {
+        throw ApiError.notFound('User not found');
+      }
+      return mapUserToAuthResponse(user);
     });
-    if (!user) {
-      throw ApiError.notFound('User not found');
-    }
-    return mapUserToAuthResponse(user);
   }
 
-  private async issueTokens(
+  private async issueTokensWithLoginUpdate(
     userId: string,
     email: string,
     role: { name: RoleName; permissions: unknown },
   ): Promise<AuthTokens> {
+    const tokens = this.buildTokenPair(userId, email, role);
+    const expiresAt = new Date(Date.now() + parseDurationToMs(jwtConfig.refreshExpiresIn));
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { lastLoginAt: new Date() },
+      }),
+      prisma.refreshToken.create({
+        data: {
+          token: tokens.refreshToken,
+          userId,
+          expiresAt,
+        },
+      }),
+    ]);
+
+    return tokens;
+  }
+
+  private buildTokenPair(
+    userId: string,
+    email: string,
+    role: { name: RoleName; permissions: unknown },
+  ): AuthTokens {
     const permissions = extractPermissions(role as import('@prisma/client').Role);
 
     const accessToken = tokenService.generateAccessToken({
@@ -321,17 +364,26 @@ export class AuthService {
       role: role.name,
     });
 
+    return { accessToken, refreshToken };
+  }
+
+  private async issueTokens(
+    userId: string,
+    email: string,
+    role: { name: RoleName; permissions: unknown },
+  ): Promise<AuthTokens> {
+    const tokens = this.buildTokenPair(userId, email, role);
     const expiresAt = new Date(Date.now() + parseDurationToMs(jwtConfig.refreshExpiresIn));
 
     await prisma.refreshToken.create({
       data: {
-        token: refreshToken,
+        token: tokens.refreshToken,
         userId,
         expiresAt,
       },
     });
 
-    return { accessToken, refreshToken };
+    return tokens;
   }
 }
 

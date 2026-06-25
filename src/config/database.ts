@@ -1,62 +1,73 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { env } from './env.js';
 import { logger } from '../logs/logger.js';
-import { prismaPerformanceService } from '../observability/prisma-performance.service.js';
+import {
+  isDirectSupabaseUrl,
+  isSessionPoolerUrl,
+  isTransactionPoolerUrl,
+  resolveRuntimeDatabaseUrl,
+} from './database-url.js';
+import { prismaPerformanceExtension } from '../observability/prisma-performance.extension.js';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-/** Prisma options tuned for Supabase PgBouncer (transaction pooler) */
-const isSupabasePooler =
-  env.DATABASE_URL.includes('pooler.supabase.com') ||
-  env.DATABASE_URL.includes('pgbouncer=true');
+const configuredUrl = env.DATABASE_URL;
+export const runtimeDatabaseUrl = resolveRuntimeDatabaseUrl(configuredUrl);
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: [{ emit: 'event', level: 'query' }, 'error', 'warn'],
+function createPrismaClient(): PrismaClient {
+  const base = new PrismaClient({
+    log: env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
     datasources: {
-      db: {
-        url: env.DATABASE_URL,
-      },
+      db: { url: runtimeDatabaseUrl },
     },
   });
 
-prismaPerformanceService.init(prisma);
+  const extended = base.$extends(prismaPerformanceExtension());
+  // Cast preserves TransactionClient typing across the codebase
+  return extended as unknown as PrismaClient;
+}
+
+export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
 if (env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }
 
-function formatPrismaConnectionError(error: unknown): string {
-  if (error instanceof Prisma.PrismaClientInitializationError) {
-    return error.message;
+function poolerHint(): string | undefined {
+  if (isDirectSupabaseUrl(runtimeDatabaseUrl)) {
+    return 'Using Supabase direct connection (db.*.supabase.co) — lowest latency for persistent APIs.';
   }
-  if (error instanceof Error) {
-    return error.message;
+  if (isTransactionPoolerUrl(configuredUrl) && runtimeDatabaseUrl !== configuredUrl) {
+    return 'Auto-switched DATABASE_URL from transaction pooler (6543) to session pooler (5432).';
   }
-  return String(error);
+  if (isTransactionPoolerUrl(runtimeDatabaseUrl)) {
+    return 'Transaction pooler (6543) adds BEGIN/COMMIT per query. Use port 5432 or DATABASE_USE_DIRECT=true.';
+  }
+  if (isSessionPoolerUrl(runtimeDatabaseUrl)) {
+    return 'Using Supabase session pooler (5432). For lowest latency set DATABASE_USE_DIRECT=true.';
+  }
+  return undefined;
 }
 
 export async function connectDatabase(): Promise<void> {
   try {
     await prisma.$connect();
+    const hint = poolerHint();
     logger.info('PostgreSQL connected via Prisma', {
-      mode: isSupabasePooler ? 'supabase-pooler' : 'direct',
+      configuredPort: configuredUrl.includes(':6543') ? 6543 : 5432,
+      runtimePort: runtimeDatabaseUrl.includes(':6543') ? 6543 : 5432,
+      autoSessionPooler: configuredUrl !== runtimeDatabaseUrl,
+      ...(hint && { performanceHint: hint }),
     });
+    if (isTransactionPoolerUrl(runtimeDatabaseUrl)) {
+      logger.warn('Database latency: transaction pooler in use', { hint });
+    }
+    await prisma.$queryRaw`SELECT 1`;
   } catch (error) {
-    const message = formatPrismaConnectionError(error);
-
-    logger.error('Failed to connect to PostgreSQL', {
-      message,
-      hint:
-        message.includes('P1000') || message.toLowerCase().includes('authentication')
-          ? 'Check DATABASE_URL password in .env / .env.local (replace [YOUR-PASSWORD] with your Supabase database password)'
-          : message.includes('Can\'t reach')
-            ? 'Check network, Supabase project status, and that DATABASE_URL host/port are correct'
-            : undefined,
-    });
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to connect to PostgreSQL', { message });
     throw error;
   }
 }

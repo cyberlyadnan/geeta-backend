@@ -25,7 +25,7 @@ export async function authenticate(
       permissions: payload.permissions ?? [],
     };
 
-    setRequestUserId(payload.sub);
+    setRequestUserId(payload.sub, req);
 
     next();
   } catch (error) {

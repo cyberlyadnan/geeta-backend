@@ -21,7 +21,7 @@ function formatZodErrors(error: ZodError): Record<string, string[]> {
  */
 export function validate<T>(schema: ZodSchema<T>, target: RequestTarget = 'body') {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    beginValidation();
+    beginValidation(req);
     try {
       const result = schema.safeParse(req[target]);
 
@@ -44,7 +44,7 @@ export function validate<T>(schema: ZodSchema<T>, target: RequestTarget = 'body'
 
       next();
     } finally {
-      endValidation();
+      endValidation(req);
     }
   };
 }
