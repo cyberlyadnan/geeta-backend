@@ -5,7 +5,8 @@ import { ordersService } from './orders.service.js';
 
 export class OrdersController {
   list = asyncHandler(async (req: Request, res: Response) => {
-    const result = await ordersService.findAll(req.user!.id);
+    const query = req.validatedQuery as import('./orders.validation.js').ListOrdersQuery;
+    const result = await ordersService.findAll(req.user!.id, query.page, query.limit);
     return ApiResponse.success(res, result);
   });
 

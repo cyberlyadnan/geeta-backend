@@ -1,5 +1,6 @@
 import { Prisma, ProductStatus, ProductVisibility } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { categoryRepository } from '../../repositories/category.repository.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { pricingEngineService } from '../../services/pricing-engine/index.js';
 import {
@@ -71,7 +72,7 @@ export class ProductsService {
 
     let categoryIds: string[] | undefined;
     if (params?.categoryId) {
-      categoryIds = await this.resolveCategoryTreeIds(params.categoryId);
+      categoryIds = await categoryRepository.resolveTreeIds(params.categoryId);
     }
 
     const where: Prisma.ProductOfferingWhereInput = {
@@ -102,27 +103,6 @@ export class ProductsService {
       items: items.map(mapVendorProductListItem),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
-  }
-
-  /** Include products in subcategories when filtering by a parent category. */
-  private async resolveCategoryTreeIds(rootId: string): Promise<string[]> {
-    const all = await prisma.category.findMany({
-      where: { deletedAt: null, isActive: true },
-      select: { id: true, parentId: true },
-    });
-
-    const ids = new Set<string>([rootId]);
-    let added = true;
-    while (added) {
-      added = false;
-      for (const cat of all) {
-        if (cat.parentId && ids.has(cat.parentId) && !ids.has(cat.id)) {
-          ids.add(cat.id);
-          added = true;
-        }
-      }
-    }
-    return [...ids];
   }
 
   async findById(id: string) {

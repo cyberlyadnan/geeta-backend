@@ -5,14 +5,15 @@ import {
 } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
-import { pricingEngineService } from '../../services/pricing-engine/index.js';
+import { toDecimal } from '../../utils/money.js';
 import {
   calculateOrderTotals,
   deliverySettingsRepository,
   formatVendorAddress,
-  getVendorProfileForDelivery,
   resolveDeliveryForOrder,
 } from '../../services/delivery/index.js';
+import { vendorRepository } from '../../repositories/vendor.repository.js';
+import { orderRepository } from '../../repositories/order.repository.js';
 import { productsService } from '../products/products.service.js';
 import type { CreateProductionOrderInput } from './orders.validation.js';
 
@@ -23,42 +24,24 @@ function generateOrderNumber(): string {
 }
 
 export class OrdersService {
-  async findAll(userId: string) {
-    const orders = await prisma.productionOrder.findMany({
-      where: { customerId: userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        items: {
-          include: {
-            productOfferingVersion: {
-              include: {
-                productOffering: { select: { id: true, name: true, displayName: true } },
-              },
-            },
-          },
-        },
-      },
-    });
+  async findAll(userId: string, page = 1, limit = 20) {
+    const safeLimit = Math.min(Math.max(limit, 1), 50);
+    const skip = (page - 1) * safeLimit;
+    const [orders, total] = await orderRepository.findManyByCustomer(userId, skip, safeLimit);
 
-    return orders.map(mapOrderToListDto);
+    return {
+      items: orders.map(mapOrderToListDto),
+      meta: {
+        page,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   }
 
   async findById(userId: string, id: string) {
-    const order = await prisma.productionOrder.findFirst({
-      where: { id, customerId: userId },
-      include: {
-        items: {
-          include: {
-            productOfferingVersion: {
-              include: {
-                productOffering: { select: { id: true, name: true, displayName: true, thumbnailUrl: true } },
-              },
-            },
-            configurations: true,
-          },
-        },
-      },
-    });
+    const order = await orderRepository.findByIdForCustomer(userId, id);
 
     if (!order) {
       throw ApiError.notFound('Order not found');
@@ -68,17 +51,16 @@ export class OrdersService {
   }
 
   async create(userId: string, input: CreateProductionOrderInput) {
-    const [settings, profile] = await Promise.all([
+    const [settings, profile, priceResult] = await Promise.all([
       deliverySettingsRepository.getOrCreate(),
-      getVendorProfileForDelivery(userId),
+      vendorRepository.getForDelivery(userId),
+      productsService.calculatePrice({
+        productId: input.productId,
+        versionId: input.versionId,
+        quantity: input.quantity,
+        selections: input.selections,
+      }),
     ]);
-
-    const priceResult = await productsService.calculatePrice({
-      productId: input.productId,
-      versionId: input.versionId,
-      quantity: input.quantity,
-      selections: input.selections,
-    });
 
     const productTotal = priceResult.grandTotal;
 
@@ -98,71 +80,96 @@ export class OrdersService {
       deliveryResolution: resolution,
     });
 
-    const snapshot = await pricingEngineService.persistSnapshot(priceResult);
-
-    const version = await prisma.productOfferingVersion.findUnique({
-      where: { id: priceResult.versionId },
-      select: { id: true },
-    });
-
-    if (!version) {
-      throw ApiError.notFound('Product version not found');
-    }
-
     const notesParts = [
       input.specialRemark?.trim(),
       input.pressline?.trim() ? `Pressline: ${input.pressline.trim()}` : null,
       input.fileOption ? `File option: ${input.fileOption}` : null,
     ].filter(Boolean);
 
-    const order = await prisma.productionOrder.create({
-      data: {
-        orderNumber: generateOrderNumber(),
-        customerId: userId,
-        orderName: input.orderName.trim(),
-        status: ProductionOrderStatus.CONFIRMED,
-        subtotal: totals.productTotal,
-        deliveryCharge: totals.deliveryCharge,
-        taxAmount: totals.taxAmount,
-        totalAmount: totals.grandTotal,
-        deliveryRequired: resolution.deliveryRequired,
-        deliveryType: resolution.deliveryType,
-        deliveryAddress: resolution.deliveryAddress,
-        deliveryStatus: resolution.deliveryRequired ? DeliveryStatus.PENDING : null,
-        notes: notesParts.length > 0 ? notesParts.join('\n') : null,
-        items: {
-          create: {
-            productOfferingVersionId: version.id,
-            quantity: input.quantity,
-            unitPrice: priceResult.unitPrice,
-            totalPrice: productTotal,
-            priceSnapshotId: snapshot.id,
-            configurations: {
-              create: Object.entries(input.selections).map(([fieldCode, selectedValue]) => {
-                const field = priceResult.lines.find((l) => l.code === fieldCode);
-                return {
-                  fieldCode,
-                  fieldLabel: field?.label ?? fieldCode,
-                  selectedValue,
-                  selectedLabel: selectedValue,
-                };
-              }),
-            },
-          },
+    const order = await prisma.$transaction(async (tx) => {
+      const snapshot = await tx.priceSnapshot.create({
+        data: {
+          subtotal: toDecimal(priceResult.subtotal),
+          adjustmentTotal: toDecimal(priceResult.adjustmentTotal),
+          discountTotal: toDecimal(priceResult.discountTotal),
+          taxTotal: toDecimal(priceResult.taxTotal),
+          grandTotal: toDecimal(priceResult.grandTotal),
+          calculation: priceResult.snapshotPayload,
         },
-      },
-      include: {
-        items: {
-          include: {
-            productOfferingVersion: {
-              include: {
-                productOffering: { select: { id: true, name: true, displayName: true } },
+      });
+
+      return tx.productionOrder.create({
+        data: {
+          orderNumber: generateOrderNumber(),
+          customerId: userId,
+          orderName: input.orderName.trim(),
+          status: ProductionOrderStatus.CONFIRMED,
+          subtotal: totals.productTotal,
+          deliveryCharge: totals.deliveryCharge,
+          taxAmount: totals.taxAmount,
+          totalAmount: totals.grandTotal,
+          deliveryRequired: resolution.deliveryRequired,
+          deliveryType: resolution.deliveryType,
+          deliveryAddress: resolution.deliveryAddress,
+          deliveryStatus: resolution.deliveryRequired ? DeliveryStatus.PENDING : null,
+          notes: notesParts.length > 0 ? notesParts.join('\n') : null,
+          items: {
+            create: {
+              productOfferingVersionId: priceResult.versionId,
+              quantity: input.quantity,
+              unitPrice: priceResult.unitPrice,
+              totalPrice: productTotal,
+              priceSnapshotId: snapshot.id,
+              configurations: {
+                create: Object.entries(input.selections).map(([fieldCode, selectedValue]) => {
+                  const field = priceResult.lines.find((l) => l.code === fieldCode);
+                  return {
+                    fieldCode,
+                    fieldLabel: field?.label ?? fieldCode,
+                    selectedValue,
+                    selectedLabel: selectedValue,
+                  };
+                }),
               },
             },
-            configurations: true,
           },
         },
-      },
+        select: {
+          id: true,
+          orderNumber: true,
+          orderName: true,
+          status: true,
+          subtotal: true,
+          deliveryCharge: true,
+          taxAmount: true,
+          totalAmount: true,
+          deliveryRequired: true,
+          deliveryType: true,
+          deliveryAddress: true,
+          deliveryStatus: true,
+          notes: true,
+          createdAt: true,
+          updatedAt: true,
+          items: {
+            select: {
+              id: true,
+              quantity: true,
+              unitPrice: true,
+              totalPrice: true,
+              configurations: {
+                select: { fieldCode: true, fieldLabel: true, selectedLabel: true },
+              },
+              productOfferingVersion: {
+                select: {
+                  productOffering: {
+                    select: { id: true, name: true, displayName: true, thumbnailUrl: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
     });
 
     return mapOrderToDetailDto(order);

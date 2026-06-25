@@ -3,29 +3,14 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { decimalToNumber, toDecimal } from '../../utils/money.js';
 import { calculatePriceFromBundle } from './pricing.calculator.js';
+import { pricingRepository, VERSION_PRICING_INCLUDE } from '../../repositories/pricing.repository.js';
 import type { PriceCalculationInput, PriceCalculationResult } from './pricing.types.js';
 
-const VERSION_PRICING_INCLUDE = {
-  quantityPricing: { where: { isActive: true }, orderBy: { quantity: 'asc' } },
-  configurationFields: {
-    orderBy: { sortOrder: 'asc' },
-    include: {
-      options: {
-        where: { isActive: true },
-        orderBy: { sortOrder: 'asc' },
-        include: { pricing: true },
-      },
-    },
-  },
-  pricingRules: { orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] },
-} satisfies Prisma.ProductOfferingVersionInclude;
+export { VERSION_PRICING_INCLUDE };
 
 export class PricingEngineService {
   async loadVersionBundle(versionId: string) {
-    const version = await prisma.productOfferingVersion.findUnique({
-      where: { id: versionId, deletedAt: null },
-      include: VERSION_PRICING_INCLUDE,
-    });
+    const version = await pricingRepository.loadVersionBundle(versionId);
     if (!version) {
       throw ApiError.notFound('Product version not found');
     }
@@ -33,8 +18,7 @@ export class PricingEngineService {
   }
 
   async calculate(input: PriceCalculationInput): Promise<PriceCalculationResult> {
-    const bundle = await this.loadVersionBundle(input.versionId);
-    return calculatePriceFromBundle(bundle, input);
+    return pricingRepository.calculate(input);
   }
 
   async calculateForProduct(

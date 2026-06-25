@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { PaymentStatus } from '@prisma/client';
 import { walletConfig } from '../../config/wallet.js';
 import { prisma } from '../../config/database.js';
+import { walletRepository } from '../../repositories/wallet.repository.js';
 import { walletLedgerService } from '../../services/ledger/index.js';
 import { paymentsService } from '../payments/payments.service.js';
 import { decimalToNumber } from '../../utils/money.js';
@@ -21,7 +22,7 @@ export class WalletService {
   }
 
   async getSummary(userId: string) {
-    const wallet = await walletLedgerService.ensureWallet(userId);
+    const wallet = await walletRepository.ensureByUserId(userId);
     const summary = walletLedgerService.mapWalletSummary(wallet);
 
     const [pendingPayments, successfulPayments, recentTransactions] = await Promise.all([

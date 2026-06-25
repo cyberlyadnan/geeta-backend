@@ -13,6 +13,8 @@ import { activityLogService } from '../../services/activity/index.js';
 import { vendorCodeService } from '../../services/vendor-code/index.js';
 import { parseDurationToMs } from '../../utils/time.js';
 import { jwtConfig } from '../../config/jwt.js';
+import { userRepository } from '../../repositories/user.repository.js';
+import { roleRepository } from '../../repositories/role.repository.js';
 import type { LoginInput, RegisterInput, VendorRegisterInput } from './auth.validation.js';
 import type {
   AuthTokens,
@@ -21,7 +23,6 @@ import type {
 } from './auth.types.js';
 import { resolveSupportContact } from '../../config/business-contact.js';
 import {
-  USER_LOGIN_SELECT,
   USER_SESSION_SELECT,
 } from '../../common/security/user.serialization.js';
 import { extractPermissions, mapUserToAuthResponse, splitOwnerName } from './auth.utils.js';
@@ -55,9 +56,7 @@ export class AuthService {
       throw ApiError.conflict('Mobile number is already registered');
     }
 
-    const vendorRole = await prisma.role.findUnique({
-      where: { name: RoleName.VENDOR },
-    });
+    const vendorRole = await roleRepository.findByName(RoleName.VENDOR);
     if (!vendorRole) {
       throw ApiError.internal('Vendor role not configured. Run database seed.');
     }
@@ -128,7 +127,7 @@ export class AuthService {
   async register(input: RegisterInput): Promise<LoginResponse> {
     const [existing, customerRole] = await Promise.all([
       prisma.user.findUnique({ where: { email: input.email } }),
-      prisma.role.findUnique({ where: { name: RoleName.CUSTOMER } }),
+      roleRepository.findByName(RoleName.CUSTOMER),
     ]);
     if (existing) {
       throw ApiError.conflict('Email already registered');
@@ -163,10 +162,7 @@ export class AuthService {
         ? { email: input.email.toLowerCase(), deletedAt: null }
         : { phone: input.phone, deletedAt: null };
 
-    const user = await prisma.user.findFirst({
-      where,
-      select: USER_LOGIN_SELECT,
-    });
+    const user = await userRepository.findForLogin(where);
 
     if (!user) {
       throw ApiError.unauthorized('Invalid credentials');
@@ -310,10 +306,7 @@ export class AuthService {
 
   async getMe(userId: string) {
     return authMeCacheFor(userId).getOrLoad(async () => {
-      const user = await prisma.user.findUnique({
-        where: { id: userId, deletedAt: null },
-        select: USER_SESSION_SELECT,
-      });
+      const user = await userRepository.findSessionById(userId);
       if (!user) {
         throw ApiError.notFound('User not found');
       }

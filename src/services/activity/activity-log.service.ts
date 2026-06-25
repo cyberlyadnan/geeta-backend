@@ -1,6 +1,7 @@
 import type { ActivityAction, Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { logger } from '../../logs/logger.js';
+import { enqueueActivityLog } from '../../queues/activity-log.queue.js';
 
 export interface LogActivityInput {
   action: ActivityAction;
@@ -29,15 +30,23 @@ export class ActivityLogService {
     });
   }
 
-  /** Non-blocking write — use on request hot paths (login, mutations). */
+  /**
+   * Non-blocking write for request hot paths.
+   * Uses BullMQ when Redis is available; falls back to fire-and-forget DB write.
+   */
   logAsync(input: LogActivityInput): void {
-    void this.log(input).catch((err) => {
-      logger.warn('Activity log failed (non-blocking)', {
-        action: input.action,
-        entityId: input.entityId,
-        message: err instanceof Error ? err.message : String(err),
+    void enqueueActivityLog(input)
+      .then((queued) => {
+        if (queued) return;
+        return this.log(input);
+      })
+      .catch((err) => {
+        logger.warn('Activity log failed (non-blocking)', {
+          action: input.action,
+          entityId: input.entityId,
+          message: err instanceof Error ? err.message : String(err),
+        });
       });
-    });
   }
 
   async listByVendor(vendorProfileId: string, limit = 50) {
@@ -49,7 +58,6 @@ export class ActivityLogService {
     });
   }
 
-  /** Cross-vendor feed for admin dashboard (registrations, status, compliance, notes). */
   async listRecentVendorActivity(limit = 25) {
     return prisma.activityLog.findMany({
       where: { vendorProfileId: { not: null } },

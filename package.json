@@ -6,6 +6,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:worker": "dotenv -e .env -e .env.local -- tsx src/workers/index.ts",
     "dev:nodemon": "nodemon",
     "build": "prisma generate && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "start": "node dist/server.js",
@@ -23,6 +24,7 @@
     "perf:api": "dotenv -e .env -e .env.local -- tsx scripts/perf/api-probe.ts",
     "perf:network": "dotenv -e .env -e .env.local -- tsx scripts/perf/network-benchmark.ts",
     "perf:explain": "dotenv -e .env -e .env.local -- tsx scripts/perf/explain-analyze.ts",
+    "db:perf-indexes": "prisma db execute --file=scripts/perf/add-performance-indexes.sql --schema=prisma/schema.prisma",
     "db:security-lockdown": "dotenv -e .env -e .env.local -- prisma db execute --file scripts/supabase-rls-lockdown.sql --schema prisma/schema.prisma",
     "postinstall": "prisma generate"
   },

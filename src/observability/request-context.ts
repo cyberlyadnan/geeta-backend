@@ -1,6 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Request } from 'express';
 import type { PrismaQueryEntry, RequestOperationTiming, RequestPhaseTimings } from './types.js';
+import type { RequestCache } from '../common/cache/request-cache.js';
+
+export interface RequestCacheMetrics {
+  requestHits: number;
+  requestMisses: number;
+  redisHits: number;
+  redisMisses: number;
+}
 
 export interface ActiveRequestContext {
   requestId: string;
@@ -21,6 +29,10 @@ export interface ActiveRequestContext {
   queryPatterns: Map<string, number>;
   nPlusOneReported: Set<string>;
   operations: RequestOperationTiming[];
+  requestCache?: RequestCache;
+  cacheStats: RequestCacheMetrics;
+  /** Loaded once per request — vendor profile for authenticated vendor */
+  vendorProfileId?: string;
 }
 
 const storage = new AsyncLocalStorage<ActiveRequestContext>();
@@ -47,6 +59,11 @@ export function runWithRequestFromReq<T>(req: Request, fn: () => Promise<T>): Pr
 export function setRequestUserId(userId: string, req?: Request): void {
   const ctx = getRequestContext(req);
   if (ctx) ctx.userId = userId;
+}
+
+export function setRequestVendorProfileId(vendorProfileId: string, req?: Request): void {
+  const ctx = getRequestContext(req);
+  if (ctx) ctx.vendorProfileId = vendorProfileId;
 }
 
 export function recordOperation(
@@ -140,6 +157,11 @@ export function getPhaseTimings(totalMs: number, req?: Request): RequestPhaseTim
     databaseMs: Math.round(databaseMs * 100) / 100,
     responseMs: Math.round(responseMs * 100) / 100,
   };
+}
+
+export function getCacheStats(req?: Request): RequestCacheMetrics {
+  const ctx = getRequestContext(req);
+  return ctx?.cacheStats ?? { requestHits: 0, requestMisses: 0, redisHits: 0, redisMisses: 0 };
 }
 
 export function getRequestOperations(req?: Request): RequestOperationTiming[] {

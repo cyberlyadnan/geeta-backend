@@ -6,6 +6,7 @@ import {
   beginResponse,
   bindRequestContext,
   endResponse,
+  getCacheStats,
   getPhaseTimings,
   getRequestContext,
 } from './request-context.js';
@@ -37,6 +38,7 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
     queryPatterns: new Map<string, number>(),
     nPlusOneReported: new Set<string>(),
     operations: [],
+    cacheStats: { requestHits: 0, requestMisses: 0, redisHits: 0, redisMisses: 0 },
   };
 
   bindRequestContext(req, ctx);
@@ -84,6 +86,7 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
     performanceLogger.info('request_completed', {
       ...entry,
       queryCount: activeCtx?.queries.length ?? 0,
+      cache: getCacheStats(req),
     });
 
     const breakdownEnabled =
