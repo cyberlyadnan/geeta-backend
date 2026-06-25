@@ -2,19 +2,25 @@
  * Resolves the database URL used at API runtime.
  *
  * Priority:
- * 1. DATABASE_RUNTIME_URL (explicit)
- * 2. Direct Supabase host (db.*.supabase.co) when DATABASE_USE_DIRECT=true
- * 3. Session pooler upgrade from transaction pooler (6543 → 5432)
- * 4. Original DATABASE_URL
+ * 1. DATABASE_RUNTIME_URL (explicit override)
+ * 2. DIRECT_URL (session pooler 5432) when DATABASE_USE_DIRECT=true
+ * 3. DATABASE_DIRECT_HOST_URL (db.*.supabase.co) — opt-in only; often unreachable on some networks
+ * 4. Session pooler upgrade from transaction pooler (6543 → 5432)
+ * 5. Original DATABASE_URL
  */
 export function resolveRuntimeDatabaseUrl(databaseUrl: string): string {
   const explicitRuntime = process.env['DATABASE_RUNTIME_URL']?.trim();
-  if (explicitRuntime) return explicitRuntime;
+  if (explicitRuntime) return appendPoolParams(explicitRuntime);
 
   if (process.env['DATABASE_USE_DIRECT'] === 'true') {
-    const direct = buildSupabaseDirectUrl(databaseUrl) ?? process.env['DIRECT_URL']?.trim();
-    if (direct && !direct.includes('pooler.supabase.com')) {
-      return appendPoolParams(direct);
+    const sessionPooler = process.env['DIRECT_URL']?.trim();
+    if (sessionPooler) {
+      return appendPoolParams(sessionPooler);
+    }
+
+    const explicitDbHost = process.env['DATABASE_DIRECT_HOST_URL']?.trim();
+    if (explicitDbHost) {
+      return appendPoolParams(explicitDbHost);
     }
   }
 
@@ -30,17 +36,6 @@ export function resolveRuntimeDatabaseUrl(databaseUrl: string): string {
   }
 
   return appendPoolParams(databaseUrl);
-}
-
-/** Direct connection bypasses PgBouncer — best for persistent Node.js API servers */
-function buildSupabaseDirectUrl(poolerOrDbUrl: string): string | null {
-  const projectRefMatch = poolerOrDbUrl.match(/postgres\.([a-z0-9]+):/i);
-  const passwordMatch = poolerOrDbUrl.match(/postgres(?:\.[a-z0-9]+)?:([^@]+)@/i);
-  if (!projectRefMatch?.[1] || !passwordMatch?.[1]) return null;
-
-  const projectRef = projectRefMatch[1];
-  const password = passwordMatch[1];
-  return `postgresql://postgres:${password}@db.${projectRef}.supabase.co:5432/postgres`;
 }
 
 function appendPoolParams(url: string): string {

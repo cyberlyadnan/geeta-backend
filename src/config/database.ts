@@ -46,7 +46,7 @@ function poolerHint(): string | undefined {
     return 'Transaction pooler (6543) adds BEGIN/COMMIT per query. Use port 5432 or DATABASE_USE_DIRECT=true.';
   }
   if (isSessionPoolerUrl(runtimeDatabaseUrl)) {
-    return 'Using Supabase session pooler (5432). For lowest latency set DATABASE_USE_DIRECT=true.';
+    return 'Using Supabase session pooler (5432) — recommended for persistent Express APIs.';
   }
   return undefined;
 }
