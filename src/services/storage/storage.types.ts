@@ -9,6 +9,7 @@ export const STORAGE_FOLDERS = {
   REPORTS: 'reports',
   INVOICES: 'invoices',
   MARKETING: 'marketing',
+  ARTWORK: 'artwork',
 } as const;
 
 export type StorageFolder = (typeof STORAGE_FOLDERS)[keyof typeof STORAGE_FOLDERS];
@@ -33,6 +34,20 @@ export const ALLOWED_VENDOR_DOCUMENT_MIME_TYPES = [
 ] as const;
 
 export const MAX_VENDOR_DOCUMENT_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+
+/** Print artwork — PDF and raster, up to 50 MB by default */
+export const ALLOWED_ARTWORK_MIME_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+  'application/postscript',
+  'application/illustrator',
+  'application/vnd.corel-draw',
+] as const;
+
+export const MAX_ARTWORK_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
 
 export interface PresignedUploadRequest {
   folder: StorageFolder;

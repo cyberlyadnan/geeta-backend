@@ -6,6 +6,23 @@ export const createProductionOrderSchema = z.object({
   orderName: z.string().min(1).max(200),
   quantity: z.number().int().min(1),
   selections: z.record(z.string(), z.string()).default({}),
+  size: z
+    .object({
+      sizeCode: z.string().optional(),
+      width: z.number().positive().optional(),
+      height: z.number().positive().optional(),
+      unit: z.enum(['MM', 'CM', 'INCH', 'FT']).optional(),
+    })
+    .optional(),
+  artworks: z
+    .array(
+      z.object({
+        requirementCode: z.string().min(1),
+        artworkFileId: z.string().min(1),
+        artworkVersionId: z.string().min(1),
+      }),
+    )
+    .optional(),
   orderDeliveryChoice: z.boolean().optional().nullable(),
   deliveryAddress: z.string().max(2000).optional().nullable(),
   specialRemark: z.string().max(2000).optional(),

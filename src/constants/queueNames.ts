@@ -7,6 +7,7 @@ export const QUEUE_NAMES = {
   SLIDER_EXPIRY: 'slider-expiry',
   ACTIVITY_LOGS: 'activity-logs',
   ANALYTICS: 'analytics',
+  ARTWORK_PROCESSING: 'artwork-processing',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

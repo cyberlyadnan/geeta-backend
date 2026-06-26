@@ -15,6 +15,7 @@ import {
 import { contextRepository } from '../../repositories/context.repository.js';
 import { orderRepository } from '../../repositories/order.repository.js';
 import { productsService } from '../products/products.service.js';
+import { printJobService } from '../print-engine/services/print-job.service.js';
 import type { CreateProductionOrderInput } from './orders.validation.js';
 
 function generateOrderNumber(): string {
@@ -51,7 +52,20 @@ export class OrdersService {
   }
 
   async create(userId: string, input: CreateProductionOrderInput) {
-    const [checkout, priceResult] = await Promise.all([
+    const versionId = input.versionId;
+
+    if (input.artworks?.length && versionId) {
+      const validation = await printJobService.validateArtworksForOrder(
+        userId,
+        versionId,
+        input.artworks,
+      );
+      if (!validation.canProceed) {
+        throw ApiError.badRequest('Artwork validation failed — fix errors before submitting');
+      }
+    }
+
+    const [checkout, priceResult, livePricing] = await Promise.all([
       contextRepository.getVendorCheckoutContext(userId),
       productsService.calculatePrice({
         productId: input.productId,
@@ -59,11 +73,25 @@ export class OrdersService {
         quantity: input.quantity,
         selections: input.selections,
       }),
+      versionId
+        ? printJobService.calculateLivePricing(userId, {
+            productId: input.productId,
+            versionId,
+            quantity: input.quantity,
+            selections: input.selections,
+            size: input.size
+              ? {
+                  strategyType: 'CUSTOM_SIZE',
+                  ...input.size,
+                }
+              : undefined,
+          })
+        : Promise.resolve(null),
     ]);
 
     const { settings, vendor: profile } = checkout;
 
-    const productTotal = priceResult.grandTotal;
+    const productTotal = livePricing?.productTotal ?? priceResult.grandTotal;
 
     const resolution = resolveDeliveryForOrder(settings, {
       vendorPreference: profile.deliveryPreference,
@@ -91,15 +119,45 @@ export class OrdersService {
       const snapshot = await tx.priceSnapshot.create({
         data: {
           subtotal: toDecimal(priceResult.subtotal),
-          adjustmentTotal: toDecimal(priceResult.adjustmentTotal),
+          adjustmentTotal: toDecimal(
+            priceResult.adjustmentTotal + (livePricing?.adjustments.coverage ?? 0) + (livePricing?.adjustments.size ?? 0),
+          ),
           discountTotal: toDecimal(priceResult.discountTotal),
           taxTotal: toDecimal(priceResult.taxTotal),
-          grandTotal: toDecimal(priceResult.grandTotal),
-          calculation: priceResult.snapshotPayload as Prisma.InputJsonValue,
+          grandTotal: toDecimal(productTotal),
+          calculation: {
+            ...(priceResult.snapshotPayload as object),
+            sizeAdjustment: livePricing?.adjustments.size ?? 0,
+            coverageAdjustment: livePricing?.adjustments.coverage ?? 0,
+            coverageBreakdown: livePricing?.adjustments.coverageBreakdown ?? [],
+          } as Prisma.InputJsonValue,
         },
       });
 
-      return tx.productionOrder.create({
+      const configEntries = Object.entries(input.selections).map(([fieldCode, selectedValue]) => {
+        const field = priceResult.lines.find((l) => l.code === fieldCode);
+        const value = String(selectedValue);
+        return {
+          fieldCode,
+          fieldLabel: field?.label ?? fieldCode,
+          selectedValue: value,
+          selectedLabel: value,
+        };
+      });
+
+      if (input.size) {
+        const sizeLabel = input.size.sizeCode
+          ? input.size.sizeCode
+          : `${input.size.width ?? ''}×${input.size.height ?? ''} ${input.size.unit ?? 'MM'}`;
+        configEntries.push({
+          fieldCode: '__size',
+          fieldLabel: 'Size',
+          selectedValue: sizeLabel,
+          selectedLabel: sizeLabel,
+        });
+      }
+
+      const created = await tx.productionOrder.create({
         data: {
           orderNumber: generateOrderNumber(),
           customerId: userId,
@@ -121,21 +179,63 @@ export class OrdersService {
               unitPrice: priceResult.unitPrice,
               totalPrice: productTotal,
               priceSnapshotId: snapshot.id,
-              configurations: {
-                create: Object.entries(input.selections).map(([fieldCode, selectedValue]) => {
-                  const field = priceResult.lines.find((l) => l.code === fieldCode);
-                  const value = String(selectedValue);
-                  return {
-                    fieldCode,
-                    fieldLabel: field?.label ?? fieldCode,
-                    selectedValue: value,
-                    selectedLabel: value,
-                  };
-                }),
-              },
+              configurations: { create: configEntries },
             },
           },
         },
+        include: {
+          items: true,
+        },
+      });
+
+      const orderItem = created.items[0];
+      if (!orderItem) {
+        throw ApiError.internal('Order item creation failed');
+      }
+
+      for (const artwork of input.artworks ?? []) {
+        const requirement = await tx.fileRequirement.findFirst({
+          where: {
+            productOfferingVersionId: priceResult.versionId,
+            code: artwork.requirementCode,
+          },
+        });
+
+        const orderArtwork = await tx.orderArtwork.create({
+          data: {
+            orderItemId: orderItem.id,
+            artworkFileId: artwork.artworkFileId,
+            fileRequirementCode: artwork.requirementCode,
+            printLayerCode: requirement?.code,
+          },
+        });
+
+        await tx.orderArtworkVersion.create({
+          data: {
+            orderArtworkId: orderArtwork.id,
+            artworkVersionId: artwork.artworkVersionId,
+          },
+        });
+
+        const av = await tx.artworkVersion.findUnique({
+          where: { id: artwork.artworkVersionId },
+          select: { fileAssetId: true },
+        });
+
+        if (av && requirement) {
+          await tx.orderItemFile.create({
+            data: {
+              orderItemId: orderItem.id,
+              fileRequirementCode: requirement.code,
+              fileRequirementLabel: requirement.label,
+              fileAssetId: av.fileAssetId,
+            },
+          });
+        }
+      }
+
+      return tx.productionOrder.findUnique({
+        where: { id: created.id },
         select: {
           id: true,
           orderNumber: true,
@@ -173,6 +273,8 @@ export class OrdersService {
         },
       });
     });
+
+    if (!order) throw ApiError.internal('Order creation failed');
 
     return mapOrderToDetailDto(order);
   }

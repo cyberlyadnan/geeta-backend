@@ -274,6 +274,8 @@ enum SupportedFileType {
   PNG
   JPG
   JPEG
+  WEBP
+  TIFF
   ZIP
   OTHER
 }
@@ -452,6 +454,8 @@ model User {
   vendorComplianceReviewed VendorComplianceRequest[] @relation("VendorComplianceReviewedBy")
   vendorComplianceItemReviewed VendorComplianceResponse[] @relation("VendorComplianceResponseReviewedBy")
   deliverySettingsUpdated      DeliverySettings[]          @relation("DeliverySettingsUpdatedBy")
+  artworkFiles                 ArtworkFile[]               @relation("ArtworkFileOwner")
+  artworkApprovals             OrderArtwork[]              @relation("OrderArtworkApprover")
 
   @@index([roleId])
   @@index([status])
@@ -833,6 +837,12 @@ model ProductOfferingVersion {
   quantityPricing       QuantityPricing[]
   pricingRules          PricingRule[]
   fileRequirementsRel   FileRequirement[]
+  printSpecification    PrintSpecification?
+  printSizeStrategy     PrintSizeStrategy?
+  artworkRules          ArtworkRule[]
+  coveragePricingRules  CoveragePricingRule[]
+  printLayers           PrintLayer[]
+  artworkFiles          ArtworkFile[]
   workflow              ProductOfferingWorkflow?
   bomTemplate           BomTemplate?
   orderItems            OrderItem[]
@@ -1038,6 +1048,9 @@ model FileRequirement {
 
   productOfferingVersion ProductOfferingVersion    @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
   allowedFileTypes       FileRequirementFileType[]
+  printLayer             PrintLayer?
+  artworkFiles           ArtworkFile[]
+  artworkRules           ArtworkRule[]
 
   @@unique([productOfferingVersionId, code])
   @@index([productOfferingVersionId])
@@ -1072,6 +1085,8 @@ model FileAsset {
   uploadedBy          User?                        @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
   orderItemFiles      OrderItemFile[]
   complianceResponses VendorComplianceResponse[]
+  artworkFile         ArtworkFile?
+  artworkVersions     ArtworkVersion[]
 
   @@index([uploadedById])
   @@index([createdAt])
@@ -1277,6 +1292,7 @@ model ProductionOrderItem {
   priceSnapshot          PriceSnapshot?           @relation(fields: [priceSnapshotId], references: [id], onDelete: Restrict)
   configurations         OrderItemConfiguration[]
   files                  OrderItemFile[]
+  orderArtworks          OrderArtwork[]
   jobCards               ProductionJobCard[]
 
   @@index([orderId])
@@ -1926,4 +1942,363 @@ model SliderSlide {
   @@index([startDate])
   @@index([endDate])
   @@map("slider_slides")
+}
+
+// =====================================================
+// PRINT JOB CONFIGURATION ENGINE
+// Database-driven print production: specs, sizing, artwork, validation, coverage.
+// =====================================================
+
+enum PrintSizeStrategyType {
+  FIXED_SIZE
+  SHEET_BASED
+  AREA_BASED
+  CUSTOM_SIZE
+  ROLL_BASED
+  COVERAGE_BASED
+}
+
+enum SizeUnit {
+  MM
+  CM
+  INCH
+  FT
+}
+
+enum ValidationLevel {
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+enum ArtworkProcessingStatus {
+  PENDING
+  SCANNING
+  VALIDATING
+  ANALYZING
+  GENERATING_PREVIEW
+  COMPLETED
+  FAILED
+}
+
+enum ArtworkApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+enum PrintColorMode {
+  CMYK
+  RGB
+  GRAYSCALE
+  SPOT
+  ANY
+}
+
+enum PrintLayerRole {
+  MAIN
+  UV
+  FOIL
+  WHITE_INK
+  SPOT_UV
+  RAISED_UV
+  SCREEN
+  DIE_LINE
+  CUSTOM
+}
+
+/// Per-version print specification — fully admin-configurable, no hardcoded product logic.
+model PrintSpecification {
+  id                       String         @id @default(cuid())
+  productOfferingVersionId String         @unique @map("product_offering_version_id")
+  requiredPages            Int?           @map("required_pages")
+  pageNames                Json           @default("[]") @map("page_names")
+  artworkWidthMm           Decimal?       @map("artwork_width_mm") @db.Decimal(10, 2)
+  artworkHeightMm          Decimal?       @map("artwork_height_mm") @db.Decimal(10, 2)
+  finishedWidthMm          Decimal?       @map("finished_width_mm") @db.Decimal(10, 2)
+  finishedHeightMm         Decimal?       @map("finished_height_mm") @db.Decimal(10, 2)
+  bleedMm                  Decimal?       @map("bleed_mm") @db.Decimal(10, 2)
+  safeAreaMm               Decimal?       @map("safe_area_mm") @db.Decimal(10, 2)
+  minDpi                   Int?           @map("min_dpi")
+  maxFileSizeMb            Int?           @map("max_file_size_mb")
+  previewEnabled           Boolean        @default(true) @map("preview_enabled")
+  colorMode                PrintColorMode @default(ANY) @map("color_mode")
+  printingProcess          String?        @map("printing_process")
+  validationRules          Json           @default("[]") @map("validation_rules")
+  coverageTypes            Json           @default("[]") @map("coverage_types")
+  allowedFormats           Json           @default("[]") @map("allowed_formats")
+  metadata                 Json           @default("{}")
+  createdAt                DateTime       @default(now()) @map("created_at")
+  updatedAt                DateTime       @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+
+  @@map("print_specifications")
+}
+
+/// Generic size strategy — strategy type + JSON config drives the Size Engine.
+model PrintSizeStrategy {
+  id                       String                @id @default(cuid())
+  productOfferingVersionId String                @unique @map("product_offering_version_id")
+  strategyType             PrintSizeStrategyType @map("strategy_type")
+  config                   Json                  @default("{}")
+  isActive                 Boolean               @default(true) @map("is_active")
+  createdAt                DateTime              @default(now()) @map("created_at")
+  updatedAt                DateTime              @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  sizeConfigurations     SizeConfiguration[]
+
+  @@index([strategyType])
+  @@map("print_size_strategies")
+}
+
+/// Preset or sheet sizes for FIXED_SIZE / SHEET_BASED strategies.
+model SizeConfiguration {
+  id                  String   @id @default(cuid())
+  printSizeStrategyId String   @map("print_size_strategy_id")
+  code                String
+  label               String
+  width               Decimal? @db.Decimal(10, 2)
+  height              Decimal? @db.Decimal(10, 2)
+  unit                SizeUnit @default(MM)
+  sheetCode           String?  @map("sheet_code")
+  areaCm2             Decimal? @map("area_cm2") @db.Decimal(12, 4)
+  pricingKey          String?  @map("pricing_key")
+  sortOrder           Int      @default(0) @map("sort_order")
+  metadata            Json     @default("{}")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  printSizeStrategy PrintSizeStrategy @relation(fields: [printSizeStrategyId], references: [id], onDelete: Cascade)
+
+  @@unique([printSizeStrategyId, code])
+  @@index([printSizeStrategyId])
+  @@map("size_configurations")
+}
+
+/// Admin-configurable artwork validation rules per version or file slot.
+model ArtworkRule {
+  id                       String          @id @default(cuid())
+  productOfferingVersionId String          @map("product_offering_version_id")
+  fileRequirementId        String?         @map("file_requirement_id")
+  printLayerId             String?         @map("print_layer_id")
+  ruleCode                 String          @map("rule_code")
+  ruleType                 String          @map("rule_type")
+  config                   Json            @default("{}")
+  failLevel                ValidationLevel @default(ERROR) @map("fail_level")
+  message                  String?
+  isActive                 Boolean         @default(true) @map("is_active")
+  sortOrder                Int             @default(0) @map("sort_order")
+  createdAt                DateTime        @default(now()) @map("created_at")
+  updatedAt                DateTime        @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  fileRequirement        FileRequirement?       @relation(fields: [fileRequirementId], references: [id], onDelete: SetNull)
+  printLayer             PrintLayer?            @relation(fields: [printLayerId], references: [id], onDelete: SetNull)
+
+  @@unique([productOfferingVersionId, ruleCode])
+  @@index([productOfferingVersionId])
+  @@index([fileRequirementId])
+  @@map("artwork_rules")
+}
+
+/// Coverage-based pricing rules — Spot UV, Foiling, White Ink, etc.
+model CoveragePricingRule {
+  id                       String   @id @default(cuid())
+  productOfferingVersionId String   @map("product_offering_version_id")
+  code                     String
+  label                    String
+  coverageType             String   @map("coverage_type")
+  pricePerCm2              Decimal  @map("price_per_cm2") @db.Decimal(12, 4)
+  minCharge                Decimal? @map("min_charge") @db.Decimal(12, 2)
+  maxCharge                Decimal? @map("max_charge") @db.Decimal(12, 2)
+  supportedFileTypes       Json     @default("[]") @map("supported_file_types")
+  validationRules          Json     @default("[]") @map("validation_rules")
+  isActive                 Boolean  @default(true) @map("is_active")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  printLayers            PrintLayer[]
+
+  @@unique([productOfferingVersionId, code])
+  @@index([productOfferingVersionId])
+  @@map("coverage_pricing_rules")
+}
+
+/// Print layers — Main Artwork, UV Layer, Foil Layer, etc.
+model PrintLayer {
+  id                       String         @id @default(cuid())
+  productOfferingVersionId String         @map("product_offering_version_id")
+  fileRequirementId        String?        @unique @map("file_requirement_id")
+  coveragePricingRuleId    String?        @map("coverage_pricing_rule_id")
+  code                     String
+  label                    String
+  role                     PrintLayerRole @default(MAIN)
+  isRequired               Boolean        @default(true) @map("is_required")
+  sortOrder                Int            @default(0) @map("sort_order")
+  metadata                 Json           @default("{}")
+  createdAt                DateTime       @default(now()) @map("created_at")
+  updatedAt                DateTime       @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  fileRequirement        FileRequirement?       @relation(fields: [fileRequirementId], references: [id], onDelete: SetNull)
+  coveragePricingRule    CoveragePricingRule?   @relation(fields: [coveragePricingRuleId], references: [id], onDelete: SetNull)
+  artworkRules           ArtworkRule[]
+  artworkFiles           ArtworkFile[]
+
+  @@unique([productOfferingVersionId, code])
+  @@index([productOfferingVersionId])
+  @@map("print_layers")
+}
+
+/// Artwork upload container — links to FileAsset, supports versioning.
+model ArtworkFile {
+  id                String                  @id @default(cuid())
+  fileAssetId       String                  @unique @map("file_asset_id")
+  fileRequirementId String?                 @map("file_requirement_id")
+  printLayerId      String?                 @map("print_layer_id")
+  ownerId           String                  @map("owner_id")
+  versionId         String?                 @map("version_id")
+  currentVersion    Int                     @default(1) @map("current_version")
+  processingStatus  ArtworkProcessingStatus @default(PENDING) @map("processing_status")
+  createdAt         DateTime                @default(now()) @map("created_at")
+  updatedAt         DateTime                @updatedAt @map("updated_at")
+
+  fileAsset       FileAsset        @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  fileRequirement FileRequirement? @relation(fields: [fileRequirementId], references: [id], onDelete: SetNull)
+  printLayer      PrintLayer?      @relation(fields: [printLayerId], references: [id], onDelete: SetNull)
+  owner           User             @relation("ArtworkFileOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  productVersion  ProductOfferingVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  versions        ArtworkVersion[]
+  orderArtworks   OrderArtwork[]
+
+  @@index([ownerId])
+  @@index([fileRequirementId])
+  @@index([versionId])
+  @@map("artwork_files")
+}
+
+/// Immutable artwork version chain — never overwrite originals.
+model ArtworkVersion {
+  id               String                  @id @default(cuid())
+  artworkFileId    String                  @map("artwork_file_id")
+  versionNumber    Int                     @map("version_number")
+  fileAssetId      String                  @map("file_asset_id")
+  previewKey       String?                 @map("preview_key")
+  previewUrl       String?                 @map("preview_url") @db.Text
+  processingStatus ArtworkProcessingStatus @default(PENDING) @map("processing_status")
+  virusScanPassed  Boolean?                @map("virus_scan_passed")
+  createdAt        DateTime                @default(now()) @map("created_at")
+
+  artworkFile       ArtworkFile        @relation(fields: [artworkFileId], references: [id], onDelete: Cascade)
+  fileAsset         FileAsset          @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  metadata          ArtworkMetadata?
+  validation        ArtworkValidation?
+  coverageAnalyses  CoverageAnalysis[]
+  orderArtworkPins  OrderArtworkVersion[]
+
+  @@unique([artworkFileId, versionNumber])
+  @@index([artworkFileId])
+  @@index([fileAssetId])
+  @@map("artwork_versions")
+}
+
+/// Extracted file metadata from processing pipeline.
+model ArtworkMetadata {
+  id               String         @id @default(cuid())
+  artworkVersionId String         @unique @map("artwork_version_id")
+  fileFormat       String         @map("file_format")
+  widthPx          Int?           @map("width_px")
+  heightPx         Int?           @map("height_px")
+  widthMm          Decimal?       @map("width_mm") @db.Decimal(10, 2)
+  heightMm         Decimal?       @map("height_mm") @db.Decimal(10, 2)
+  dpi              Int?
+  pageCount        Int?           @map("page_count")
+  colorMode        PrintColorMode? @map("color_mode")
+  hasTransparency  Boolean        @default(false) @map("has_transparency")
+  rotation         Int            @default(0)
+  fileSizeBytes    Int            @map("file_size_bytes")
+  rawMetadata      Json           @default("{}") @map("raw_metadata")
+  extractedAt      DateTime       @default(now()) @map("extracted_at")
+
+  artworkVersion ArtworkVersion @relation(fields: [artworkVersionId], references: [id], onDelete: Cascade)
+
+  @@map("artwork_metadata")
+}
+
+/// Validation report from Artwork Validation Engine.
+model ArtworkValidation {
+  id               String          @id @default(cuid())
+  artworkVersionId String          @unique @map("artwork_version_id")
+  overallLevel     ValidationLevel @map("overall_level")
+  canProceed       Boolean         @map("can_proceed")
+  checks           Json            @default("[]")
+  validatedAt      DateTime        @default(now()) @map("validated_at")
+
+  artworkVersion ArtworkVersion @relation(fields: [artworkVersionId], references: [id], onDelete: Cascade)
+
+  @@map("artwork_validations")
+}
+
+/// Coverage analysis results — generic, not UV-specific.
+model CoverageAnalysis {
+  id               String   @id @default(cuid())
+  artworkVersionId String   @map("artwork_version_id")
+  coverageType     String   @map("coverage_type")
+  coveragePercent  Decimal  @map("coverage_percent") @db.Decimal(8, 4)
+  coverageMm2        Decimal  @map("coverage_mm2") @db.Decimal(14, 4)
+  coverageCm2        Decimal  @map("coverage_cm2") @db.Decimal(12, 4)
+  boundingBox      Json     @default("{}") @map("bounding_box")
+  printablePixels  Int?     @map("printable_pixels")
+  analysisData     Json     @default("{}") @map("analysis_data")
+  analyzedAt       DateTime @default(now()) @map("analyzed_at")
+
+  artworkVersion ArtworkVersion @relation(fields: [artworkVersionId], references: [id], onDelete: Cascade)
+
+  @@index([artworkVersionId])
+  @@index([coverageType])
+  @@map("coverage_analyses")
+}
+
+/// Artwork pinned to a production order item.
+model OrderArtwork {
+  id                   String                @id @default(cuid())
+  orderItemId          String                @map("order_item_id")
+  artworkFileId        String                @map("artwork_file_id")
+  fileRequirementCode  String                @map("file_requirement_code")
+  printLayerCode       String?               @map("print_layer_code")
+  approvalStatus       ArtworkApprovalStatus @default(PENDING) @map("approval_status")
+  adminNotes           String?               @map("admin_notes") @db.Text
+  approvedById         String?               @map("approved_by_id")
+  approvedAt           DateTime?             @map("approved_at")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+
+  orderItem     ProductionOrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  artworkFile   ArtworkFile           @relation(fields: [artworkFileId], references: [id], onDelete: Restrict)
+  approvedBy    User?                 @relation("OrderArtworkApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  pinnedVersion OrderArtworkVersion?
+
+  @@index([orderItemId])
+  @@index([artworkFileId])
+  @@index([approvalStatus])
+  @@map("order_artworks")
+}
+
+/// Snapshot of artwork version at order submission time.
+model OrderArtworkVersion {
+  id               String   @id @default(cuid())
+  orderArtworkId   String   @unique @map("order_artwork_id")
+  artworkVersionId String   @map("artwork_version_id")
+  pinnedAt         DateTime @default(now()) @map("pinned_at")
+
+  orderArtwork   OrderArtwork   @relation(fields: [orderArtworkId], references: [id], onDelete: Cascade)
+  artworkVersion ArtworkVersion @relation(fields: [artworkVersionId], references: [id], onDelete: Restrict)
+
+  @@index([artworkVersionId])
+  @@map("order_artwork_versions")
 }

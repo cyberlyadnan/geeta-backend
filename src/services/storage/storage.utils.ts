@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
+  ALLOWED_ARTWORK_MIME_TYPES,
   ALLOWED_IMAGE_MIME_TYPES,
   ALLOWED_VENDOR_DOCUMENT_MIME_TYPES,
+  MAX_ARTWORK_UPLOAD_BYTES,
   MAX_IMAGE_UPLOAD_BYTES,
   MAX_VENDOR_DOCUMENT_UPLOAD_BYTES,
   type AllowedImageMimeType,
@@ -29,15 +31,31 @@ export function resolveExtension(contentType: string, fileName: string): string 
   if (fromMime) return fromMime;
   const ext = path.extname(fileName).replace('.', '').toLowerCase();
   if (ext === 'pdf') return 'pdf';
+  if (ext === 'cdr') return 'cdr';
+  if (ext === 'ai') return 'ai';
   if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
     return ext === 'jpeg' ? 'jpg' : ext;
   }
-  return 'jpg';
+  return 'bin';
 }
 
 export function normalizeVendorDocumentContentType(contentType: string): string {
   const lower = contentType.toLowerCase().trim();
   if (lower === 'image/jpg' || lower === 'image/pjpeg') return 'image/jpeg';
+  return lower;
+}
+
+export function normalizeArtworkContentType(contentType: string, fileName: string): string {
+  const lower = contentType.toLowerCase().trim();
+  if (lower === 'image/jpg' || lower === 'image/pjpeg') return 'image/jpeg';
+  if (lower === 'application/pdf') return 'application/pdf';
+  const ext = path.extname(fileName).replace('.', '').toLowerCase();
+  if (ext === 'cdr' && (lower === 'application/octet-stream' || !lower)) {
+    return 'application/vnd.corel-draw';
+  }
+  if (ext === 'ai' && (lower === 'application/octet-stream' || !lower)) {
+    return 'application/illustrator';
+  }
   return lower;
 }
 
@@ -54,6 +72,29 @@ export function assertValidVendorDocumentUpload(contentType: string, fileSize: n
   }
 }
 
+export function assertValidArtworkUpload(
+  contentType: string,
+  fileSize: number,
+  fileName: string,
+  maxMb?: number,
+): void {
+  const normalized = normalizeArtworkContentType(contentType, fileName);
+  const ext = path.extname(fileName).replace('.', '').toLowerCase();
+  const allowedByMime = (ALLOWED_ARTWORK_MIME_TYPES as readonly string[]).includes(normalized);
+  const allowedByExt = ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'cdr', 'ai'].includes(ext);
+
+  if (!allowedByMime && !allowedByExt) {
+    throw ApiError.badRequest('Invalid artwork type. Allowed: PDF, PNG, JPG, WEBP, CDR');
+  }
+  if (fileSize <= 0) {
+    throw ApiError.badRequest('File size must be greater than 0');
+  }
+  const maxBytes = maxMb ? maxMb * 1024 * 1024 : MAX_ARTWORK_UPLOAD_BYTES;
+  if (fileSize > maxBytes) {
+    throw ApiError.badRequest(`Artwork must be ${maxMb ?? 50} MB or smaller`);
+  }
+}
+
 export function buildVendorComplianceObjectKey(
   vendorProfileId: string,
   fileName: string,
@@ -65,6 +106,20 @@ export function buildVendorComplianceObjectKey(
   const random = randomBytes(8).toString('hex');
   const base = safeName.replace(/\.[^.]+$/, '');
   return `${STORAGE_FOLDERS.VENDORS}/compliance/${vendorProfileId}/${stamp}-${random}-${base}.${ext}`;
+}
+
+export function buildArtworkObjectKey(
+  userId: string,
+  versionId: string,
+  fileName: string,
+  contentType: string,
+): string {
+  const safeName = sanitizeFileName(fileName);
+  const ext = resolveExtension(contentType, safeName);
+  const stamp = Date.now();
+  const random = randomBytes(8).toString('hex');
+  const base = safeName.replace(/\.[^.]+$/, '');
+  return `${STORAGE_FOLDERS.ARTWORK}/${userId}/${versionId}/${stamp}-${random}-${base}.${ext}`;
 }
 
 export function buildObjectKey(folder: StorageFolder, fileName: string, contentType: string): string {
@@ -109,4 +164,12 @@ export function buildPublicUrl(publicBaseUrl: string, key: string): string {
     .map((segment) => encodeURIComponent(segment))
     .join('/');
   return `${base}/${encodedKey}`;
+}
+
+export function isPreviewableArtwork(ext: string): boolean {
+  return ['pdf', 'png', 'jpg', 'jpeg', 'webp'].includes(ext.toLowerCase());
+}
+
+export function isVectorArtwork(ext: string): boolean {
+  return ['cdr', 'ai', 'eps', 'psd'].includes(ext.toLowerCase());
 }
