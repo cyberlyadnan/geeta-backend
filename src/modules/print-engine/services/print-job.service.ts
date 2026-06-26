@@ -15,6 +15,7 @@ import { productsService } from '../../products/products.service.js';
 import { contextRepository } from '../../../repositories/context.repository.js';
 import { coverageEngine } from '../engines/coverage.engine.js';
 import { sizeEngine } from '../engines/size.engine.js';
+import { printContextResolver } from '../../admin-print-master/print-context.resolver.js';
 import { printEngineRepository } from '../repositories/print-engine.repository.js';
 import { enqueueArtworkProcessing } from '../../../queues/artwork-processing.queue.js';
 import { artworkProcessingService } from './artwork-processing.service.js';
@@ -29,65 +30,15 @@ const PRESIGN_EXPIRY = 600;
 
 export class PrintJobService {
   async getContext(versionId: string): Promise<PrintJobContextDto> {
-    const version = await printEngineRepository.getVersionContext(versionId);
-    if (!version) throw ApiError.notFound('Product version not found');
-
-    const sizeStrategy = printEngineRepository.buildSizeStrategyConfig(version);
-
-    return {
-      versionId: version.id,
-      productId: version.productOffering.id,
-      printSpecification: version.printSpecification
-        ? {
-            ...version.printSpecification,
-            allowedFormats: version.printSpecification.allowedFormats,
-            validationRules: version.printSpecification.validationRules,
-            coverageTypes: version.printSpecification.coverageTypes,
-          }
-        : null,
-      sizeStrategy: sizeStrategy
-        ? {
-            strategyType: sizeStrategy.strategyType,
-            config: sizeStrategy.config,
-            sizes: sizeStrategy.presets,
-          }
-        : null,
-      fileRequirements: version.fileRequirementsRel.map((req) => ({
-        code: req.code,
-        label: req.label,
-        requirementType: req.requirementType,
-        maxFileSizeMb: req.maxFileSizeMb,
-        allowMultiple: req.allowMultiple,
-        allowedFileTypes: req.allowedFileTypes.map((t) => t.fileType),
-        printLayer: req.printLayer
-          ? {
-              code: req.printLayer.code,
-              label: req.printLayer.label,
-              role: req.printLayer.role,
-              coverageRule: req.printLayer.coveragePricingRule
-                ? {
-                    code: req.printLayer.coveragePricingRule.code,
-                    coverageType: req.printLayer.coveragePricingRule.coverageType,
-                    pricePerCm2: Number(req.printLayer.coveragePricingRule.pricePerCm2),
-                  }
-                : undefined,
-            }
-          : undefined,
-      })),
-      artworkRules: version.artworkRules,
-      coveragePricingRules: version.coveragePricingRules.map((r) => ({
-        ...r,
-        pricePerCm2: Number(r.pricePerCm2),
-        minCharge: r.minCharge ? Number(r.minCharge) : null,
-        maxCharge: r.maxCharge ? Number(r.maxCharge) : null,
-      })),
-    };
+    const resolved = await printContextResolver.resolveForVersion(versionId);
+    if (!resolved) throw ApiError.notFound('Product version not found');
+    return resolved.context;
   }
 
   async resolveSize(versionId: string, input: SizeInput) {
-    const version = await printEngineRepository.getVersionContext(versionId);
-    if (!version) throw ApiError.notFound('Product version not found');
-    const strategy = printEngineRepository.buildSizeStrategyConfig(version);
+    const resolved = await printContextResolver.resolveForVersion(versionId);
+    if (!resolved) throw ApiError.notFound('Product version not found');
+    const strategy = resolved.sizeStrategy;
     if (!strategy) throw ApiError.badRequest('Size strategy not configured for this product');
     return sizeEngine.resolve(strategy, input);
   }
@@ -248,7 +199,7 @@ export class PrintJobService {
   }
 
   async calculateLivePricing(userId: string, input: LivePricingInput) {
-    const [priceResult, checkout, version] = await Promise.all([
+    const [priceResult, checkout, resolved] = await Promise.all([
       productsService.calculatePrice({
         productId: input.productId,
         versionId: input.versionId,
@@ -256,29 +207,26 @@ export class PrintJobService {
         selections: input.selections,
       }),
       contextRepository.getVendorCheckoutContext(userId),
-      printEngineRepository.getVersionContext(input.versionId),
+      printContextResolver.resolveForVersion(input.versionId),
     ]);
 
-    if (!version) throw ApiError.notFound('Product version not found');
+    if (!resolved) throw ApiError.notFound('Product version not found');
 
     let sizeAdjustment = 0;
-    if (input.size && version.printSizeStrategy) {
-      const strategy = printEngineRepository.buildSizeStrategyConfig(version);
-      if (strategy) {
-        const resolved = sizeEngine.resolve(strategy, input.size);
-        sizeAdjustment = Number(resolved.metadata?.['sizeSurcharge'] ?? 0);
-      }
+    if (input.size && resolved.sizeStrategy) {
+      const resolvedSize = sizeEngine.resolve(resolved.sizeStrategy, input.size);
+      sizeAdjustment = Number(resolvedSize.metadata?.['sizeSurcharge'] ?? 0);
     }
 
     let coverageAdjustment = 0;
     const coverageBreakdown: Array<{ type: string; amount: number }> = [];
     if (input.coverageResults?.length) {
-      const rules = version.coveragePricingRules.map((r) => ({
-        code: r.code,
-        coverageType: r.coverageType,
-        pricePerCm2: Number(r.pricePerCm2),
-        minCharge: r.minCharge ? Number(r.minCharge) : null,
-        maxCharge: r.maxCharge ? Number(r.maxCharge) : null,
+      const rules = resolved.context.coveragePricingRules.map((r) => ({
+        code: String(r['code']),
+        coverageType: String(r['coverageType']),
+        pricePerCm2: Number(r['pricePerCm2']),
+        minCharge: r['minCharge'] != null ? Number(r['minCharge']) : null,
+        maxCharge: r['maxCharge'] != null ? Number(r['maxCharge']) : null,
       }));
       const priced = coverageEngine.calculatePricing(input.coverageResults, rules);
       for (const p of priced) {

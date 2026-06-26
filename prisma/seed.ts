@@ -1,5 +1,6 @@
 import { PrismaClient, RoleName, UserStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { seedPrintMasters } from './seed-print-masters.js';
 
 const prisma = new PrismaClient();
 
@@ -101,6 +102,8 @@ async function main(): Promise<void> {
   }
 
   console.log('Seed completed: roles initialized');
+
+  await seedPrintMasters(prisma);
 }
 
 main()

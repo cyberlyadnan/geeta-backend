@@ -34,6 +34,7 @@ import {
   adminPrintEngineRoutes,
   productionArtworkRoutes,
 } from '../../modules/print-engine/index.js';
+import { adminPrintMasterRoutes } from '../../modules/admin-print-master/index.js';
 
 const v1Router = Router();
 
@@ -69,6 +70,7 @@ v1Router.use('/admin/categories', adminCategoriesRoutes);
 v1Router.use('/admin/monitoring', adminMonitoringRoutes);
 v1Router.use('/print-jobs', printJobRoutes);
 v1Router.use('/admin/print-engine', adminPrintEngineRoutes);
+v1Router.use('/admin/print-config', adminPrintMasterRoutes);
 v1Router.use('/production/artwork', productionArtworkRoutes);
 
 export { v1Router };

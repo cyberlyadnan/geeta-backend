@@ -175,6 +175,12 @@ enum ActivityAction {
   PRODUCT_PRICING_CHANGED
   PRODUCT_ATTRIBUTE_ADDED
   PRODUCT_ATTRIBUTE_REMOVED
+  PRINT_MASTER_CREATED
+  PRINT_MASTER_UPDATED
+  PRINT_MASTER_DELETED
+  PRINT_MASTER_ENABLED
+  PRINT_MASTER_DISABLED
+  PRINT_CONFIG_ASSIGNED
   USER_LOGIN
   USER_LOGIN_BLOCKED
   USER_CREATED
@@ -456,6 +462,14 @@ model User {
   deliverySettingsUpdated      DeliverySettings[]          @relation("DeliverySettingsUpdatedBy")
   artworkFiles                 ArtworkFile[]               @relation("ArtworkFileOwner")
   artworkApprovals             OrderArtwork[]              @relation("OrderArtworkApprover")
+  sheetSizesCreated            SheetSize[]                 @relation("SheetSizeCreatedBy")
+  sizeTemplatesCreated         SizeTemplate[]              @relation("SizeTemplateCreatedBy")
+  printProcessesCreated        PrintProcess[]              @relation("PrintProcessCreatedBy")
+  printSpecTemplatesCreated    PrintSpecificationTemplate[] @relation("PrintSpecTemplateCreatedBy")
+  masterArtworkRulesCreated    MasterArtworkRule[]         @relation("MasterArtworkRuleCreatedBy")
+  masterValidationRulesCreated MasterValidationRule[]      @relation("MasterValidationRuleCreatedBy")
+  masterCoverageRulesCreated   MasterCoverageRule[]        @relation("MasterCoverageRuleCreatedBy")
+  fileUploadRulesCreated       FileUploadRuleTemplate[]    @relation("FileUploadRuleCreatedBy")
 
   @@index([roleId])
   @@index([status])
@@ -821,6 +835,9 @@ model ProductOfferingVersion {
   changelog           String?                      @db.Text
   pricingProfileKey   String?                      @map("pricing_profile_key")
   workflowKey         String?                      @map("workflow_key")
+  printProcessId              String? @map("print_process_id")
+  sizeTemplateId              String? @map("size_template_id")
+  printSpecificationTemplateId String? @map("print_specification_template_id")
   /// Denormalized publish cache — relational models are authoritative.
   configurationSchema Json                         @default("{}") @map("configuration_schema")
   fileRequirements    Json                         @default("{}") @map("file_requirements")
@@ -843,6 +860,10 @@ model ProductOfferingVersion {
   coveragePricingRules  CoveragePricingRule[]
   printLayers           PrintLayer[]
   artworkFiles          ArtworkFile[]
+  printProcess              PrintProcess?              @relation(fields: [printProcessId], references: [id], onDelete: SetNull)
+  sizeTemplate              SizeTemplate?              @relation(fields: [sizeTemplateId], references: [id], onDelete: SetNull)
+  printSpecificationTemplate PrintSpecificationTemplate? @relation(fields: [printSpecificationTemplateId], references: [id], onDelete: SetNull)
+  productPrintConfig        ProductPrintConfig?
   workflow              ProductOfferingWorkflow?
   bomTemplate           BomTemplate?
   orderItems            OrderItem[]
@@ -2006,6 +2027,293 @@ enum PrintLayerRole {
   SCREEN
   DIE_LINE
   CUSTOM
+}
+
+enum MasterConfigStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SheetType {
+  PAPER
+  FLEX
+  VINYL
+  ROLL
+  LARGE_FORMAT
+  CUSTOM
+}
+
+// =====================================================
+// PRINT MASTER CONFIGURATION (ERP-grade global masters)
+// Products reference masters — no duplicated print logic.
+// =====================================================
+
+model MeasurementUnit {
+  id          String             @id @default(cuid())
+  code        String             @unique
+  name        String
+  symbol      String
+  toMmFactor  Decimal            @map("to_mm_factor") @db.Decimal(16, 8)
+  status      MasterConfigStatus @default(ACTIVE)
+  sortOrder   Int                @default(0) @map("sort_order")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  deletedAt   DateTime?          @map("deleted_at")
+
+  sheetSizes SheetSize[]
+
+  @@index([status, deletedAt])
+  @@map("measurement_units")
+}
+
+model SheetSize {
+  id                 String             @id @default(cuid())
+  code               String             @unique
+  name               String
+  width              Decimal            @db.Decimal(10, 2)
+  height             Decimal            @db.Decimal(10, 2)
+  measurementUnitId  String             @map("measurement_unit_id")
+  aspectRatio        Decimal?           @map("aspect_ratio") @db.Decimal(10, 4)
+  sheetType          SheetType          @default(PAPER) @map("sheet_type")
+  description        String?            @db.Text
+  sortOrder          Int                @default(0) @map("sort_order")
+  status             MasterConfigStatus @default(ACTIVE)
+  createdById        String?            @map("created_by_id")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  deletedAt          DateTime?          @map("deleted_at")
+
+  measurementUnit MeasurementUnit   @relation(fields: [measurementUnitId], references: [id], onDelete: Restrict)
+  createdBy       User?             @relation("SheetSizeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  templateItems   SizeTemplateItem[]
+
+  @@index([status, deletedAt])
+  @@index([sheetType])
+  @@index([sortOrder])
+  @@map("sheet_sizes")
+}
+
+model SizeTemplate {
+  id           String                @id @default(cuid())
+  code         String                @unique
+  name         String
+  strategyType PrintSizeStrategyType @map("strategy_type")
+  config       Json                  @default("{}")
+  description  String?               @db.Text
+  sortOrder    Int                   @default(0) @map("sort_order")
+  status       MasterConfigStatus    @default(ACTIVE)
+  createdById  String?               @map("created_by_id")
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+  deletedAt    DateTime?             @map("deleted_at")
+
+  createdBy        User?                  @relation("SizeTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  items            SizeTemplateItem[]
+  productVersions  ProductOfferingVersion[]
+  productConfigs   ProductPrintConfig[]
+  printProcesses   PrintProcess[]
+
+  @@index([strategyType])
+  @@index([status, deletedAt])
+  @@map("size_templates")
+}
+
+model SizeTemplateItem {
+  id             String   @id @default(cuid())
+  sizeTemplateId String   @map("size_template_id")
+  sheetSizeId    String?  @map("sheet_size_id")
+  code           String
+  label          String
+  width          Decimal? @db.Decimal(10, 2)
+  height         Decimal? @db.Decimal(10, 2)
+  unitCode       String?  @map("unit_code")
+  sortOrder      Int      @default(0) @map("sort_order")
+  isActive       Boolean  @default(true) @map("is_active")
+
+  sizeTemplate SizeTemplate @relation(fields: [sizeTemplateId], references: [id], onDelete: Cascade)
+  sheetSize    SheetSize?   @relation(fields: [sheetSizeId], references: [id], onDelete: SetNull)
+
+  @@unique([sizeTemplateId, code])
+  @@index([sizeTemplateId])
+  @@map("size_template_items")
+}
+
+model PrintProcess {
+  id                      String             @id @default(cuid())
+  code                    String             @unique
+  name                    String
+  description             String?            @db.Text
+  supportedFileTypes      Json               @default("[]") @map("supported_file_types")
+  supportedSizeStrategies Json               @default("[]") @map("supported_size_strategies")
+  supportedValidationTypes Json              @default("[]") @map("supported_validation_types")
+  pricingStrategyKey      String?            @map("pricing_strategy_key")
+  defaultSizeTemplateId   String?            @map("default_size_template_id")
+  sortOrder               Int                @default(0) @map("sort_order")
+  status                  MasterConfigStatus @default(ACTIVE)
+  createdById             String?            @map("created_by_id")
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+  deletedAt               DateTime?          @map("deleted_at")
+
+  defaultSizeTemplate SizeTemplate?            @relation(fields: [defaultSizeTemplateId], references: [id], onDelete: SetNull)
+  createdBy           User?                    @relation("PrintProcessCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  productVersions     ProductOfferingVersion[]
+  productConfigs      ProductPrintConfig[]
+
+  @@index([status, deletedAt])
+  @@map("print_processes")
+}
+
+model PrintSpecificationTemplate {
+  id                   String             @id @default(cuid())
+  code                 String             @unique
+  name                 String
+  description          String?            @db.Text
+  allowedFormats       Json               @default("[]") @map("allowed_formats")
+  requiredPages        Int?               @map("required_pages")
+  pageNames            Json               @default("[]") @map("page_names")
+  finishedWidthMm      Decimal?           @map("finished_width_mm") @db.Decimal(10, 2)
+  finishedHeightMm     Decimal?           @map("finished_height_mm") @db.Decimal(10, 2)
+  artworkWidthMm       Decimal?           @map("artwork_width_mm") @db.Decimal(10, 2)
+  artworkHeightMm      Decimal?           @map("artwork_height_mm") @db.Decimal(10, 2)
+  bleedMm              Decimal?           @map("bleed_mm") @db.Decimal(10, 2)
+  safeAreaMm           Decimal?           @map("safe_area_mm") @db.Decimal(10, 2)
+  minDpi               Int?               @map("min_dpi")
+  maxFileSizeMb        Int?               @map("max_file_size_mb")
+  colorMode            PrintColorMode     @default(ANY) @map("color_mode")
+  previewEnabled       Boolean            @default(true) @map("preview_enabled")
+  validationEnabled    Boolean            @default(true) @map("validation_enabled")
+  autoArtworkAnalysis  Boolean            @default(true) @map("auto_artwork_analysis")
+  coverageAnalysisEnabled Boolean         @default(false) @map("coverage_analysis_enabled")
+  metadata             Json               @default("{}")
+  sortOrder            Int                @default(0) @map("sort_order")
+  status               MasterConfigStatus @default(ACTIVE)
+  createdById          String?            @map("created_by_id")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  deletedAt            DateTime?          @map("deleted_at")
+
+  createdBy       User?                    @relation("PrintSpecTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  productVersions ProductOfferingVersion[]
+  productConfigs  ProductPrintConfig[]
+
+  @@index([status, deletedAt])
+  @@map("print_specification_templates")
+}
+
+model MasterArtworkRule {
+  id          String             @id @default(cuid())
+  code        String             @unique
+  name        String
+  ruleType    String             @map("rule_type")
+  config      Json               @default("{}")
+  failLevel   ValidationLevel    @default(ERROR) @map("fail_level")
+  message     String?
+  sortOrder   Int                @default(0) @map("sort_order")
+  status      MasterConfigStatus @default(ACTIVE)
+  createdById String?            @map("created_by_id")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  deletedAt   DateTime?          @map("deleted_at")
+
+  createdBy User? @relation("MasterArtworkRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, deletedAt])
+  @@map("master_artwork_rules")
+}
+
+model MasterValidationRule {
+  id              String             @id @default(cuid())
+  code            String             @unique
+  name            String
+  ruleType        String             @map("rule_type")
+  config          Json               @default("{}")
+  failLevel       ValidationLevel    @default(ERROR) @map("fail_level")
+  warningThreshold Decimal?          @map("warning_threshold") @db.Decimal(10, 4)
+  errorThreshold   Decimal?          @map("error_threshold") @db.Decimal(10, 4)
+  sortOrder       Int                @default(0) @map("sort_order")
+  status          MasterConfigStatus @default(ACTIVE)
+  createdById     String?            @map("created_by_id")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  deletedAt       DateTime?          @map("deleted_at")
+
+  createdBy User? @relation("MasterValidationRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, deletedAt])
+  @@map("master_validation_rules")
+}
+
+model MasterCoverageRule {
+  id                 String             @id @default(cuid())
+  code               String             @unique
+  name               String
+  coverageType       String             @map("coverage_type")
+  pricePerCm2        Decimal            @map("price_per_cm2") @db.Decimal(12, 4)
+  minCharge          Decimal?           @map("min_charge") @db.Decimal(12, 2)
+  maxCharge          Decimal?           @map("max_charge") @db.Decimal(12, 2)
+  supportedFileTypes Json               @default("[]") @map("supported_file_types")
+  validationRules    Json               @default("[]") @map("validation_rules")
+  sortOrder          Int                @default(0) @map("sort_order")
+  status             MasterConfigStatus @default(ACTIVE)
+  createdById        String?            @map("created_by_id")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  deletedAt          DateTime?          @map("deleted_at")
+
+  createdBy User? @relation("MasterCoverageRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, deletedAt])
+  @@map("master_coverage_rules")
+}
+
+model FileUploadRuleTemplate {
+  id               String             @id @default(cuid())
+  code             String             @unique
+  name             String
+  requirementType  FileRequirementType @map("requirement_type")
+  maxFileSizeMb    Int?               @map("max_file_size_mb")
+  allowMultiple    Boolean            @default(false) @map("allow_multiple")
+  allowedFileTypes Json               @default("[]") @map("allowed_file_types")
+  description      String?            @db.Text
+  sortOrder        Int                @default(0) @map("sort_order")
+  status           MasterConfigStatus @default(ACTIVE)
+  createdById      String?            @map("created_by_id")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  deletedAt        DateTime?          @map("deleted_at")
+
+  createdBy      User?                @relation("FileUploadRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  productConfigs ProductPrintConfig[]
+
+  @@index([status, deletedAt])
+  @@map("file_upload_rule_templates")
+}
+
+/// Links a product version to master print configuration (ERP product profile).
+model ProductPrintConfig {
+  id                           String   @id @default(cuid())
+  productOfferingVersionId     String   @unique @map("product_offering_version_id")
+  printProcessId               String?  @map("print_process_id")
+  sizeTemplateId               String?  @map("size_template_id")
+  printSpecificationTemplateId String?  @map("print_specification_template_id")
+  fileUploadRuleTemplateId     String?  @map("file_upload_rule_template_id")
+  artworkRuleIds               Json     @default("[]") @map("artwork_rule_ids")
+  validationRuleIds            Json     @default("[]") @map("validation_rule_ids")
+  coverageRuleIds              Json     @default("[]") @map("coverage_rule_ids")
+  pricingStrategyKey           String?  @map("pricing_strategy_key")
+  createdAt                    DateTime @default(now()) @map("created_at")
+  updatedAt                    DateTime @updatedAt @map("updated_at")
+
+  productOfferingVersion     ProductOfferingVersion     @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  printProcess               PrintProcess?              @relation(fields: [printProcessId], references: [id], onDelete: SetNull)
+  sizeTemplate               SizeTemplate?              @relation(fields: [sizeTemplateId], references: [id], onDelete: SetNull)
+  printSpecificationTemplate PrintSpecificationTemplate? @relation(fields: [printSpecificationTemplateId], references: [id], onDelete: SetNull)
+  fileUploadRuleTemplate     FileUploadRuleTemplate?    @relation(fields: [fileUploadRuleTemplateId], references: [id], onDelete: SetNull)
+
+  @@index([printProcessId])
+  @@index([sizeTemplateId])
+  @@map("product_print_configs")
 }
 
 /// Per-version print specification — fully admin-configurable, no hardcoded product logic.

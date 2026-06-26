@@ -68,6 +68,12 @@ export interface ArtworkMetadataDto {
 export interface PrintJobContextDto {
   versionId: string;
   productId: string;
+  printProcess?: {
+    id: string;
+    code: string;
+    name: string;
+    pricingStrategyKey: string | null;
+  } | null;
   printSpecification: Record<string, unknown> | null;
   sizeStrategy: {
     strategyType: PrintSizeStrategyType;
@@ -80,7 +86,7 @@ export interface PrintJobContextDto {
     requirementType: string;
     maxFileSizeMb: number | null;
     allowMultiple: boolean;
-    allowedFileTypes: SupportedFileType[];
+    allowedFileTypes: SupportedFileType[] | string[];
     printLayer?: {
       code: string;
       label: string;
@@ -89,7 +95,9 @@ export interface PrintJobContextDto {
     };
   }>;
   artworkRules: Array<Record<string, unknown>>;
+  validationRules?: Array<Record<string, unknown>>;
   coveragePricingRules: Array<Record<string, unknown>>;
+  pricingStrategyKey?: string | null;
 }
 
 export interface LivePricingInput {
