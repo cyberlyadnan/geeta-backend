@@ -8,6 +8,8 @@ export interface RequestCacheMetrics {
   requestMisses: number;
   redisHits: number;
   redisMisses: number;
+  repositoryMs: number;
+  redisMs: number;
 }
 
 export interface ActiveRequestContext {
@@ -161,7 +163,26 @@ export function getPhaseTimings(totalMs: number, req?: Request): RequestPhaseTim
 
 export function getCacheStats(req?: Request): RequestCacheMetrics {
   const ctx = getRequestContext(req);
-  return ctx?.cacheStats ?? { requestHits: 0, requestMisses: 0, redisHits: 0, redisMisses: 0 };
+  return (
+    ctx?.cacheStats ?? {
+      requestHits: 0,
+      requestMisses: 0,
+      redisHits: 0,
+      redisMisses: 0,
+      repositoryMs: 0,
+      redisMs: 0,
+    }
+  );
+}
+
+export function addRepositoryTime(ms: number, req?: Request): void {
+  const ctx = getRequestContext(req);
+  if (ctx) ctx.cacheStats.repositoryMs += ms;
+}
+
+export function addRedisTime(ms: number, req?: Request): void {
+  const ctx = getRequestContext(req);
+  if (ctx) ctx.cacheStats.redisMs += ms;
 }
 
 export function getRequestOperations(req?: Request): RequestOperationTiming[] {

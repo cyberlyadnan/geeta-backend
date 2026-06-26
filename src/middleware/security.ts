@@ -11,7 +11,16 @@ export const corsMiddleware = cors({
   credentials: true,
 });
 
-export const compressionMiddleware = compression();
+/** Compress JSON/text responses above 1KB; skip webhooks and pre-compressed assets */
+export const compressionMiddleware = compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.path.includes('/payments') && req.method === 'POST') return false;
+    const type = res.getHeader('Content-Type');
+    if (typeof type === 'string' && /image|video|audio|zip|gzip/.test(type)) return false;
+    return compression.filter(req, res);
+  },
+});
 
 export const rateLimiter = rateLimit({
   windowMs: env.RATE_LIMIT_WINDOW_MS,

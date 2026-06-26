@@ -7,3 +7,5 @@ export { enqueueSlaCheck } from './sla.queue.js';
 export type { SlaJobData } from './sla.queue.js';
 export { enqueueActivityLog } from './activity-log.queue.js';
 export type { ActivityLogJobData } from './activity-log.queue.js';
+export { enqueueAnalytics } from './analytics.queue.js';
+export type { AnalyticsJobData } from './analytics.queue.js';

@@ -1,5 +1,6 @@
 import { getRedis, isRedisConnected } from '../../config/redis.js';
 import { logger } from '../../logs/logger.js';
+import { addRedisTime } from '../../observability/request-context.js';
 
 export interface CacheStats {
   redisHits: number;
@@ -26,8 +27,13 @@ export function getGlobalRedisCacheStats(): CacheStats {
  * Falls back to loader when Redis is unavailable.
  */
 export class RedisCache {
+  private recordRedisOp(ms: number): void {
+    addRedisTime(ms);
+  }
+
   async get<T>(key: string): Promise<T | null> {
     if (!isRedisConnected()) return null;
+    const start = performance.now();
     try {
       const raw = await getRedis().get(key);
       if (raw === null) return null;
@@ -39,11 +45,14 @@ export class RedisCache {
         message: error instanceof Error ? error.message : String(error),
       });
       return null;
+    } finally {
+      this.recordRedisOp(performance.now() - start);
     }
   }
 
   async set(key: string, value: unknown, ttlSeconds: number): Promise<void> {
     if (!isRedisConnected()) return;
+    const start = performance.now();
     try {
       await getRedis().setex(key, ttlSeconds, JSON.stringify(value));
     } catch (error) {
@@ -51,6 +60,8 @@ export class RedisCache {
         key,
         message: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      this.recordRedisOp(performance.now() - start);
     }
   }
 

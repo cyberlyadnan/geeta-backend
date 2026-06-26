@@ -30,3 +30,20 @@ CREATE INDEX IF NOT EXISTS orders_user_id_created_at_idx
 
 CREATE INDEX IF NOT EXISTS orders_deleted_at_idx
   ON orders (deleted_at);
+
+-- Partial indexes: active (non-deleted) rows only — smaller, faster list queries
+CREATE INDEX IF NOT EXISTS orders_user_id_active_created_at_idx
+  ON orders (user_id, created_at DESC)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS product_offerings_active_series_idx
+  ON product_offerings (series_id, status)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS slider_slides_active_key_order_idx
+  ON slider_slides (slider_key, display_order)
+  WHERE status = 'ACTIVE';
+
+CREATE INDEX IF NOT EXISTS categories_active_parent_idx
+  ON categories (parent_id, sort_order)
+  WHERE deleted_at IS NULL;

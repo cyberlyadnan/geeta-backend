@@ -38,7 +38,7 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
     queryPatterns: new Map<string, number>(),
     nPlusOneReported: new Set<string>(),
     operations: [],
-    cacheStats: { requestHits: 0, requestMisses: 0, redisHits: 0, redisMisses: 0 },
+    cacheStats: { requestHits: 0, requestMisses: 0, redisHits: 0, redisMisses: 0, repositoryMs: 0, redisMs: 0 },
   };
 
   bindRequestContext(req, ctx);
@@ -48,6 +48,12 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
 
   res.json = ((body: unknown) => {
     beginResponse(req);
+    try {
+      const json = JSON.stringify(body);
+      res.setHeader('X-Response-Bytes', String(Buffer.byteLength(json, 'utf8')));
+    } catch {
+      // non-serializable preview
+    }
     const result = originalJson(body);
     endResponse(req);
     return result;
@@ -87,6 +93,8 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
       ...entry,
       queryCount: activeCtx?.queries.length ?? 0,
       cache: getCacheStats(req),
+      responseBytes: Number(res.getHeader('X-Response-Bytes') ?? 0),
+      dbRoundTrips: activeCtx?.queries.length ?? 0,
     });
 
     const breakdownEnabled =

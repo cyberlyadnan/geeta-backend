@@ -1,13 +1,14 @@
 import { ActivityAction, DeliveryPreference } from '@prisma/client';
-import { prisma } from '../../config/database.js';
 import { activityLogService } from '../../services/activity/index.js';
 import {
   calculateOrderTotals,
   deliverySettingsRepository,
   formatVendorAddress,
-  getVendorProfileForDelivery,
   resolveDeliveryForOrder,
 } from '../../services/delivery/index.js';
+import { contextRepository } from '../../repositories/context.repository.js';
+import { vendorRepository } from '../../repositories/vendor.repository.js';
+import { prisma } from '../../config/database.js';
 import type {
   CalculateOrderDeliveryInput,
   UpdateAdminDeliverySettingsInput,
@@ -16,10 +17,8 @@ import type {
 
 export class DeliveryService {
   async getVendorDeliveryContext(userId: string) {
-    const [settings, profile] = await Promise.all([
-      deliverySettingsRepository.getOrCreate(),
-      getVendorProfileForDelivery(userId),
-    ]);
+    const { settings, vendor: profile } =
+      await contextRepository.getVendorCheckoutContext(userId);
 
     const defaultAddress = formatVendorAddress(profile);
 
@@ -46,7 +45,7 @@ export class DeliveryService {
     input: UpdateDeliveryPreferenceInput,
     meta?: { ipAddress?: string; userAgent?: string },
   ) {
-    const profile = await getVendorProfileForDelivery(userId);
+    const profile = await vendorRepository.getForDelivery(userId);
     const previous = profile.deliveryPreference;
 
     const updated = await prisma.vendorProfile.update({
@@ -59,7 +58,7 @@ export class DeliveryService {
       },
     });
 
-    await activityLogService.log({
+    activityLogService.logAsync({
       action: ActivityAction.VENDOR_DELIVERY_PREFERENCE_CHANGED,
       entityType: 'vendor_profile',
       entityId: profile.id,
@@ -74,10 +73,8 @@ export class DeliveryService {
   }
 
   async calculateOrderDelivery(userId: string, input: CalculateOrderDeliveryInput) {
-    const [settings, profile] = await Promise.all([
-      deliverySettingsRepository.getOrCreate(),
-      getVendorProfileForDelivery(userId),
-    ]);
+    const { settings, vendor: profile } =
+      await contextRepository.getVendorCheckoutContext(userId);
 
     const resolution = resolveDeliveryForOrder(settings, {
       vendorPreference: profile.deliveryPreference,
@@ -106,8 +103,7 @@ export class DeliveryService {
   }
 
   async getAdminSettings() {
-    const settings = await deliverySettingsRepository.getOrCreate();
-    return settings;
+    return deliverySettingsRepository.getOrCreate();
   }
 
   async updateAdminSettings(
@@ -117,7 +113,7 @@ export class DeliveryService {
   ) {
     const row = await deliverySettingsRepository.update(input, adminUserId);
 
-    await activityLogService.log({
+    activityLogService.logAsync({
       action: ActivityAction.DELIVERY_SETTINGS_UPDATED,
       entityType: 'delivery_settings',
       entityId: row.id,

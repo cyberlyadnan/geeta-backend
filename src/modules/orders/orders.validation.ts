@@ -23,3 +23,4 @@ export const listOrdersQuerySchema = z.object({
 });
 
 export type ListOrdersQuery = z.infer<typeof listOrdersQuerySchema>;
+export type CreateProductionOrderInput = z.infer<typeof createProductionOrderSchema>;

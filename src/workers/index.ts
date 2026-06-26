@@ -14,6 +14,7 @@ import {
   createSlaWorker,
   createSliderExpiryWorker,
   createActivityLogWorker,
+  createAnalyticsWorker,
 } from '../jobs/index.js';
 
 const workers: Worker[] = [];
@@ -39,6 +40,7 @@ async function bootstrap(): Promise<void> {
     createSlaWorker(),
     createSliderExpiryWorker(),
     createActivityLogWorker(),
+    createAnalyticsWorker(),
   );
 
   logger.info(`BullMQ workers started (${workers.length} workers)`);

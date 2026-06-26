@@ -5,3 +5,5 @@ export { walletRepository } from './wallet.repository.js';
 export { orderRepository, ORDER_DETAIL_SELECT, ORDER_LIST_SELECT } from './order.repository.js';
 export { categoryRepository } from './category.repository.js';
 export { pricingRepository, VERSION_PRICING_INCLUDE } from './pricing.repository.js';
+export { deliverySettingsRepository, DeliverySettingsRepository } from './delivery-settings.repository.js';
+export { contextRepository, type VendorCheckoutContext, type AuthenticatedUserContext } from './context.repository.js';

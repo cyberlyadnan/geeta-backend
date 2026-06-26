@@ -23,7 +23,19 @@ import type {
 } from './contact.validation.js';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
 
-const contactStatsCache = new TtlCache<Awaited<ReturnType<ContactService['getStats']>>>(
+interface ContactStatsSummary {
+  total: number;
+  new: number;
+  open: number;
+  inProgress: number;
+  resolved: number;
+  archived: number;
+  byStatus: Partial<Record<ContactInquiryStatus, number>>;
+  byPriority: Partial<Record<ContactInquiryPriority, number>>;
+  bySubject: Record<string, number>;
+}
+
+const contactStatsCache = new TtlCache<ContactStatsSummary>(
   Number(process.env['CONTACT_STATS_CACHE_TTL_MS'] ?? 30_000),
 );
 
@@ -97,7 +109,7 @@ export class ContactService {
     return mapContactInquiry(inquiry);
   }
 
-  async getStats() {
+  async getStats(): Promise<ContactStatsSummary> {
     return contactStatsCache.getOrLoad(async () => {
       const [statusGroups, priorityGroups, subjectGroups] = await Promise.all([
         prisma.contactInquiry.groupBy({

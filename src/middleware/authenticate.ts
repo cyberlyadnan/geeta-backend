@@ -6,10 +6,11 @@ import {
   setRequestUserId,
 } from '../observability/request-context.js';
 import { tokenService } from '../services/auth/token.service.js';
+import { preloadRequestContext } from './preload-context.js';
 
 export async function authenticate(
   req: Request,
-  _res: Response,
+  res: Response,
   next: NextFunction,
 ): Promise<void> {
   beginAuthentication(req);
@@ -33,7 +34,7 @@ export async function authenticate(
     setRequestUserId(payload.sub, req);
     endAuthentication(req, 'JWT verification');
 
-    next();
+    await preloadRequestContext(req, res, next);
   } catch (error) {
     endAuthentication(req, 'JWT verification (failed)');
     next(error instanceof ApiError ? error : ApiError.unauthorized('Invalid or expired token'));

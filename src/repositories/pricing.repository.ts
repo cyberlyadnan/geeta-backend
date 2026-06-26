@@ -22,12 +22,17 @@ export const VERSION_PRICING_INCLUDE = {
   pricingRules: { orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] },
 } satisfies Prisma.ProductOfferingVersionInclude;
 
-const localVersionCaches = new Map<string, TtlCache<NonNullable<Awaited<ReturnType<typeof fetchVersionBundle>>>>>();
+const localVersionCaches = new Map<
+  string,
+  TtlCache<Awaited<ReturnType<typeof fetchVersionBundle>>>
+>();
 
 function localCacheFor(versionId: string) {
   let cache = localVersionCaches.get(versionId);
   if (!cache) {
-    cache = new TtlCache(CacheTtl.PRICING_VERSION_SEC * 1000);
+    cache = new TtlCache<Awaited<ReturnType<typeof fetchVersionBundle>>>(
+      CacheTtl.PRICING_VERSION_SEC * 1000,
+    );
     localVersionCaches.set(versionId, cache);
   }
   return cache;

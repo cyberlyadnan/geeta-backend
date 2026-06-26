@@ -2,17 +2,17 @@ import {
   DeliveryStatus,
   DeliveryType,
   ProductionOrderStatus,
+  type Prisma,
 } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { toDecimal } from '../../utils/money.js';
 import {
   calculateOrderTotals,
-  deliverySettingsRepository,
   formatVendorAddress,
   resolveDeliveryForOrder,
 } from '../../services/delivery/index.js';
-import { vendorRepository } from '../../repositories/vendor.repository.js';
+import { contextRepository } from '../../repositories/context.repository.js';
 import { orderRepository } from '../../repositories/order.repository.js';
 import { productsService } from '../products/products.service.js';
 import type { CreateProductionOrderInput } from './orders.validation.js';
@@ -51,9 +51,8 @@ export class OrdersService {
   }
 
   async create(userId: string, input: CreateProductionOrderInput) {
-    const [settings, profile, priceResult] = await Promise.all([
-      deliverySettingsRepository.getOrCreate(),
-      vendorRepository.getForDelivery(userId),
+    const [checkout, priceResult] = await Promise.all([
+      contextRepository.getVendorCheckoutContext(userId),
       productsService.calculatePrice({
         productId: input.productId,
         versionId: input.versionId,
@@ -61,6 +60,8 @@ export class OrdersService {
         selections: input.selections,
       }),
     ]);
+
+    const { settings, vendor: profile } = checkout;
 
     const productTotal = priceResult.grandTotal;
 
@@ -94,7 +95,7 @@ export class OrdersService {
           discountTotal: toDecimal(priceResult.discountTotal),
           taxTotal: toDecimal(priceResult.taxTotal),
           grandTotal: toDecimal(priceResult.grandTotal),
-          calculation: priceResult.snapshotPayload,
+          calculation: priceResult.snapshotPayload as Prisma.InputJsonValue,
         },
       });
 
@@ -123,11 +124,12 @@ export class OrdersService {
               configurations: {
                 create: Object.entries(input.selections).map(([fieldCode, selectedValue]) => {
                   const field = priceResult.lines.find((l) => l.code === fieldCode);
+                  const value = String(selectedValue);
                   return {
                     fieldCode,
                     fieldLabel: field?.label ?? fieldCode,
-                    selectedValue,
-                    selectedLabel: selectedValue,
+                    selectedValue: value,
+                    selectedLabel: value,
                   };
                 }),
               },

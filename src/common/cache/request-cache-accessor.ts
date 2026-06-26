@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import { RequestCache } from './request-cache.js';
-import { getRequestContext } from '../../observability/request-context.js';
+import { addRepositoryTime, getRequestContext } from '../../observability/request-context.js';
 
 export interface RequestCacheStats {
   requestHits: number;
@@ -38,5 +38,11 @@ export async function loadOncePerRequest<T>(
   } else {
     recordRequestCacheMiss(req);
   }
-  return cache.getOrLoad(key, loader);
+
+  const start = performance.now();
+  try {
+    return await cache.getOrLoad(key, loader);
+  } finally {
+    addRepositoryTime(performance.now() - start, req);
+  }
 }

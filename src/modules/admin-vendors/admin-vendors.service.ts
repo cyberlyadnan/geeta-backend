@@ -2,7 +2,6 @@ import { ActivityAction, UserStatus, VendorAccountStatus } from '@prisma/client'
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
-import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { activityLogService } from '../../services/activity/index.js';
 import type {
   CreateAdminNoteInput,
@@ -18,32 +17,7 @@ import {
   mapVendorStatusUpdateToDto,
 } from './admin-vendors.serialization.js';
 import { USER_SUMMARY_SELECT } from '../../common/security/user.serialization.js';
-
-const vendorStatsCache = new TtlCache<VendorStatsDto>(
-  Number(process.env['VENDOR_STATS_CACHE_TTL_MS'] ?? 15_000),
-);
-
-const activityFeedCaches = new Map<
-  number,
-  TtlCache<Awaited<ReturnType<typeof activityLogService.listRecentVendorActivity>>>
->();
-
-function activityFeedCacheFor(limit: number) {
-  let cache = activityFeedCaches.get(limit);
-  if (!cache) {
-    cache = new TtlCache(Number(process.env['ACTIVITY_FEED_CACHE_TTL_MS'] ?? 10_000));
-    activityFeedCaches.set(limit, cache);
-  }
-  return cache;
-}
-
-interface VendorStatsDto {
-  pending: number;
-  verified: number;
-  rejected: number;
-  suspended: number;
-  total: number;
-}
+import { vendorSummaryReadModel } from '../../read-models/vendor-summary.read-model.js';
 
 export class AdminVendorsService {
   async list(query: ListVendorsQuery) {
@@ -269,40 +243,16 @@ export class AdminVendorsService {
   }
 
   async getActivityFeed(limit = 20) {
-    const items = await activityFeedCacheFor(limit).getOrLoad(() =>
-      activityLogService.listRecentVendorActivity(limit),
-    );
+    const items = await vendorSummaryReadModel.getActivityFeed(limit);
     return { items };
   }
 
-  private async getStatsUncached() {
-    const rows = await prisma.vendorProfile.groupBy({
-      by: ['accountStatus'],
-      _count: { _all: true },
-    });
-
-    const countByStatus = new Map(rows.map((r) => [r.accountStatus, r._count._all]));
-
-    const pending = countByStatus.get(VendorAccountStatus.PENDING) ?? 0;
-    const verified = countByStatus.get(VendorAccountStatus.VERIFIED) ?? 0;
-    const rejected = countByStatus.get(VendorAccountStatus.REJECTED) ?? 0;
-    const suspended =
-      (countByStatus.get(VendorAccountStatus.SUSPENDED) ?? 0) +
-      (countByStatus.get(VendorAccountStatus.BLOCKED) ?? 0);
-    const total = rows.reduce((sum, r) => sum + r._count._all, 0);
-
-    return { pending, verified, rejected, suspended, total };
-  }
-
   async getStats() {
-    return vendorStatsCache.getOrLoad(() => this.getStatsUncached());
+    return vendorSummaryReadModel.getStats();
   }
 
   private invalidateVendorCaches(): void {
-    vendorStatsCache.invalidate();
-    for (const cache of activityFeedCaches.values()) {
-      cache.invalidate();
-    }
+    vendorSummaryReadModel.invalidateAll();
   }
 }
 
