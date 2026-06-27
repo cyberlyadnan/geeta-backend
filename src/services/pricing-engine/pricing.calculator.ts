@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { ApiError } from '../../common/errors/ApiError.js';
 import { decimalToNumber } from '../../utils/money.js';
 import { applyAdjustment, evaluateCondition } from './pricing.rules.js';
 import type {
@@ -115,7 +116,7 @@ export function calculatePriceFromBundle(
 
   const tier = resolveQuantityTier(bundle.quantityPricing, quantity);
   if (!tier) {
-    throw new Error('No quantity pricing configured for this product version');
+    throw ApiError.badRequest('No quantity pricing configured for this product version');
   }
 
   let runningTotal = tier.basePrice;

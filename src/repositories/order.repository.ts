@@ -1,8 +1,9 @@
-import { Prisma, type DeliveryStatus, type DeliveryType, type ProductionOrderStatus } from '@prisma/client';
+import {
+  Prisma,
+  type ProductionOrderStatus,
+} from '@prisma/client';
 import { prisma } from '../config/database.js';
-import type { PriceCalculationResult } from '../services/pricing-engine/pricing.types.js';
 
-/** Minimal select for order create response — avoids deep include graph */
 export const ORDER_DETAIL_SELECT = {
   id: true,
   orderNumber: true,
@@ -17,6 +18,8 @@ export const ORDER_DETAIL_SELECT = {
   deliveryAddress: true,
   deliveryStatus: true,
   notes: true,
+  walletDeducted: true,
+  estimatedCompletionAt: true,
   createdAt: true,
   updatedAt: true,
   items: {
@@ -25,16 +28,83 @@ export const ORDER_DETAIL_SELECT = {
       quantity: true,
       unitPrice: true,
       totalPrice: true,
-      configurations: {
-        select: { fieldCode: true, fieldLabel: true, selectedLabel: true },
-      },
-      productOfferingVersion: {
+      productSnapshot: true,
+      configurationSnapshot: true,
+      sizeSnapshot: true,
+      validationSnapshot: true,
+      coverageSnapshot: true,
+      priceSnapshot: {
         select: {
-          productOffering: {
-            select: { id: true, name: true, displayName: true, thumbnailUrl: true },
+          subtotal: true,
+          adjustmentTotal: true,
+          discountTotal: true,
+          taxTotal: true,
+          grandTotal: true,
+          calculation: true,
+        },
+      },
+      configurations: {
+        select: { fieldCode: true, fieldLabel: true, selectedLabel: true, selectedValue: true },
+      },
+      orderArtworks: {
+        select: {
+          id: true,
+          fileRequirementCode: true,
+          approvalStatus: true,
+          artworkFile: {
+            select: {
+              id: true,
+              fileAsset: { select: { originalName: true, extension: true, mimeType: true } },
+            },
+          },
+          pinnedVersion: {
+            select: {
+              artworkVersion: {
+                select: {
+                  id: true,
+                  previewUrl: true,
+                  processingStatus: true,
+                  validation: true,
+                  metadata: true,
+                  coverageAnalyses: true,
+                },
+              },
+            },
           },
         },
       },
+      productOfferingVersion: {
+        select: {
+          id: true,
+          productOffering: {
+            select: { id: true, name: true, displayName: true, thumbnailUrl: true, slug: true },
+          },
+        },
+      },
+    },
+  },
+  events: {
+    orderBy: { createdAt: 'asc' as const },
+    select: {
+      id: true,
+      eventType: true,
+      title: true,
+      description: true,
+      metadata: true,
+      createdAt: true,
+    },
+  },
+  walletTransactions: {
+    where: { type: 'ORDER_PAYMENT' },
+    take: 1,
+    orderBy: { createdAt: 'desc' as const },
+    select: {
+      id: true,
+      amount: true,
+      balanceBefore: true,
+      balanceAfter: true,
+      referenceNumber: true,
+      createdAt: true,
     },
   },
 } satisfies Prisma.ProductionOrderSelect;
@@ -52,53 +122,64 @@ export const ORDER_LIST_SELECT = {
   deliveryType: true,
   deliveryStatus: true,
   createdAt: true,
+  estimatedCompletionAt: true,
   items: {
     take: 1,
     select: {
       quantity: true,
       productOfferingVersion: {
         select: {
-          productOffering: { select: { name: true, displayName: true } },
+          productOffering: { select: { name: true, displayName: true, thumbnailUrl: true } },
         },
       },
     },
   },
 } satisfies Prisma.ProductionOrderSelect;
 
-export interface CreateOrderData {
-  orderNumber: string;
-  customerId: string;
-  orderName: string;
-  status: ProductionOrderStatus;
-  subtotal: number;
-  deliveryCharge: number;
-  taxAmount: number;
-  totalAmount: number;
-  deliveryRequired: boolean;
-  deliveryType: DeliveryType | null;
-  deliveryAddress: string | null;
-  deliveryStatus: DeliveryStatus | null;
-  notes: string | null;
-  versionId: string;
-  quantity: number;
-  unitPrice: number;
-  productTotal: number;
-  priceSnapshotId: string;
-  selections: Record<string, string>;
-  priceLines: PriceCalculationResult['lines'];
+export interface OrderListFilters {
+  search?: string;
+  status?: ProductionOrderStatus;
+  fromDate?: Date;
+  toDate?: Date;
 }
 
 export class OrderRepository {
-  findManyByCustomer(customerId: string, skip: number, take: number) {
+  findManyByCustomer(
+    customerId: string,
+    skip: number,
+    take: number,
+    filters: OrderListFilters = {},
+  ) {
+    const where: Prisma.ProductionOrderWhereInput = {
+      customerId,
+      ...(filters.status && { status: filters.status }),
+      ...(filters.fromDate || filters.toDate
+        ? {
+            createdAt: {
+              ...(filters.fromDate && { gte: filters.fromDate }),
+              ...(filters.toDate && { lte: filters.toDate }),
+            },
+          }
+        : {}),
+      ...(filters.search
+        ? {
+            OR: [
+              { orderNumber: { contains: filters.search, mode: 'insensitive' } },
+              { orderName: { contains: filters.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
     return Promise.all([
       prisma.productionOrder.findMany({
-        where: { customerId },
+        where,
         orderBy: { createdAt: 'desc' },
         skip,
         take,
         select: ORDER_LIST_SELECT,
       }),
-      prisma.productionOrder.count({ where: { customerId } }),
+      prisma.productionOrder.count({ where }),
     ]);
   }
 
@@ -108,51 +189,12 @@ export class OrderRepository {
       select: ORDER_DETAIL_SELECT,
     });
   }
-
-  /** Atomic snapshot + order — single transaction, one round-trip */
-  async createWithSnapshot(data: CreateOrderData) {
-    return prisma.$transaction(async (tx) => {
-      const order = await tx.productionOrder.create({
-        data: {
-          orderNumber: data.orderNumber,
-          customerId: data.customerId,
-          orderName: data.orderName,
-          status: data.status,
-          subtotal: data.subtotal,
-          deliveryCharge: data.deliveryCharge,
-          taxAmount: data.taxAmount,
-          totalAmount: data.totalAmount,
-          deliveryRequired: data.deliveryRequired,
-          deliveryType: data.deliveryType,
-          deliveryAddress: data.deliveryAddress,
-          deliveryStatus: data.deliveryStatus,
-          notes: data.notes,
-          items: {
-            create: {
-              productOfferingVersionId: data.versionId,
-              quantity: data.quantity,
-              unitPrice: data.unitPrice,
-              totalPrice: data.productTotal,
-              priceSnapshotId: data.priceSnapshotId,
-              configurations: {
-                create: Object.entries(data.selections).map(([fieldCode, selectedValue]) => {
-                  const field = data.priceLines.find((l) => l.code === fieldCode);
-                  return {
-                    fieldCode,
-                    fieldLabel: field?.label ?? fieldCode,
-                    selectedValue,
-                    selectedLabel: selectedValue,
-                  };
-                }),
-              },
-            },
-          },
-        },
-        select: ORDER_DETAIL_SELECT,
-      });
-      return order;
-    });
-  }
 }
 
 export const orderRepository = new OrderRepository();
+
+export type OrderDetailRecord = NonNullable<
+  Awaited<ReturnType<OrderRepository['findByIdForCustomer']>>
+>;
+
+export type OrderListRecord = Awaited<ReturnType<OrderRepository['findManyByCustomer']>>[0][number];

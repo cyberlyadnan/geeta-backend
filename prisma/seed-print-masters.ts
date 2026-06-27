@@ -10,9 +10,84 @@ import {
   PrintColorMode,
   PrintSizeStrategyType,
   SheetType,
+  SupportedFileType,
+  type FileRequirementType,
 } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+type FileRuleSeed = {
+  code: string;
+  name: string;
+  requirementType: FileRequirementType;
+  maxFileSizeMb: number;
+  allowMultiple: boolean;
+  allowedFileTypes: string[];
+};
+
+async function syncVersionFileRequirement(
+  db: PrismaClient,
+  versionId: string,
+  fileRule: FileRuleSeed,
+) {
+  const requirement = await db.fileRequirement.upsert({
+    where: {
+      productOfferingVersionId_code: {
+        productOfferingVersionId: versionId,
+        code: fileRule.code,
+      },
+    },
+    update: {
+      label: fileRule.name,
+      requirementType: fileRule.requirementType,
+      maxFileSizeMb: fileRule.maxFileSizeMb,
+      allowMultiple: fileRule.allowMultiple,
+    },
+    create: {
+      productOfferingVersionId: versionId,
+      code: fileRule.code,
+      label: fileRule.name,
+      requirementType: fileRule.requirementType,
+      maxFileSizeMb: fileRule.maxFileSizeMb,
+      allowMultiple: fileRule.allowMultiple,
+      sortOrder: 0,
+    },
+  });
+
+  await db.fileRequirementFileType.deleteMany({ where: { requirementId: requirement.id } });
+  for (const fileType of fileRule.allowedFileTypes) {
+    const normalized = fileType.toUpperCase() as SupportedFileType;
+    if (!Object.values(SupportedFileType).includes(normalized)) continue;
+    await db.fileRequirementFileType.create({
+      data: { requirementId: requirement.id, fileType: normalized },
+    });
+  }
+
+  return requirement;
+}
+
+async function ensureProductPrintConfig(
+  db: PrismaClient,
+  versionId: string,
+  config: {
+    printProcessId: string;
+    sizeTemplateId: string;
+    printSpecificationTemplateId: string;
+    fileUploadRuleTemplateId: string;
+    artworkRuleIds: string[];
+    validationRuleIds: string[];
+    coverageRuleIds: string[];
+    pricingStrategyKey?: string | null;
+  },
+  fileRule: FileRuleSeed,
+) {
+  await db.productPrintConfig.upsert({
+    where: { productOfferingVersionId: versionId },
+    update: config,
+    create: { productOfferingVersionId: versionId, ...config },
+  });
+  await syncVersionFileRequirement(db, versionId, fileRule);
+}
 
 const UNITS = [
   { code: 'MM', name: 'Millimeter', symbol: 'mm', toMmFactor: 1, sortOrder: 1 },
@@ -172,6 +247,45 @@ export async function seedPrintMasters(client?: PrismaClient): Promise<void> {
       status: 'ACTIVE',
     },
   });
+
+  const visitingCardTemplate = await db.sizeTemplate.upsert({
+    where: { code: 'VISITING_CARD_FIXED' },
+    update: {
+      name: 'Visiting Card Fixed Sizes',
+      strategyType: PrintSizeStrategyType.FIXED_SIZE,
+      status: 'ACTIVE',
+      deletedAt: null,
+    },
+    create: {
+      code: 'VISITING_CARD_FIXED',
+      name: 'Visiting Card Fixed Sizes',
+      strategyType: PrintSizeStrategyType.FIXED_SIZE,
+      config: { unit: 'MM' },
+      description: 'Standard visiting card dimensions',
+      sortOrder: 4,
+      status: 'ACTIVE',
+    },
+  });
+
+  await db.sizeTemplateItem.deleteMany({ where: { sizeTemplateId: visitingCardTemplate.id } });
+  const visitingCardSizes = [
+    { code: 'STD_90X54', label: 'Standard (90×54 mm)', width: 90, height: 54 },
+    { code: 'EU_85X55', label: 'European (85×55 mm)', width: 85, height: 55 },
+    { code: 'US_89X51', label: 'US Standard (89×51 mm)', width: 89, height: 51 },
+  ] as const;
+  for (const [idx, size] of visitingCardSizes.entries()) {
+    await db.sizeTemplateItem.create({
+      data: {
+        sizeTemplateId: visitingCardTemplate.id,
+        code: size.code,
+        label: size.label,
+        width: size.width,
+        height: size.height,
+        unitCode: 'MM',
+        sortOrder: idx,
+      },
+    });
+  }
 
   const visitingCardSpec = await db.printSpecificationTemplate.upsert({
     where: { code: 'VISITING_CARD_STD' },
@@ -340,18 +454,33 @@ export async function seedPrintMasters(client?: PrismaClient): Promise<void> {
 
   const fileUploadRule = await db.fileUploadRuleTemplate.upsert({
     where: { code: 'ARTWORK_MAIN' },
-    update: { status: 'ACTIVE', deletedAt: null },
+    update: {
+      status: 'ACTIVE',
+      deletedAt: null,
+      allowedFileTypes: ['PDF', 'AI', 'PSD', 'PNG', 'JPG', 'JPEG', 'WEBP', 'CDR'],
+      maxFileSizeMb: 100,
+      requirementType: 'REQUIRED',
+    },
     create: {
       code: 'ARTWORK_MAIN',
       name: 'Main Artwork Upload',
       requirementType: 'REQUIRED',
       maxFileSizeMb: 100,
       allowMultiple: false,
-      allowedFileTypes: ['PDF', 'AI', 'PSD', 'PNG', 'JPG'],
+      allowedFileTypes: ['PDF', 'AI', 'PSD', 'PNG', 'JPG', 'JPEG', 'WEBP', 'CDR'],
       sortOrder: 1,
       status: 'ACTIVE',
     },
   });
+
+  const fileRuleSeed: FileRuleSeed = {
+    code: fileUploadRule.code,
+    name: fileUploadRule.name,
+    requirementType: fileUploadRule.requirementType,
+    maxFileSizeMb: fileUploadRule.maxFileSizeMb ?? 100,
+    allowMultiple: fileUploadRule.allowMultiple,
+    allowedFileTypes: (fileUploadRule.allowedFileTypes as string[]) ?? ['PDF', 'PNG', 'JPG'],
+  };
 
   const processMap: Record<string, string> = {};
   for (const [idx, p] of PRINT_PROCESSES.entries()) {
@@ -427,7 +556,7 @@ export async function seedPrintMasters(client?: PrismaClient): Promise<void> {
       name: 'Visiting Card',
       slug: 'demo-visiting-card',
       process: 'DIGITAL',
-      template: digitalTemplate.id,
+      template: visitingCardTemplate.id,
       spec: visitingCardSpec.id,
       basePrice: 500,
       minQty: 100,
@@ -481,7 +610,7 @@ export async function seedPrintMasters(client?: PrismaClient): Promise<void> {
       name: 'Spot UV Card',
       slug: 'demo-spot-uv-card',
       process: 'SPOT_UV',
-      template: digitalTemplate.id,
+      template: visitingCardTemplate.id,
       spec: visitingCardSpec.id,
       basePrice: 2500,
       minQty: 100,
@@ -551,9 +680,10 @@ export async function seedPrintMasters(client?: PrismaClient): Promise<void> {
 
     const coverageIds = 'coverageIds' in prod ? [...prod.coverageIds] : ruleIds.coverage;
 
-    await db.productPrintConfig.upsert({
-      where: { productOfferingVersionId: version.id },
-      update: {
+    await ensureProductPrintConfig(
+      db,
+      version.id,
+      {
         printProcessId: processMap[prod.process],
         sizeTemplateId: prod.template,
         printSpecificationTemplateId: prod.spec,
@@ -563,18 +693,8 @@ export async function seedPrintMasters(client?: PrismaClient): Promise<void> {
         coverageRuleIds: coverageIds,
         pricingStrategyKey: PRINT_PROCESSES.find((p) => p.code === prod.process)?.pricingStrategyKey,
       },
-      create: {
-        productOfferingVersionId: version.id,
-        printProcessId: processMap[prod.process],
-        sizeTemplateId: prod.template,
-        printSpecificationTemplateId: prod.spec,
-        fileUploadRuleTemplateId: fileUploadRule.id,
-        artworkRuleIds: ruleIds.artwork,
-        validationRuleIds: ruleIds.validation,
-        coverageRuleIds: coverageIds,
-        pricingStrategyKey: PRINT_PROCESSES.find((p) => p.code === prod.process)?.pricingStrategyKey,
-      },
-    });
+      fileRuleSeed,
+    );
 
     const existingPricing = await db.quantityPricing.findFirst({
       where: { productOfferingVersionId: version.id },
@@ -591,7 +711,75 @@ export async function seedPrintMasters(client?: PrismaClient): Promise<void> {
     }
   }
 
+  const unconfiguredVersions = await db.productOfferingVersion.findMany({
+    where: {
+      isCurrent: true,
+      deletedAt: null,
+      status: ProductOfferingVersionStatus.PUBLISHED,
+      productPrintConfig: null,
+    },
+    include: { productOffering: { select: { name: true, slug: true } } },
+  });
+
+  for (const version of unconfiguredVersions) {
+    const slug = version.productOffering.slug.toLowerCase();
+    const name = version.productOffering.name.toLowerCase();
+    const isVisiting = /visit|card/.test(slug) || /visit|card/.test(name);
+    const isFlex = /flex|banner|vinyl/.test(slug) || /flex|banner|vinyl/.test(name);
+
+    const sizeTemplateId = isVisiting
+      ? visitingCardTemplate.id
+      : isFlex
+        ? flexTemplate.id
+        : digitalTemplate.id;
+    const specId = isVisiting
+      ? visitingCardSpec.id
+      : isFlex
+        ? flexSpec.id
+        : digitalSpec.id;
+    const processId = isFlex ? processMap.FLEX : processMap.DIGITAL;
+
+    await db.productOfferingVersion.update({
+      where: { id: version.id },
+      data: {
+        printProcessId: processId,
+        sizeTemplateId,
+        printSpecificationTemplateId: specId,
+      },
+    });
+
+    await ensureProductPrintConfig(
+      db,
+      version.id,
+      {
+        printProcessId: processId,
+        sizeTemplateId,
+        printSpecificationTemplateId: specId,
+        fileUploadRuleTemplateId: fileUploadRule.id,
+        artworkRuleIds: ruleIds.artwork,
+        validationRuleIds: ruleIds.validation,
+        coverageRuleIds: ruleIds.coverage,
+        pricingStrategyKey: isFlex ? 'flex_area' : 'digital_standard',
+      },
+      fileRuleSeed,
+    );
+  }
+
+  const configuredWithoutFileReq = await db.productOfferingVersion.findMany({
+    where: {
+      isCurrent: true,
+      deletedAt: null,
+      productPrintConfig: { isNot: null },
+      fileRequirementsRel: { none: {} },
+    },
+    select: { id: true },
+  });
+
+  for (const version of configuredWithoutFileReq) {
+    await syncVersionFileRequirement(db, version.id, fileRuleSeed);
+  }
+
   console.log(
-    `Print masters seeded: ${UNITS.length} units, ${SHEET_SIZES.length} sheet sizes, ${PRINT_PROCESSES.length} processes, ${DEMO_PRODUCTS.length} demo products`,
+    `Print masters seeded: ${UNITS.length} units, ${SHEET_SIZES.length} sheet sizes, ${PRINT_PROCESSES.length} processes, ${DEMO_PRODUCTS.length} demo products, ${unconfiguredVersions.length} products backfilled`,
   );
 }

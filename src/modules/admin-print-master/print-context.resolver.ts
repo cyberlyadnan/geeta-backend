@@ -105,7 +105,7 @@ export class PrintContextResolver {
     return prisma.productOfferingVersion.findUnique({
       where: { id: versionId, deletedAt: null },
       include: {
-        productOffering: { select: { id: true, name: true, slug: true } },
+        productOffering: { select: { id: true, name: true, displayName: true, slug: true, thumbnailUrl: true } },
         printProcess: true,
         sizeTemplate: {
           include: {

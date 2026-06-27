@@ -181,6 +181,10 @@ enum ActivityAction {
   PRINT_MASTER_ENABLED
   PRINT_MASTER_DISABLED
   PRINT_CONFIG_ASSIGNED
+  ORDER_CREATED
+  ORDER_WALLET_CHARGED
+  ORDER_DRAFT_SAVED
+  ORDER_STATUS_CHANGED
   USER_LOGIN
   USER_LOGIN_BLOCKED
   USER_CREATED
@@ -327,10 +331,15 @@ enum WorkflowPriority {
 
 enum ProductionOrderStatus {
   DRAFT
+  ORDER_PLACED
   PENDING_PAYMENT
+  UNDER_ARTWORK_REVIEW
+  ARTWORK_APPROVED
   CONFIRMED
   IN_PRODUCTION
+  QUALITY_CHECK
   ON_HOLD
+  READY_FOR_DISPATCH
   COMPLETED
   DISPATCHED
   DELIVERED
@@ -451,6 +460,9 @@ model User {
   contactInquiryActivities ContactInquiryActivity[]
   uploadedFileAssets       FileAsset[]
   productionOrders         ProductionOrder[]
+  vendorOrderDrafts        VendorOrderDraft[]
+  userNotifications        UserNotification[]
+  productionOrderEvents    ProductionOrderEvent[]    @relation("ProductionOrderEventActor")
   assignedWorkflowTasks    WorkflowTask[]           @relation("WorkflowTaskAssignee")
   workflowTaskHistory      WorkflowTaskHistory[]    @relation("WorkflowTaskHistoryPerformer")
   reworkRequestsCreated    ReworkRequest[]          @relation("ReworkRequestCreator")
@@ -483,6 +495,14 @@ model VendorCodeSequence {
   lastValue Int @default(1000) @map("last_value")
 
   @@map("vendor_code_sequences")
+}
+
+/// Sequential production order numbers: GP-2026-000001
+model OrderNumberSequence {
+  year      Int @id
+  lastValue Int @default(0) @map("last_value")
+
+  @@map("order_number_sequences")
 }
 
 model VendorProfile {
@@ -1279,6 +1299,9 @@ model ProductionOrder {
   deliveryStatus  DeliveryStatus?       @map("delivery_status")
   notes           String?               @db.Text
   quoteId         String?               @map("quote_id")
+  walletDeducted  Boolean               @default(false) @map("wallet_deducted")
+  estimatedCompletionAt DateTime?       @map("estimated_completion_at")
+  sourceDraftId   String?               @map("source_draft_id")
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")
 
@@ -1287,6 +1310,8 @@ model ProductionOrder {
   items             ProductionOrderItem[]
   workflowInstances WorkflowInstance[]
   jobCards          ProductionJobCard[]
+  events            ProductionOrderEvent[]
+  walletTransactions WalletTransaction[]  @relation("ProductionOrderWalletTx")
 
   @@index([customerId])
   @@index([customerId, createdAt(sort: Desc)])
@@ -1306,6 +1331,11 @@ model ProductionOrderItem {
   unitPrice                Decimal  @map("unit_price") @db.Decimal(12, 2)
   totalPrice               Decimal  @map("total_price") @db.Decimal(12, 2)
   priceSnapshotId          String?  @map("price_snapshot_id")
+  productSnapshot          Json     @default("{}") @map("product_snapshot")
+  configurationSnapshot    Json     @default("{}") @map("configuration_snapshot")
+  sizeSnapshot             Json?    @map("size_snapshot")
+  validationSnapshot       Json?    @map("validation_snapshot")
+  coverageSnapshot         Json?    @map("coverage_snapshot")
   createdAt                DateTime @default(now()) @map("created_at")
 
   order                  ProductionOrder          @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -1320,6 +1350,60 @@ model ProductionOrderItem {
   @@index([productOfferingVersionId])
   @@index([priceSnapshotId])
   @@map("production_order_items")
+}
+
+/// Immutable timeline for vendor + admin order tracking.
+model ProductionOrderEvent {
+  id          String   @id @default(cuid())
+  orderId     String   @map("order_id")
+  eventType   String   @map("event_type")
+  title       String
+  description String?  @db.Text
+  metadata    Json     @default("{}")
+  actorId     String?  @map("actor_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  order ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor User?           @relation("ProductionOrderEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+  @@map("production_order_events")
+}
+
+/// Vendor order wizard draft — auto-save and resume.
+model VendorOrderDraft {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  label     String?
+  payload   Json     @default("{}")
+  step      Int      @default(1)
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("vendor_order_drafts")
+}
+
+/// In-app notifications (email/SMS/WhatsApp ready via metadata).
+model UserNotification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      String
+  title     String
+  body      String?  @db.Text
+  entityType String? @map("entity_type")
+  entityId  String?  @map("entity_id")
+  isRead    Boolean  @default(false) @map("is_read")
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt(sort: Desc)])
+  @@map("user_notifications")
 }
 
 model OrderItemConfiguration {
@@ -1738,6 +1822,7 @@ model WalletTransaction {
   walletId        String                  @map("wallet_id")
   userId          String                  @map("user_id")
   orderId         String?                 @map("order_id")
+  productionOrderId String?               @map("production_order_id")
   paymentId       String?                 @unique @map("payment_id")
   type            WalletTransactionType
   status          WalletTransactionStatus @default(PENDING)
@@ -1756,12 +1841,14 @@ model WalletTransaction {
   wallet    Wallet   @relation(fields: [walletId], references: [id])
   user      User     @relation(fields: [userId], references: [id])
   order     Order?   @relation(fields: [orderId], references: [id])
+  productionOrder ProductionOrder? @relation("ProductionOrderWalletTx", fields: [productionOrderId], references: [id], onDelete: SetNull)
   payment   Payment? @relation(fields: [paymentId], references: [id])
   createdBy User?    @relation("WalletTransactionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([walletId])
   @@index([userId])
   @@index([orderId])
+  @@index([productionOrderId])
   @@index([type])
   @@index([status])
   @@index([createdAt])

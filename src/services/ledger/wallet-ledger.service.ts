@@ -29,6 +29,7 @@ export interface LedgerDebitInput {
   amount: number;
   type: WalletTransactionType;
   orderId?: string;
+  productionOrderId?: string;
   remarks?: string;
   createdById?: string;
   referenceNumber?: string;
@@ -168,6 +169,7 @@ export class WalletLedgerService {
           walletId: wallet.id,
           userId: input.userId,
           orderId: input.orderId,
+          productionOrderId: input.productionOrderId,
           type: input.type,
           status: WalletTransactionStatus.COMPLETED,
           amount,
@@ -208,6 +210,12 @@ export class WalletLedgerService {
 
     if (existingTx) return run(existingTx);
     return prisma.$transaction(run);
+  }
+
+  async getWalletSummary(userId: string) {
+    const wallet = await this.ensureWallet(userId);
+    const summary = this.mapWalletSummary(wallet);
+    return { ...summary, balance: summary.currentBalance };
   }
 
   private async lockWallet(userId: string, tx: Prisma.TransactionClient) {

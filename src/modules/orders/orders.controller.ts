@@ -2,22 +2,58 @@
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { ordersService } from './orders.service.js';
+import { orderDraftsService } from './order-drafts.service.js';
+import type {
+  CreateProductionOrderInput,
+  ListOrdersQuery,
+  OrderPreviewInput,
+  SaveDraftInput,
+} from './orders.validation.js';
 
 export class OrdersController {
   list = asyncHandler(async (req: Request, res: Response) => {
-    const query = req.validatedQuery as import('./orders.validation.js').ListOrdersQuery;
-    const result = await ordersService.findAll(req.user!.id, query.page, query.limit);
+    const query = req.validatedQuery as ListOrdersQuery;
+    const result = await ordersService.findAll(req.user!.id, query);
     return ApiResponse.success(res, result);
   });
 
   getById = asyncHandler(async (req: Request, res: Response) => {
-    const result = await ordersService.findById(req.user!.id, req.params['id'] as string);
+    const { id } = req.validatedParams as { id: string };
+    const result = await ordersService.findById(req.user!.id, id);
+    return ApiResponse.success(res, result);
+  });
+
+  preview = asyncHandler(async (req: Request, res: Response) => {
+    const result = await ordersService.preview(req.user!.id, req.body as OrderPreviewInput);
     return ApiResponse.success(res, result);
   });
 
   create = asyncHandler(async (req: Request, res: Response) => {
-    const result = await ordersService.create(req.user!.id, req.body);
+    const result = await ordersService.create(req.user!.id, req.body as CreateProductionOrderInput);
     return ApiResponse.created(res, result, 'Order placed successfully');
+  });
+
+  reorder = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const payload = await ordersService.buildReorderPayload(req.user!.id, id);
+    return ApiResponse.success(res, payload);
+  });
+
+  listDrafts = asyncHandler(async (req: Request, res: Response) => {
+    const drafts = await orderDraftsService.list(req.user!.id);
+    return ApiResponse.success(res, drafts);
+  });
+
+  saveDraft = asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as SaveDraftInput;
+    const draft = await orderDraftsService.upsert(req.user!.id, body);
+    return ApiResponse.success(res, draft, 'Draft saved');
+  });
+
+  deleteDraft = asyncHandler(async (req: Request, res: Response) => {
+    const { draftId } = req.validatedParams as { draftId: string };
+    const result = await orderDraftsService.remove(req.user!.id, draftId);
+    return ApiResponse.success(res, result);
   });
 }
 

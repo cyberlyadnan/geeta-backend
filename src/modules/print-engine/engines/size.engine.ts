@@ -41,6 +41,38 @@ export function areaCm2FromMm(widthMm: number, heightMm: number): number {
 }
 
 export class SizeEngine {
+  /** Whether enough input exists to resolve size without throwing. */
+  canResolve(strategy: SizeStrategyConfig, input?: SizeInput): boolean {
+    const { strategyType, config, presets } = strategy;
+
+    switch (strategyType) {
+      case 'FIXED_SIZE':
+      case 'COVERAGE_BASED':
+        return presets.length > 0 || Boolean(config['referenceWidthMm']);
+      case 'SHEET_BASED':
+        return Boolean(input?.sizeCode);
+      case 'AREA_BASED':
+      case 'CUSTOM_SIZE':
+        return (
+          Boolean(input?.sizeCode) ||
+          (input?.width != null &&
+            input?.height != null &&
+            input.width > 0 &&
+            input.height > 0)
+        );
+      case 'ROLL_BASED':
+        return (
+          (input?.width != null &&
+            input?.height != null &&
+            input.width > 0 &&
+            input.height > 0) ||
+          (Boolean(config['rollWidthMm']) && Boolean(config['defaultLengthMm']))
+        );
+      default:
+        return false;
+    }
+  }
+
   resolve(strategy: SizeStrategyConfig, input?: SizeInput): ResolvedSize {
     const { strategyType, config, presets } = strategy;
 

@@ -8,11 +8,18 @@ import type { PrintColorMode, ValidationLevel } from '@prisma/client';
 export class ArtworkProcessingService {
   async processArtworkVersion(artworkVersionId: string, versionId: string): Promise<void> {
     const detail = await printEngineRepository.getArtworkVersionDetail(artworkVersionId);
-    if (!detail) return;
+    if (!detail) {
+      await this.markFailed(artworkVersionId);
+      return;
+    }
 
     const version = await printEngineRepository.getVersionContext(versionId);
-    if (!version) return;
+    if (!version) {
+      await this.markFailed(artworkVersionId, detail.artworkFileId);
+      return;
+    }
 
+    try {
     await prisma.artworkVersion.update({
       where: { id: artworkVersionId },
       data: { processingStatus: 'VALIDATING', virusScanPassed: true },
@@ -159,6 +166,23 @@ export class ArtworkProcessingService {
       where: { id: detail.artworkFileId },
       data: { processingStatus: 'COMPLETED' },
     });
+    } catch (error) {
+      await this.markFailed(artworkVersionId, detail.artworkFileId);
+      throw error;
+    }
+  }
+
+  private async markFailed(artworkVersionId: string, artworkFileId?: string) {
+    await prisma.artworkVersion.update({
+      where: { id: artworkVersionId },
+      data: { processingStatus: 'FAILED' },
+    });
+    if (artworkFileId) {
+      await prisma.artworkFile.update({
+        where: { id: artworkFileId },
+        data: { processingStatus: 'FAILED' },
+      });
+    }
   }
 }
 

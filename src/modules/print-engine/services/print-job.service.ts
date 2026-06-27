@@ -1,6 +1,6 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { ActivityAction } from '@prisma/client';
+import { ActivityAction, FileRequirementType, SupportedFileType } from '@prisma/client';
 import { prisma } from '../../../config/database.js';
 import { ApiError } from '../../../common/errors/ApiError.js';
 import { activityLogService } from '../../../services/activity/activity-log.service.js';
@@ -13,12 +13,15 @@ import {
 } from '../../../services/storage/storage.utils.js';
 import { productsService } from '../../products/products.service.js';
 import { contextRepository } from '../../../repositories/context.repository.js';
+import type { VendorCheckoutContext } from '../../../repositories/context.repository.js';
 import { coverageEngine } from '../engines/coverage.engine.js';
 import { sizeEngine } from '../engines/size.engine.js';
 import { printContextResolver } from '../../admin-print-master/print-context.resolver.js';
 import { printEngineRepository } from '../repositories/print-engine.repository.js';
+import { logger } from '../../../logs/logger.js';
 import { enqueueArtworkProcessing } from '../../../queues/artwork-processing.queue.js';
 import { artworkProcessingService } from './artwork-processing.service.js';
+import type { PriceCalculationResult } from '../../../services/pricing-engine/pricing.types.js';
 import type {
   ArtworkUploadSlot,
   LivePricingInput,
@@ -53,11 +56,7 @@ export class PrintJobService {
       fileSize: number;
     },
   ) {
-    const version = await printEngineRepository.getVersionContext(input.versionId);
-    if (!version) throw ApiError.notFound('Product version not found');
-
-    const requirement = version.fileRequirementsRel.find((r) => r.code === input.requirementCode);
-    if (!requirement) throw ApiError.badRequest('Unknown file requirement');
+    const requirement = await this.resolveUploadRequirement(input.versionId, input.requirementCode);
 
     assertValidArtworkUpload(
       input.contentType,
@@ -102,11 +101,7 @@ export class PrintJobService {
       fileSize: number;
     },
   ) {
-    const version = await printEngineRepository.getVersionContext(input.versionId);
-    if (!version) throw ApiError.notFound('Product version not found');
-
-    const requirement = version.fileRequirementsRel.find((r) => r.code === input.requirementCode);
-    if (!requirement) throw ApiError.badRequest('Unknown file requirement');
+    const requirement = await this.resolveUploadRequirement(input.versionId, input.requirementCode);
 
     const config = assertR2Config();
     const ext = input.fileName.split('.').pop()?.toLowerCase() ?? 'bin';
@@ -153,7 +148,7 @@ export class PrintJobService {
           data: {
             fileAssetId: fileAsset.id,
             fileRequirementId: requirement.id,
-            printLayerId: requirement.printLayer?.id,
+            printLayerId: requirement.printLayerId,
             ownerId: userId,
             versionId: input.versionId,
             currentVersion: 1,
@@ -181,10 +176,33 @@ export class PrintJobService {
       versionId: input.versionId,
     });
 
-    if (!queued) {
-      void artworkProcessingService
-        .processArtworkVersion(result.artworkVersionId, input.versionId)
-        .catch(() => undefined);
+    // Process inline so validation completes without a background worker (dev/single-node).
+    // If a worker is also running, duplicate processing is harmless (idempotent upserts).
+    try {
+      await artworkProcessingService.processArtworkVersion(
+        result.artworkVersionId,
+        input.versionId,
+      );
+    } catch (error) {
+      logger.error('Artwork processing failed after upload', {
+        artworkVersionId: result.artworkVersionId,
+        versionId: input.versionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await prisma.artworkVersion.update({
+        where: { id: result.artworkVersionId },
+        data: { processingStatus: 'FAILED' },
+      }).catch(() => undefined);
+      await prisma.artworkFile.update({
+        where: { id: result.artworkFileId },
+        data: { processingStatus: 'FAILED' },
+      }).catch(() => undefined);
+    }
+
+    if (queued) {
+      logger.debug('Artwork also queued for worker processing', {
+        artworkVersionId: result.artworkVersionId,
+      });
     }
 
     return result;
@@ -212,8 +230,21 @@ export class PrintJobService {
 
     if (!resolved) throw ApiError.notFound('Product version not found');
 
+    return this.buildLivePricingTotals(input, { priceResult, checkout, resolved });
+  }
+
+  buildLivePricingTotals(
+    input: LivePricingInput,
+    deps: {
+      priceResult: PriceCalculationResult;
+      checkout: VendorCheckoutContext;
+      resolved: NonNullable<Awaited<ReturnType<typeof printContextResolver.resolveForVersion>>>;
+    },
+  ) {
+    const { priceResult, checkout, resolved } = deps;
+
     let sizeAdjustment = 0;
-    if (input.size && resolved.sizeStrategy) {
+    if (resolved.sizeStrategy && sizeEngine.canResolve(resolved.sizeStrategy, input.size)) {
       const resolvedSize = sizeEngine.resolve(resolved.sizeStrategy, input.size);
       sizeAdjustment = Number(resolvedSize.metadata?.['sizeSurcharge'] ?? 0);
     }
@@ -282,11 +313,12 @@ export class PrintJobService {
     userId: string,
     versionId: string,
     slots: ArtworkUploadSlot[],
+    resolvedContext?: NonNullable<Awaited<ReturnType<typeof printContextResolver.resolveForVersion>>>,
   ): Promise<{ canProceed: boolean; items: Array<{ artworkVersionId: string; validation: unknown }> }> {
-    const version = await printEngineRepository.getVersionContext(versionId);
-    if (!version) throw ApiError.notFound('Product version not found');
+    const resolved = resolvedContext ?? (await printContextResolver.resolveForVersion(versionId));
+    if (!resolved) throw ApiError.notFound('Product version not found');
 
-    const required = version.fileRequirementsRel.filter((r) => r.requirementType === 'REQUIRED');
+    const required = resolved.context.fileRequirements.filter((r) => r.requirementType === 'REQUIRED');
     const provided = new Set(slots.map((s) => s.requirementCode));
 
     for (const req of required) {
@@ -295,11 +327,16 @@ export class PrintJobService {
       }
     }
 
-    const items = [];
+    const details = await Promise.all(
+      slots.map((slot) => printEngineRepository.getArtworkVersionDetail(slot.artworkVersionId)),
+    );
+
+    const items: Array<{ artworkVersionId: string; validation: unknown }> = [];
     let canProceed = true;
 
-    for (const slot of slots) {
-      const detail = await printEngineRepository.getArtworkVersionDetail(slot.artworkVersionId);
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i]!;
+      const detail = details[i];
       if (!detail || detail.artworkFile.ownerId !== userId) {
         throw ApiError.badRequest(`Invalid artwork: ${slot.requirementCode}`);
       }
@@ -311,6 +348,93 @@ export class PrintJobService {
     }
 
     return { canProceed, items };
+  }
+
+  private async resolveUploadRequirement(versionId: string, requirementCode: string) {
+    const resolved = await printContextResolver.resolveForVersion(versionId);
+    if (!resolved) throw ApiError.notFound('Product version not found');
+
+    const contextReq =
+      resolved.context.fileRequirements.find((r) => r.code === requirementCode) ??
+      resolved.context.fileRequirements[0];
+
+    const version = await printEngineRepository.getVersionContext(versionId);
+    let legacy = version?.fileRequirementsRel.find((r) => r.code === requirementCode);
+
+    const template = contextReq ?? {
+      code: requirementCode,
+      label: 'Main Artwork',
+      requirementType: 'REQUIRED',
+      maxFileSizeMb: 100,
+      allowMultiple: false,
+      allowedFileTypes: ['PDF', 'PNG', 'JPG', 'JPEG', 'WEBP', 'CDR'],
+    };
+
+    if (!legacy) {
+      legacy = await this.ensureLegacyFileRequirement(versionId, {
+        code: requirementCode,
+        label: template.label,
+        requirementType: template.requirementType,
+        maxFileSizeMb: template.maxFileSizeMb,
+        allowMultiple: template.allowMultiple,
+        allowedFileTypes: template.allowedFileTypes,
+      });
+    }
+
+    return {
+      id: legacy.id,
+      code: requirementCode,
+      maxFileSizeMb: template.maxFileSizeMb ?? legacy.maxFileSizeMb ?? 100,
+      printLayerId: legacy.printLayer?.id ?? null,
+    };
+  }
+
+  private async ensureLegacyFileRequirement(
+    versionId: string,
+    req: {
+      code: string;
+      label: string;
+      requirementType: string;
+      maxFileSizeMb?: number | null;
+      allowMultiple?: boolean;
+      allowedFileTypes?: string[];
+    },
+  ) {
+    const existing = await prisma.fileRequirement.findUnique({
+      where: {
+        productOfferingVersionId_code: {
+          productOfferingVersionId: versionId,
+          code: req.code,
+        },
+      },
+      include: { printLayer: true, allowedFileTypes: true },
+    });
+    if (existing) return existing;
+
+    const fileTypes = (req.allowedFileTypes ?? ['PDF', 'PNG', 'JPG']).flatMap((t) => {
+      const normalized = t.toUpperCase() as SupportedFileType;
+      return Object.values(SupportedFileType).includes(normalized) ? [normalized] : [];
+    });
+
+    return prisma.fileRequirement.create({
+      data: {
+        productOfferingVersionId: versionId,
+        code: req.code,
+        label: req.label,
+        requirementType:
+          req.requirementType === 'OPTIONAL'
+            ? FileRequirementType.OPTIONAL
+            : FileRequirementType.REQUIRED,
+        maxFileSizeMb: req.maxFileSizeMb ?? 100,
+        allowMultiple: req.allowMultiple ?? false,
+        allowedFileTypes: {
+          create: (fileTypes.length > 0 ? fileTypes : [SupportedFileType.PDF, SupportedFileType.PNG]).map(
+            (fileType) => ({ fileType }),
+          ),
+        },
+      },
+      include: { printLayer: true, allowedFileTypes: true },
+    });
   }
 
   logArtworkActivity(
