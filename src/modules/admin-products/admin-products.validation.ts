@@ -45,6 +45,8 @@ export const createProductSchema = z.object({
   sku: z.string().optional(),
   visibility: z.nativeEnum(ProductVisibility).default('VENDOR_ONLY'),
   status: z.nativeEnum(ProductStatus).default('DRAFT'),
+  sortOrder: z.number().int().optional(),
+  isFeatured: z.boolean().optional(),
   thumbnailUrl: z.string().url().optional(),
   thumbnailKey: z.string().optional(),
   quantityTiers: z.array(quantityTierSchema).optional(),

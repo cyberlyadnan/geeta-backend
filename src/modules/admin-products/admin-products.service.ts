@@ -180,6 +180,8 @@ export class AdminProductsService {
           sku: input.sku,
           visibility: input.visibility ?? ProductVisibility.VENDOR_ONLY,
           status: input.status ?? ProductStatus.DRAFT,
+          sortOrder: input.sortOrder ?? 0,
+          isFeatured: input.isFeatured ?? false,
           thumbnailUrl: input.thumbnailUrl,
           thumbnailKey: input.thumbnailKey,
         },
