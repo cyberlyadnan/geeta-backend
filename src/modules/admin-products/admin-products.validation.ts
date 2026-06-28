@@ -112,11 +112,11 @@ export const upsertQuantityTierSchema = z.object({
 });
 
 export const createCategorySchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(200),
   parentId: z.string().optional().nullable(),
-  description: z.string().optional(),
-  imageUrl: z.string().url().optional(),
-  imageKey: z.string().optional(),
+  description: z.string().max(2000).optional().nullable(),
+  imageUrl: z.string().url().optional().nullable(),
+  imageKey: z.string().optional().nullable(),
   sortOrder: z.number().int().optional(),
 });
 

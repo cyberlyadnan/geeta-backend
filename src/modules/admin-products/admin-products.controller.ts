@@ -196,6 +196,12 @@ export class AdminProductsController {
     const result = await adminCategoriesService.delete(id);
     return ApiResponse.success(res, result, 'Category deleted');
   });
+
+  getCategoryCatalog = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminCategoriesService.getCatalogTree(id);
+    return ApiResponse.success(res, result);
+  });
 }
 
 export const adminProductsController = new AdminProductsController();

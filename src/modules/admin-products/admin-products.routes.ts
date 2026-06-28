@@ -107,6 +107,11 @@ categoriesRouter.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MA
 
 categoriesRouter.get('/', adminProductsController.listCategories);
 categoriesRouter.post('/', validate(createCategorySchema), adminProductsController.createCategory);
+categoriesRouter.get(
+  '/:id/catalog',
+  validate(categoryIdParamSchema, 'params'),
+  adminProductsController.getCategoryCatalog,
+);
 categoriesRouter.patch(
   '/:id',
   validate(categoryIdParamSchema, 'params'),
