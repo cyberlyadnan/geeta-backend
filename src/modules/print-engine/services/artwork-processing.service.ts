@@ -3,6 +3,7 @@ import { coverageEngine } from '../engines/coverage.engine.js';
 import { validationEngine } from '../engines/validation.engine.js';
 import { printEngineRepository } from '../repositories/print-engine.repository.js';
 import { artworkMetadataExtractor } from './artwork-metadata.extractor.js';
+import { printContextResolver } from '../../admin-print-master/print-context.resolver.js';
 import type { PrintColorMode, ValidationLevel } from '@prisma/client';
 
 export class ArtworkProcessingService {
@@ -77,27 +78,60 @@ export class ArtworkProcessingService {
       });
     }
 
+    const resolved = await printContextResolver.resolveForVersion(versionId);
+    const specRecord = resolved?.context.printSpecification ?? null;
     const spec = version.printSpecification;
+
     const validation = validationEngine.validate(
       extracted.metadata,
       {
-        requiredPages: spec?.requiredPages,
-        minDpi: spec?.minDpi,
-        maxFileSizeMb: spec?.maxFileSizeMb,
-        colorMode: spec?.colorMode,
-        artworkWidthMm: spec?.artworkWidthMm ? Number(spec.artworkWidthMm) : null,
-        artworkHeightMm: spec?.artworkHeightMm ? Number(spec.artworkHeightMm) : null,
-        bleedMm: spec?.bleedMm ? Number(spec.bleedMm) : null,
-        allowedFormats: (spec?.allowedFormats as string[]) ?? [],
+        requiredPages: specRecord?.['requiredPages'] as number | null | undefined,
+        minDpi: specRecord?.['minDpi'] as number | null | undefined,
+        maxFileSizeMb: specRecord?.['maxFileSizeMb'] as number | null | undefined,
+        colorMode: (specRecord?.['colorMode'] ?? spec?.colorMode) as PrintColorMode | undefined,
+        artworkWidthMm: specRecord?.['artworkWidthMm']
+          ? Number(specRecord['artworkWidthMm'])
+          : spec?.artworkWidthMm
+            ? Number(spec.artworkWidthMm)
+            : null,
+        artworkHeightMm: specRecord?.['artworkHeightMm']
+          ? Number(specRecord['artworkHeightMm'])
+          : spec?.artworkHeightMm
+            ? Number(spec.artworkHeightMm)
+            : null,
+        bleedMm: specRecord?.['bleedMm']
+          ? Number(specRecord['bleedMm'])
+          : spec?.bleedMm
+            ? Number(spec.bleedMm)
+            : null,
+        safeAreaMm: specRecord?.['safeAreaMm']
+          ? Number(specRecord['safeAreaMm'])
+          : spec?.safeAreaMm
+            ? Number(spec.safeAreaMm)
+            : null,
+        allowedFormats: (specRecord?.['allowedFormats'] as string[]) ?? (spec?.allowedFormats as string[]) ?? [],
         validationRules: [],
       },
-      version.artworkRules.map((r) => ({
-        ruleCode: r.ruleCode,
-        ruleType: r.ruleType,
-        config: (r.config as Record<string, unknown>) ?? {},
-        failLevel: r.failLevel as ValidationLevel,
-        message: r.message,
-      })),
+      (resolved?.context.artworkRules.length
+        ? resolved.context.artworkRules
+        : version.artworkRules
+      ).map((r) => {
+        const rule = r as {
+          ruleCode?: string;
+          code?: string;
+          ruleType: string;
+          config?: Record<string, unknown>;
+          failLevel: ValidationLevel;
+          message?: string | null;
+        };
+        return {
+          ruleCode: rule.ruleCode ?? rule.code ?? 'RULE',
+          ruleType: String(rule.ruleType),
+          config: (rule.config as Record<string, unknown>) ?? {},
+          failLevel: rule.failLevel as ValidationLevel,
+          message: rule.message ?? undefined,
+        };
+      }),
     );
 
     await prisma.artworkValidation.upsert({
@@ -116,7 +150,7 @@ export class ArtworkProcessingService {
       },
     });
 
-    const coverageTypes = (spec?.coverageTypes as string[]) ?? [];
+    const coverageTypes = (specRecord?.['coverageTypes'] as string[]) ?? (spec?.coverageTypes as string[]) ?? [];
     const layerRule = detail.artworkFile.printLayer?.coveragePricingRule;
 
     if (layerRule || coverageTypes.length > 0) {

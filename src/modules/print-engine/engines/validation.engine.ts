@@ -53,6 +53,9 @@ export class ValidationEngine {
     this.checkPages(metadata, spec, checks);
     this.checkDpi(metadata, spec, checks);
     this.checkDimensions(metadata, spec, resolvedSize, checks);
+    this.checkBleed(metadata, spec, checks);
+    this.checkSafeArea(metadata, spec, checks);
+    this.checkOrientation(metadata, spec, checks);
     this.checkColorMode(metadata, spec, checks);
     this.checkTransparency(metadata, checks);
 
@@ -180,6 +183,88 @@ export class ValidationEngine {
       });
     } else {
       checks.push({ code: 'COLOR_MODE', level: 'SUCCESS', message: 'Color mode matches' });
+    }
+  }
+
+  private checkBleed(metadata: ArtworkMetadataDto, spec: PrintSpecRules, checks: ValidationCheck[]) {
+    const bleed = spec.bleedMm ? Number(spec.bleedMm) : null;
+    const trimW = spec.artworkWidthMm && bleed
+      ? Number(spec.artworkWidthMm) - bleed * 2
+      : null;
+    const trimH = spec.artworkHeightMm && bleed
+      ? Number(spec.artworkHeightMm) - bleed * 2
+      : null;
+
+    if (!bleed || !trimW || !trimH || !metadata.widthMm || !metadata.heightMm) return;
+
+    const expectedW = Number(spec.artworkWidthMm);
+    const expectedH = Number(spec.artworkHeightMm);
+    const tolerance = 1.5;
+
+    const matchesDesign =
+      Math.abs(metadata.widthMm - expectedW) <= tolerance &&
+      Math.abs(metadata.heightMm - expectedH) <= tolerance;
+
+    if (matchesDesign) {
+      checks.push({
+        code: 'BLEED',
+        level: 'SUCCESS',
+        message: 'Artwork includes bleed margin',
+        details: { bleedMm: bleed, trimW, trimH },
+      });
+      return;
+    }
+
+    const matchesTrimOnly =
+      Math.abs(metadata.widthMm - trimW) <= tolerance &&
+      Math.abs(metadata.heightMm - trimH) <= tolerance;
+
+    if (matchesTrimOnly) {
+      checks.push({
+        code: 'BLEED',
+        level: 'ERROR',
+        message: `Bleed missing — artwork matches trim size only (${trimW}×${trimH} mm). Add ${bleed} mm bleed on each edge.`,
+        details: { bleedMm: bleed, expectedW, expectedH },
+      });
+      return;
+    }
+
+    checks.push({
+      code: 'BLEED',
+      level: 'WARNING',
+      message: `Verify bleed — extend background ${bleed} mm beyond trim on all edges`,
+      details: { bleedMm: bleed },
+    });
+  }
+
+  private checkSafeArea(metadata: ArtworkMetadataDto, spec: PrintSpecRules, checks: ValidationCheck[]) {
+    const safeInset = spec.safeAreaMm ? Number(spec.safeAreaMm) : null;
+    if (!safeInset || !metadata.widthMm || !metadata.heightMm) return;
+
+    checks.push({
+      code: 'SAFE_AREA',
+      level: 'WARNING',
+      message: `Keep logos and text ${safeInset} mm inside the trim line (safe area shown in overlay)`,
+      details: { safeInsetMm: safeInset },
+    });
+  }
+
+  private checkOrientation(metadata: ArtworkMetadataDto, spec: PrintSpecRules, checks: ValidationCheck[]) {
+    const targetW = spec.artworkWidthMm ? Number(spec.artworkWidthMm) : null;
+    const targetH = spec.artworkHeightMm ? Number(spec.artworkHeightMm) : null;
+    if (!targetW || !targetH || !metadata.widthMm || !metadata.heightMm) return;
+
+    const artLandscape = metadata.widthMm >= metadata.heightMm;
+    const targetLandscape = targetW >= targetH;
+
+    if (artLandscape !== targetLandscape) {
+      checks.push({
+        code: 'ORIENTATION',
+        level: 'WARNING',
+        message: 'Artwork orientation may not match product — verify rotation',
+      });
+    } else {
+      checks.push({ code: 'ORIENTATION', level: 'SUCCESS', message: 'Orientation matches product' });
     }
   }
 

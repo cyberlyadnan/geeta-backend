@@ -178,6 +178,7 @@ export class PrintContextResolver {
           validationEnabled: specTemplate.validationEnabled,
           autoArtworkAnalysis: specTemplate.autoArtworkAnalysis,
           coverageAnalysisEnabled: specTemplate.coverageAnalysisEnabled,
+          metadata: (specTemplate.metadata as Record<string, unknown>) ?? {},
           validationRules: [],
           coverageTypes: [],
         }

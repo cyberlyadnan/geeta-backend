@@ -98,6 +98,11 @@ export interface PrintJobContextDto {
   validationRules?: Array<Record<string, unknown>>;
   coveragePricingRules: Array<Record<string, unknown>>;
   pricingStrategyKey?: string | null;
+  product?: {
+    name: string;
+    displayName: string | null;
+  };
+  artworkInspectionContext?: import('../artwork-inspection/artwork-inspection.types.js').ArtworkInspectionContextDto;
 }
 
 export interface LivePricingInput {

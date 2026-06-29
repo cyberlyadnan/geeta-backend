@@ -21,12 +21,15 @@ import { printEngineRepository } from '../repositories/print-engine.repository.j
 import { logger } from '../../../logs/logger.js';
 import { enqueueArtworkProcessing } from '../../../queues/artwork-processing.queue.js';
 import { artworkProcessingService } from './artwork-processing.service.js';
+import { buildArtworkInspection } from '../artwork-inspection/artwork-inspection.builder.js';
+import { buildInspectionContext } from '../artwork-inspection/requirements-panel.builder.js';
 import type { PriceCalculationResult } from '../../../services/pricing-engine/pricing.types.js';
 import type {
   ArtworkUploadSlot,
   LivePricingInput,
   PrintJobContextDto,
   SizeInput,
+  ValidationLevel,
 } from '../types/print-engine.types.js';
 
 const PRESIGN_EXPIRY = 600;
@@ -35,7 +38,24 @@ export class PrintJobService {
   async getContext(versionId: string): Promise<PrintJobContextDto> {
     const resolved = await printContextResolver.resolveForVersion(versionId);
     if (!resolved) throw ApiError.notFound('Product version not found');
-    return resolved.context;
+
+    const productName =
+      resolved.version.productOffering.displayName ??
+      resolved.version.productOffering.name;
+    const inspectionContext = buildInspectionContext(
+      resolved.context,
+      productName,
+      resolved.version.productOffering.displayName,
+    );
+
+    return {
+      ...resolved.context,
+      product: {
+        name: resolved.version.productOffering.name,
+        displayName: resolved.version.productOffering.displayName,
+      },
+      artworkInspectionContext: inspectionContext,
+    };
   }
 
   async resolveSize(versionId: string, input: SizeInput) {
@@ -213,7 +233,66 @@ export class PrintJobService {
     if (!detail || detail.artworkFile.ownerId !== userId) {
       throw ApiError.notFound('Artwork not found');
     }
-    return this.mapArtworkVersion(detail);
+
+    const mapped = this.mapArtworkVersion(detail);
+    const versionId = detail.artworkFile.versionId;
+    let inspection = null;
+
+    if (versionId) {
+      const resolved = await printContextResolver.resolveForVersion(versionId);
+      if (resolved) {
+        const productName =
+          resolved.version.productOffering.displayName ??
+          resolved.version.productOffering.name;
+        const inspectionContext = buildInspectionContext(
+          resolved.context,
+          productName,
+          resolved.version.productOffering.displayName,
+        );
+        inspection = buildArtworkInspection(inspectionContext, {
+          previewUrl: mapped.previewUrl,
+          metadata: mapped.metadata
+            ? {
+                fileFormat: mapped.metadata.fileFormat,
+                widthPx: mapped.metadata.widthPx ?? undefined,
+                heightPx: mapped.metadata.heightPx ?? undefined,
+                widthMm: mapped.metadata.widthMm != null ? Number(mapped.metadata.widthMm) : undefined,
+                heightMm: mapped.metadata.heightMm != null ? Number(mapped.metadata.heightMm) : undefined,
+                dpi: mapped.metadata.dpi ?? undefined,
+                pageCount: mapped.metadata.pageCount ?? undefined,
+                colorMode: mapped.metadata.colorMode ?? undefined,
+                hasTransparency: mapped.metadata.hasTransparency ?? undefined,
+                fileSizeBytes: mapped.metadata.fileSizeBytes ?? undefined,
+                rawMetadata: (mapped.metadata.rawMetadata as Record<string, unknown> | null) ?? undefined,
+              }
+            : null,
+          validation: mapped.validation
+            ? {
+                overallLevel: mapped.validation.overallLevel,
+                canProceed: mapped.validation.canProceed,
+                checks: (mapped.validation.checks as Array<{
+                  code: string;
+                  level: ValidationLevel;
+                  message: string;
+                  details?: Record<string, unknown>;
+                }>) ?? [],
+              }
+            : null,
+          coverageAnalyses: mapped.coverageAnalyses?.map((c) => ({
+            coverageType: c.coverageType,
+            coveragePercent: c.coveragePercent,
+            coverageCm2: c.coverageCm2,
+            coverageMm2: c.coverageMm2,
+            boundingBox: c.boundingBox as { x: number; y: number; width: number; height: number } | null,
+          })),
+          file: mapped.file,
+          requirementLabel: detail.artworkFile.fileRequirement?.label,
+          printLayerRole: detail.artworkFile.printLayer?.role ?? null,
+        });
+      }
+    }
+
+    return { ...mapped, inspection };
   }
 
   async calculateLivePricing(userId: string, input: LivePricingInput) {
