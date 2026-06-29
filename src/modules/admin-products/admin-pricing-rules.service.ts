@@ -8,6 +8,8 @@ import type {
   UpdatePricingRuleInput,
   UpsertQuantityTierInput,
 } from './admin-products.validation.js';
+import { rateCatalogCacheService } from '../rate-catalog/rate-catalog.cache.js';
+import { pricingRepository } from '../../repositories/pricing.repository.js';
 
 export class AdminPricingRulesService {
   async list(versionId: string) {
@@ -73,6 +75,9 @@ export class AdminPricingRulesService {
       metadata: { ruleId: rule.id, action: 'created' },
     });
 
+    pricingRepository.invalidateVersion(input.versionId);
+    void rateCatalogCacheService.invalidateProduct(version.productOfferingId);
+
     return {
       id: rule.id,
       name: rule.name,
@@ -112,6 +117,9 @@ export class AdminPricingRulesService {
       metadata: { ruleId: id, action: 'updated' },
     });
 
+    pricingRepository.invalidateVersion(existing.productOfferingVersionId);
+    void rateCatalogCacheService.invalidateProduct(existing.productOfferingVersion.productOfferingId);
+
     return {
       id: rule.id,
       name: rule.name,
@@ -137,6 +145,9 @@ export class AdminPricingRulesService {
       actorId,
       metadata: { ruleId: id, action: 'deleted' },
     });
+
+    pricingRepository.invalidateVersion(existing.productOfferingVersionId);
+    void rateCatalogCacheService.invalidateProduct(existing.productOfferingVersion.productOfferingId);
 
     return { id, deleted: true };
   }
@@ -173,6 +184,9 @@ export class AdminPricingRulesService {
       metadata: { quantityTierId: tier.id, quantity: input.quantity },
     });
 
+    pricingRepository.invalidateVersion(input.versionId);
+    void rateCatalogCacheService.invalidateProduct(version.productOfferingId);
+
     return {
       id: tier.id,
       quantity: tier.quantity,
@@ -196,6 +210,9 @@ export class AdminPricingRulesService {
       actorId,
       metadata: { quantityTierId: id, action: 'deleted' },
     });
+
+    pricingRepository.invalidateVersion(existing.productOfferingVersionId);
+    void rateCatalogCacheService.invalidateProduct(existing.productOfferingVersion.productOfferingId);
 
     return { id, deleted: true };
   }
