@@ -381,6 +381,10 @@ export class PrintJobService {
       });
     }
 
+    if (!legacy) {
+      throw ApiError.internal('Failed to resolve file requirement');
+    }
+
     return {
       id: legacy.id,
       code: requirementCode,
@@ -407,7 +411,10 @@ export class PrintJobService {
           code: req.code,
         },
       },
-      include: { printLayer: true, allowedFileTypes: true },
+      include: {
+        printLayer: { include: { coveragePricingRule: true } },
+        allowedFileTypes: true,
+      },
     });
     if (existing) return existing;
 
@@ -433,7 +440,10 @@ export class PrintJobService {
           ),
         },
       },
-      include: { printLayer: true, allowedFileTypes: true },
+      include: {
+        printLayer: { include: { coveragePricingRule: true } },
+        allowedFileTypes: true,
+      },
     });
   }
 
