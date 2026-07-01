@@ -22,7 +22,7 @@ const ROLES = [
     name: RoleName.MANAGER,
     displayName: 'Manager',
     description: 'Operations manager',
-    permissions: ['orders:*', 'workflow:*', 'reports:read', 'vendors:*', 'production.queue:*', 'production.task.assign', 'production.task.view.all'],
+    permissions: ['orders:*', 'workflow:*', 'reports:read', 'vendors:*', 'production.queue:*', 'production.task.assign', 'production.task.view.all', 'production.task.execute'],
     isSystem: true,
   },
   {
@@ -40,6 +40,7 @@ const ROLES = [
       'production.queue.dept:PACKING',
       'production.queue.dept:DISPATCH',
       'production.task.view.own',
+      'production.task.execute',
     ],
     isSystem: true,
   },

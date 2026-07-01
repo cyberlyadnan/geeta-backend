@@ -10,6 +10,7 @@ export const STORAGE_FOLDERS = {
   INVOICES: 'invoices',
   MARKETING: 'marketing',
   ARTWORK: 'artwork',
+  PRODUCTION: 'production',
 } as const;
 
 export type StorageFolder = (typeof STORAGE_FOLDERS)[keyof typeof STORAGE_FOLDERS];

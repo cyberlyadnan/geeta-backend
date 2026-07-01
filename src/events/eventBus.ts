@@ -19,6 +19,14 @@ export const APP_EVENTS = {
   TASK_UNASSIGNED: 'workflow:task_unassigned',
   TASK_PRIORITY_CHANGED: 'workflow:task_priority_changed',
   TASK_DUE_DATE_CHANGED: 'workflow:task_due_date_changed',
+  TASK_STARTED: 'workflow:task_started',
+  TASK_PAUSED: 'workflow:task_paused',
+  TASK_RESUMED: 'workflow:task_resumed',
+  TASK_HELD: 'workflow:task_held',
+  TASK_NOTE_ADDED: 'workflow:task_note_added',
+  TASK_ATTACHMENT_ADDED: 'workflow:task_attachment_added',
+  SUPERVISOR_REQUESTED: 'workflow:supervisor_requested',
+  TASK_ISSUE_REPORTED: 'workflow:task_issue_reported',
   SUPPORT_TICKET_CREATED: 'support:ticket_created',
 } as const;
 

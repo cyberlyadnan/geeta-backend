@@ -32,6 +32,7 @@ export const PERMISSIONS = {
   },
   PRODUCTION_TASK: {
     ASSIGN: 'production.task.assign',
+    EXECUTE: 'production.task.execute',
     VIEW_OWN: 'production.task.view.own',
     VIEW_ALL: 'production.task.view.all',
     ALL: 'production.task:*',

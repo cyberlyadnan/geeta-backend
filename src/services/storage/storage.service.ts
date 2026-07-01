@@ -16,6 +16,7 @@ import type {
   PresignedUploadResult,
   VendorCompliancePresignResult,
 } from './storage.types.js';
+import { STORAGE_FOLDERS } from './storage.types.js';
 
 const PRESIGN_UPLOAD_EXPIRY_SECONDS = 600;
 /** Short-lived download URLs — not shareable long-term. */
@@ -144,6 +145,39 @@ export class StorageService {
     }).then((uploadUrl) => ({
       uploadUrl,
       key,
+      contentType: normalized,
+      uploadHeaders: { 'Content-Type': normalized },
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
+    }));
+  }
+
+  createPresignedProductionAttachmentUpload(
+    taskId: string,
+    fileName: string,
+    contentType: string,
+    fileSize: number,
+  ): Promise<PresignedUploadResult> {
+    const normalized = normalizeVendorDocumentContentType(contentType);
+    assertValidVendorDocumentUpload(normalized, fileSize);
+    const config = assertR2Config();
+    const key = buildObjectKey(STORAGE_FOLDERS.PRODUCTION, `${taskId}/${fileName}`, normalized);
+    const publicUrl = buildPublicUrl(config.publicUrl, key);
+
+    const command = new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: key,
+      ContentType: normalized,
+    });
+
+    const client = getPresignS3Client();
+
+    return getSignedUrl(client, command, {
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
+      signableHeaders: new Set(['content-type']),
+    }).then((uploadUrl) => ({
+      uploadUrl,
+      key,
+      publicUrl,
       contentType: normalized,
       uploadHeaders: { 'Content-Type': normalized },
       expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,

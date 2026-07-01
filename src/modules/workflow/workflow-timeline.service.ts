@@ -156,6 +156,141 @@ export class WorkflowTimelineService {
       actorId: input.actorId,
     };
   }
+
+  taskStarted(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    stepName: string;
+    actorId?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.TASK_STARTED,
+      title: 'Task started',
+      description: `${input.stepName} production started`,
+      actorId: input.actorId,
+    };
+  }
+
+  taskPaused(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    actorId?: string;
+    remarks?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.TASK_PAUSED,
+      title: 'Task paused',
+      description: input.remarks ?? 'Production paused',
+      actorId: input.actorId,
+    };
+  }
+
+  taskResumed(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    actorId?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.TASK_RESUMED,
+      title: 'Task resumed',
+      description: 'Production resumed',
+      actorId: input.actorId,
+    };
+  }
+
+  taskHeld(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    reason: string;
+    actorId?: string;
+    notes?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.TASK_HELD,
+      title: 'Task on hold',
+      description: input.notes ?? `Hold reason: ${input.reason}`,
+      metadata: { reason: input.reason },
+      actorId: input.actorId,
+    };
+  }
+
+  taskNoteAdded(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    actorId?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.TASK_NOTE_ADDED,
+      title: 'Production note added',
+      actorId: input.actorId,
+    };
+  }
+
+  taskAttachmentAdded(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    category: string;
+    actorId?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.TASK_ATTACHMENT_ADDED,
+      title: 'Production attachment uploaded',
+      metadata: { category: input.category },
+      actorId: input.actorId,
+    };
+  }
+
+  supervisorRequested(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    actorId?: string;
+    notes?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.SUPERVISOR_REQUESTED,
+      title: 'Supervisor requested',
+      description: input.notes,
+      actorId: input.actorId,
+    };
+  }
+
+  issueReported(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    actorId?: string;
+    notes?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.ISSUE_REPORTED,
+      title: 'Production issue reported',
+      description: input.notes,
+      actorId: input.actorId,
+    };
+  }
 }
 
 export const workflowTimelineService = new WorkflowTimelineService();

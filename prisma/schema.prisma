@@ -188,6 +188,15 @@ enum ActivityAction {
   TASK_ASSIGNED
   TASK_REASSIGNED
   TASK_UNASSIGNED
+  TASK_STARTED
+  TASK_PAUSED
+  TASK_RESUMED
+  TASK_HELD
+  TASK_COMPLETED
+  TASK_NOTE_ADDED
+  TASK_ATTACHMENT_ADDED
+  SUPERVISOR_REQUESTED
+  TASK_ISSUE_REPORTED
   USER_LOGIN
   USER_LOGIN_BLOCKED
   USER_CREATED
@@ -422,6 +431,42 @@ enum DepartmentStaffRole {
   SUPERVISOR
 }
 
+enum ProductionHoldReason {
+  ARTWORK_ISSUE
+  MACHINE_ISSUE
+  PAPER_ISSUE
+  POWER_FAILURE
+  CUSTOMER_CLARIFICATION
+  WAITING_MATERIAL
+  SUPERVISOR_REVIEW
+  OTHER
+}
+
+enum ProductionAttachmentCategory {
+  IMAGE
+  PDF
+  PRODUCTION_PROOF
+  QC_IMAGE
+}
+
+enum ProductionExecutionAlertType {
+  SUPERVISOR_REQUEST
+  ISSUE_REPORT
+}
+
+enum WorkflowTaskExecutionSessionStatus {
+  IN_PROGRESS
+  PAUSED
+  ON_HOLD
+  COMPLETED
+}
+
+enum WorkflowTaskExecutionIntervalType {
+  WORKING
+  PAUSED
+  HOLD
+}
+
 enum ReworkStatus {
   OPEN
   IN_PROGRESS
@@ -547,6 +592,11 @@ model User {
   taskAssignmentsCreated       WorkflowTaskAssignment[]      @relation("TaskAssignmentAssigner")
   taskAssignmentHistoryPerformed WorkflowTaskAssignmentHistory[] @relation("TaskAssignmentHistoryPerformer")
   taskAssignmentHistoryAsOperator WorkflowTaskAssignmentHistory[] @relation("TaskAssignmentHistoryOperator")
+  executionSessionsAsOperator    WorkflowTaskExecutionSession[] @relation("ExecutionSessionOperator")
+  executionHoldsCreated          WorkflowTaskHold[]             @relation("ExecutionHoldCreator")
+  productionNotesAuthored        WorkflowTaskProductionNote[]   @relation("ProductionNoteAuthor")
+  taskAttachmentsUploaded        WorkflowTaskAttachment[]       @relation("TaskAttachmentUploader")
+  executionAlertsCreated         WorkflowTaskExecutionAlert[]   @relation("ExecutionAlertCreator")
 
   @@index([roleId])
   @@index([status])
@@ -1193,6 +1243,8 @@ model FileAsset {
   complianceResponses VendorComplianceResponse[]
   artworkFile         ArtworkFile?
   artworkVersions     ArtworkVersion[]
+  taskAttachments     WorkflowTaskAttachment[]
+  productionNoteFiles WorkflowTaskProductionNote[]
 
   @@index([uploadedById])
   @@index([createdAt])
@@ -1239,6 +1291,8 @@ model Department {
   assignedWorkflowTasks WorkflowTask[]         @relation("WorkflowTaskAssignedDepartment")
   staffAssignments      UserDepartmentAssignment[]
   taskAssignments       WorkflowTaskAssignment[]
+  executionSessions     WorkflowTaskExecutionSession[]
+  productionNotes       WorkflowTaskProductionNote[]
   machines              Machine[]
 
   @@index([facilityId])
@@ -1595,6 +1649,11 @@ model WorkflowTask {
   dependents         WorkflowTaskDependency[] @relation("TaskRequiredBy")
   assignments        WorkflowTaskAssignment[]
   assignmentHistory  WorkflowTaskAssignmentHistory[]
+  executionSessions  WorkflowTaskExecutionSession[]
+  productionNotes    WorkflowTaskProductionNote[]
+  attachments        WorkflowTaskAttachment[]
+  executionAlerts    WorkflowTaskExecutionAlert[]
+  holds              WorkflowTaskHold[]
 
   @@unique([workflowInstanceId, workflowTemplateStepId])
   @@index([workflowInstanceId])
@@ -1656,6 +1715,7 @@ model WorkflowTaskAssignment {
   machine      Machine?     @relation(fields: [machineId], references: [id], onDelete: SetNull)
   assignedBy   User         @relation("TaskAssignmentAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
   history      WorkflowTaskAssignmentHistory[]
+  executionSessions WorkflowTaskExecutionSession[]
 
   @@index([workflowTaskId, status])
   @@index([operatorId, status])
@@ -1692,6 +1752,138 @@ model WorkflowTaskAssignmentHistory {
   @@index([assignmentId])
   @@index([performedById])
   @@map("workflow_task_assignment_history")
+}
+
+model WorkflowTaskExecutionSession {
+  id                      String                             @id @default(cuid())
+  workflowTaskId          String                             @map("workflow_task_id")
+  assignmentId            String?                            @map("assignment_id")
+  operatorId              String                             @map("operator_id")
+  departmentId            String                             @map("department_id")
+  status                  WorkflowTaskExecutionSessionStatus @default(IN_PROGRESS)
+  startedAt               DateTime                           @default(now()) @map("started_at")
+  pausedAt                DateTime?                          @map("paused_at")
+  resumedAt               DateTime?                          @map("resumed_at")
+  completedAt             DateTime?                          @map("completed_at")
+  workingDurationSeconds  Int                                @default(0) @map("working_duration_seconds")
+  pausedDurationSeconds   Int                                @default(0) @map("paused_duration_seconds")
+  holdDurationSeconds     Int                                @default(0) @map("hold_duration_seconds")
+  totalDurationSeconds    Int                                @default(0) @map("total_duration_seconds")
+  activeIntervalStartedAt DateTime?                          @map("active_interval_started_at")
+  activeIntervalType      WorkflowTaskExecutionIntervalType? @map("active_interval_type")
+  createdAt               DateTime                           @default(now()) @map("created_at")
+  updatedAt               DateTime                           @updatedAt @map("updated_at")
+
+  workflowTask WorkflowTask                   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  assignment   WorkflowTaskAssignment?          @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  operator     User                           @relation("ExecutionSessionOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+  department   Department                     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  intervals    WorkflowTaskExecutionInterval[]
+  holds        WorkflowTaskHold[]
+  notes        WorkflowTaskProductionNote[]
+  attachments  WorkflowTaskAttachment[]
+  alerts       WorkflowTaskExecutionAlert[]
+
+  @@index([workflowTaskId, status])
+  @@index([operatorId, status])
+  @@index([departmentId, status])
+  @@index([startedAt(sort: Desc)])
+  @@map("workflow_task_execution_sessions")
+}
+
+model WorkflowTaskExecutionInterval {
+  id              String                            @id @default(cuid())
+  sessionId       String                            @map("session_id")
+  intervalType    WorkflowTaskExecutionIntervalType @map("interval_type")
+  startedAt       DateTime                          @map("started_at")
+  endedAt         DateTime?                         @map("ended_at")
+  durationSeconds Int?                              @map("duration_seconds")
+  createdAt       DateTime                          @default(now()) @map("created_at")
+
+  session WorkflowTaskExecutionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, startedAt(sort: Desc)])
+  @@map("workflow_task_execution_intervals")
+}
+
+model WorkflowTaskHold {
+  id             String               @id @default(cuid())
+  sessionId      String               @map("session_id")
+  workflowTaskId String               @map("workflow_task_id")
+  reason         ProductionHoldReason
+  notes          String?              @db.Text
+  startedAt      DateTime             @default(now()) @map("started_at")
+  releasedAt     DateTime?            @map("released_at")
+  createdById    String               @map("created_by_id")
+  createdAt      DateTime             @default(now()) @map("created_at")
+
+  session      WorkflowTaskExecutionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  workflowTask WorkflowTask                 @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  createdBy    User                         @relation("ExecutionHoldCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([workflowTaskId, startedAt(sort: Desc)])
+  @@index([sessionId])
+  @@map("workflow_task_holds")
+}
+
+model WorkflowTaskProductionNote {
+  id             String   @id @default(cuid())
+  workflowTaskId String   @map("workflow_task_id")
+  sessionId      String?  @map("session_id")
+  operatorId     String   @map("operator_id")
+  departmentId   String   @map("department_id")
+  text           String   @db.Text
+  fileAssetId    String?  @map("file_asset_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  workflowTask WorkflowTask                  @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  session      WorkflowTaskExecutionSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  operator     User                          @relation("ProductionNoteAuthor", fields: [operatorId], references: [id], onDelete: Restrict)
+  department   Department                    @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  fileAsset    FileAsset?                    @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
+
+  @@index([workflowTaskId, createdAt(sort: Desc)])
+  @@index([operatorId])
+  @@map("workflow_task_production_notes")
+}
+
+model WorkflowTaskAttachment {
+  id             String                       @id @default(cuid())
+  workflowTaskId String                       @map("workflow_task_id")
+  sessionId      String?                      @map("session_id")
+  fileAssetId    String                       @map("file_asset_id")
+  category       ProductionAttachmentCategory
+  label          String?
+  uploadedById   String                       @map("uploaded_by_id")
+  createdAt      DateTime                     @default(now()) @map("created_at")
+
+  workflowTask WorkflowTask                  @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  session      WorkflowTaskExecutionSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  fileAsset    FileAsset                     @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  uploadedBy   User                          @relation("TaskAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([workflowTaskId, createdAt(sort: Desc)])
+  @@index([sessionId])
+  @@map("workflow_task_attachments")
+}
+
+model WorkflowTaskExecutionAlert {
+  id             String                     @id @default(cuid())
+  workflowTaskId String                     @map("workflow_task_id")
+  sessionId      String?                    @map("session_id")
+  operatorId     String                     @map("operator_id")
+  alertType      ProductionExecutionAlertType @map("alert_type")
+  notes          String?                    @db.Text
+  metadata       Json                       @default("{}")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+
+  workflowTask WorkflowTask                  @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  session      WorkflowTaskExecutionSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  operator     User                          @relation("ExecutionAlertCreator", fields: [operatorId], references: [id], onDelete: Restrict)
+
+  @@index([workflowTaskId, createdAt(sort: Desc)])
+  @@index([alertType])
+  @@map("workflow_task_execution_alerts")
 }
 
 model WorkflowTaskDependency {
