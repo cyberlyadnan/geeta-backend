@@ -64,6 +64,24 @@ export class PrintEngineRepository {
     });
   }
 
+  async getArtworkVersionsForOrderValidation(artworkVersionIds: string[]) {
+    if (artworkVersionIds.length === 0) return [];
+    return prisma.artworkVersion.findMany({
+      where: { id: { in: artworkVersionIds } },
+      select: {
+        id: true,
+        processingStatus: true,
+        validation: true,
+        artworkFile: {
+          select: {
+            ownerId: true,
+            fileRequirement: { select: { code: true } },
+          },
+        },
+      },
+    });
+  }
+
   async getOrderArtworkForProduction(orderItemId: string) {
     return prisma.orderArtwork.findMany({
       where: { orderItemId },

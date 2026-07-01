@@ -408,7 +408,9 @@ export class PrintJobService {
       id: detail.id,
       versionNumber: detail.versionNumber,
       processingStatus: detail.processingStatus,
-      previewUrl: detail.previewUrl,
+      previewUrl: detail.previewUrl ?? (detail.fileAsset.mimeType.toLowerCase().startsWith('image/')
+        ? detail.fileAsset.fileUrl
+        : null),
       metadata: detail.metadata,
       validation: detail.validation,
       coverageAnalyses: detail.coverageAnalyses?.map((c) => ({
@@ -434,7 +436,11 @@ export class PrintJobService {
 
   private artworkSlotSatisfiesRequirement(
     slot: ArtworkUploadSlot,
-    detail: Awaited<ReturnType<typeof printEngineRepository['getArtworkVersionDetail']>> | null | undefined,
+    detail:
+      | Awaited<ReturnType<typeof printEngineRepository['getArtworkVersionDetail']>>
+      | Awaited<ReturnType<typeof printEngineRepository['getArtworkVersionsForOrderValidation']>>[number]
+      | null
+      | undefined,
     requirementCode: string,
   ): boolean {
     if (slot.requirementCode === requirementCode) return true;
@@ -443,7 +449,9 @@ export class PrintJobService {
   }
 
   private artworkValidationAllowsOrder(
-    detail: NonNullable<Awaited<ReturnType<typeof printEngineRepository['getArtworkVersionDetail']>>>,
+    detail: {
+      processingStatus: string;
+    },
   ): boolean {
     return detail.processingStatus !== 'FAILED';
   }
@@ -459,14 +467,15 @@ export class PrintJobService {
 
     const required = resolved.context.fileRequirements.filter((r) => r.requirementType === 'REQUIRED');
 
-    const details = await Promise.all(
-      slots.map((slot) => printEngineRepository.getArtworkVersionDetail(slot.artworkVersionId)),
-    );
+    const versionIds = slots.map((s) => s.artworkVersionId);
+    const detailsList = await printEngineRepository.getArtworkVersionsForOrderValidation(versionIds);
+    const detailsById = new Map(detailsList.map((d) => [d.id, d]));
 
     for (const req of required) {
-      const satisfied = slots.some((slot, index) =>
-        this.artworkSlotSatisfiesRequirement(slot, details[index], req.code),
-      );
+      const satisfied = slots.some((slot) => {
+        const detail = detailsById.get(slot.artworkVersionId);
+        return this.artworkSlotSatisfiesRequirement(slot, detail, req.code);
+      });
       if (!satisfied) {
         throw ApiError.badRequest(`Required artwork missing: ${req.label}`);
       }
@@ -475,9 +484,8 @@ export class PrintJobService {
     const items: Array<{ artworkVersionId: string; validation: unknown }> = [];
     let canProceed = true;
 
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i]!;
-      const detail = details[i];
+    for (const slot of slots) {
+      const detail = detailsById.get(slot.artworkVersionId);
       if (!detail || detail.artworkFile.ownerId !== userId) {
         throw ApiError.badRequest(`Invalid artwork: ${slot.requirementCode}`);
       }

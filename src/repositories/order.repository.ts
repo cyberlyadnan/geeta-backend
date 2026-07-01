@@ -54,7 +54,9 @@ export const ORDER_DETAIL_SELECT = {
           artworkFile: {
             select: {
               id: true,
-              fileAsset: { select: { originalName: true, extension: true, mimeType: true } },
+              fileAsset: {
+                select: { originalName: true, extension: true, mimeType: true, fileUrl: true, fileKey: true },
+              },
             },
           },
           pinnedVersion: {
@@ -63,6 +65,7 @@ export const ORDER_DETAIL_SELECT = {
                 select: {
                   id: true,
                   previewUrl: true,
+                  previewKey: true,
                   processingStatus: true,
                   validation: true,
                   metadata: true,

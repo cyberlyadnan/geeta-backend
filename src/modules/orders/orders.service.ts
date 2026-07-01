@@ -28,6 +28,7 @@ import { walletLedgerService } from '../../services/ledger/wallet-ledger.service
 import { activityLogService } from '../../services/activity/activity-log.service.js';
 import { allocateOrderNumber } from './order-number.service.js';
 import { notifyUser, recordOrderEvent } from './order-events.service.js';
+import { storageService } from '../../services/storage/storage.service.js';
 import type { CreateProductionOrderInput, ListOrdersQuery, OrderPreviewInput } from './orders.validation.js';
 
 const ESTIMATED_DAYS_DEFAULT = 3;
@@ -54,7 +55,7 @@ export class OrdersService {
   async findById(userId: string, id: string) {
     const order = await orderRepository.findByIdForCustomer(userId, id);
     if (!order) throw ApiError.notFound('Order not found');
-    return mapOrderToDetailDto(order);
+    return await mapOrderToDetailDto(order);
   }
 
   async preview(userId: string, input: OrderPreviewInput) {
@@ -70,9 +71,11 @@ export class OrdersService {
   }
 
   async create(userId: string, input: CreateProductionOrderInput) {
-    const computed = await this.computeOrderTotals(userId, input);
+    const [computed, wallet] = await Promise.all([
+      this.computeOrderTotals(userId, input),
+      walletLedgerService.getWalletSummary(userId),
+    ]);
 
-    const wallet = await walletLedgerService.getWalletSummary(userId);
     if (wallet.balance < computed.totals.grandTotal) {
       throw new ApiError(
         StatusCodes.BAD_REQUEST,
@@ -123,7 +126,7 @@ export class OrdersService {
         },
       });
 
-      const initialStatus =
+      const initialStatusInTx =
         input.artworks?.length && input.fileOption !== 'email'
           ? ProductionOrderStatus.UNDER_ARTWORK_REVIEW
           : ProductionOrderStatus.ORDER_PLACED;
@@ -133,7 +136,7 @@ export class OrdersService {
           orderNumber,
           customerId: userId,
           orderName: input.orderName.trim(),
-          status: initialStatus,
+          status: initialStatusInTx,
           subtotal: computed.totals.productTotal,
           deliveryCharge: computed.totals.deliveryCharge,
           taxAmount: computed.totals.taxAmount,
@@ -271,9 +274,14 @@ export class OrdersService {
         await tx.vendorOrderDraft.deleteMany({ where: { id: input.draftId, userId } });
       }
 
-      return { orderId: created.id, orderNumber };
+      return {
+        orderId: created.id,
+        orderNumber,
+        status: initialStatusInTx,
+        createdAt: created.createdAt,
+      };
       },
-      { maxWait: 15_000, timeout: 60_000 },
+      { maxWait: 10_000, timeout: 45_000 },
     );
 
     void notifyUser(userId, {
@@ -284,26 +292,42 @@ export class OrdersService {
       entityId: orderResult.orderId,
     });
 
-    const full = await orderRepository.findByIdForCustomer(userId, orderResult.orderId);
-    if (!full) throw ApiError.internal('Order creation failed');
-
     activityLogService.logAsync({
       action: ActivityAction.ORDER_CREATED,
       entityType: 'production_order',
-      entityId: full.id,
+      entityId: orderResult.orderId,
       actorId: userId,
-      metadata: { orderNumber: full.orderNumber, total: Number(full.totalAmount) },
+      metadata: { orderNumber: orderResult.orderNumber, total: computed.totals.grandTotal },
     });
 
     activityLogService.logAsync({
       action: ActivityAction.ORDER_WALLET_CHARGED,
       entityType: 'production_order',
-      entityId: full.id,
+      entityId: orderResult.orderId,
       actorId: userId,
-      metadata: { amount: Number(full.totalAmount) },
+      metadata: { amount: computed.totals.grandTotal },
     });
 
-    return mapOrderToDetailDto(full);
+    return {
+      id: orderResult.orderId,
+      orderNumber: orderResult.orderNumber,
+      orderName: input.orderName.trim(),
+      status: orderResult.status,
+      productTotal: computed.totals.productTotal,
+      deliveryCharge: computed.totals.deliveryCharge,
+      taxAmount: computed.totals.taxAmount,
+      totalAmount: computed.totals.grandTotal,
+      createdAt: orderResult.createdAt.toISOString(),
+      delivery: {
+        required: computed.resolution.deliveryRequired,
+        type: computed.resolution.deliveryType,
+        charge: computed.totals.deliveryCharge,
+        address: computed.resolution.deliveryAddress,
+        status: computed.resolution.deliveryRequired ? DeliveryStatus.PENDING : null,
+      },
+      notes: notesParts.length > 0 ? notesParts.join('\n') : null,
+      updatedAt: orderResult.createdAt.toISOString(),
+    };
   }
 
   async buildReorderPayload(userId: string, orderId: string) {
@@ -465,6 +489,43 @@ export class OrdersService {
   }
 }
 
+async function resolveArtworkPreviewUrl(
+  version:
+    | { previewUrl: string | null; previewKey: string | null }
+    | null
+    | undefined,
+  fileAsset: {
+    fileUrl: string;
+    fileKey: string;
+    originalName: string;
+    extension: string;
+    mimeType: string;
+  },
+): Promise<string | null> {
+  const ext = fileAsset.extension.toLowerCase();
+  const isRaster =
+    ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext) ||
+    fileAsset.mimeType.toLowerCase().startsWith('image/');
+  const isPdf = ext === 'pdf' || fileAsset.mimeType.toLowerCase() === 'application/pdf';
+
+  const storageKey = version?.previewKey ?? (isRaster || isPdf ? fileAsset.fileKey : null);
+  if (storageKey) {
+    try {
+      const signed = await storageService.createPresignedDownload(storageKey, {
+        fileName: fileAsset.originalName,
+        mimeType: version?.previewKey ? 'image/webp' : fileAsset.mimeType,
+      });
+      return signed.url;
+    } catch {
+      // Fall through to stored public URLs.
+    }
+  }
+
+  if (version?.previewUrl) return version.previewUrl;
+  if (isRaster && fileAsset.fileUrl) return fileAsset.fileUrl;
+  return null;
+}
+
 function mapOrderToListDto(order: OrderListRecord) {
   const item = order.items[0];
   return {
@@ -489,9 +550,28 @@ function mapOrderToListDto(order: OrderListRecord) {
   };
 }
 
-function mapOrderToDetailDto(order: OrderDetailRecord) {
+async function mapOrderToDetailDto(order: OrderDetailRecord) {
   const item = order.items[0];
   const walletTx = order.walletTransactions[0];
+
+  const artworks = item
+    ? await Promise.all(
+        item.orderArtworks.map(async (a) => ({
+          id: a.id,
+          requirementCode: a.fileRequirementCode,
+          approvalStatus: a.approvalStatus,
+          fileName: a.artworkFile.fileAsset.originalName,
+          extension: a.artworkFile.fileAsset.extension,
+          previewUrl: await resolveArtworkPreviewUrl(
+            a.pinnedVersion?.artworkVersion,
+            a.artworkFile.fileAsset,
+          ),
+          validation: a.pinnedVersion?.artworkVersion.validation ?? null,
+          coverage: a.pinnedVersion?.artworkVersion.coverageAnalyses ?? [],
+          metadata: a.pinnedVersion?.artworkVersion.metadata ?? null,
+        })),
+      )
+    : [];
 
   return {
     id: order.id,
@@ -563,17 +643,7 @@ function mapOrderToDetailDto(order: OrderDetailRecord) {
             validation: item.validationSnapshot,
             coverage: item.coverageSnapshot,
           },
-          artworks: item.orderArtworks.map((a) => ({
-            id: a.id,
-            requirementCode: a.fileRequirementCode,
-            approvalStatus: a.approvalStatus,
-            fileName: a.artworkFile.fileAsset.originalName,
-            extension: a.artworkFile.fileAsset.extension,
-            previewUrl: a.pinnedVersion?.artworkVersion.previewUrl ?? null,
-            validation: a.pinnedVersion?.artworkVersion.validation ?? null,
-            coverage: a.pinnedVersion?.artworkVersion.coverageAnalyses ?? [],
-            metadata: a.pinnedVersion?.artworkVersion.metadata ?? null,
-          })),
+          artworks,
         }
       : null,
   };
