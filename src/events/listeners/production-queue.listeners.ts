@@ -35,4 +35,12 @@ export function registerProductionQueueListeners(): void {
   eventBus.on(APP_EVENTS.TASK_PAUSED, (payload) => invalidate(APP_EVENTS.TASK_PAUSED, payload));
   eventBus.on(APP_EVENTS.TASK_RESUMED, (payload) => invalidate(APP_EVENTS.TASK_RESUMED, payload));
   eventBus.on(APP_EVENTS.TASK_HELD, (payload) => invalidate(APP_EVENTS.TASK_HELD, payload));
+
+  eventBus.on(APP_EVENTS.QC_STARTED, (payload) => invalidate(APP_EVENTS.QC_STARTED, payload));
+  eventBus.on(APP_EVENTS.QC_PASSED, (payload) => invalidate(APP_EVENTS.QC_PASSED, payload));
+  eventBus.on(APP_EVENTS.QC_FAILED, (payload) => invalidate(APP_EVENTS.QC_FAILED, payload));
+  eventBus.on(APP_EVENTS.QC_HOLD, (payload) => invalidate(APP_EVENTS.QC_HOLD, payload));
+  eventBus.on(APP_EVENTS.REWORK_REQUESTED, (payload) =>
+    invalidate(APP_EVENTS.REWORK_REQUESTED, payload),
+  );
 }

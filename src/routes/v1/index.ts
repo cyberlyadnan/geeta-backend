@@ -39,6 +39,7 @@ import { rateCatalogRoutes } from '../../modules/rate-catalog/index.js';
 import { productionQueueRoutes } from '../../modules/production/queue/index.js';
 import { assignmentRoutes } from '../../modules/production/assignment/index.js';
 import { executionRoutes } from '../../modules/production/execution/index.js';
+import { qcRoutes } from '../../modules/production/qc/index.js';
 
 const v1Router = Router();
 
@@ -80,5 +81,6 @@ v1Router.use('/production/artwork', productionArtworkRoutes);
 v1Router.use('/production', productionQueueRoutes);
 v1Router.use('/production', assignmentRoutes);
 v1Router.use('/production', executionRoutes);
+v1Router.use('/production', qcRoutes);
 
 export { v1Router };

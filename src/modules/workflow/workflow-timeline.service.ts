@@ -291,6 +291,96 @@ export class WorkflowTimelineService {
       actorId: input.actorId,
     };
   }
+
+  qcStarted(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    stepName: string;
+    actorId?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.QC_STARTED,
+      title: 'QC inspection started',
+      description: input.stepName,
+      actorId: input.actorId,
+    };
+  }
+
+  qcPassed(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    stepName: string;
+    actorId?: string;
+    remarks?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.QC_PASSED,
+      title: 'QC passed',
+      description: input.remarks ?? input.stepName,
+      actorId: input.actorId,
+    };
+  }
+
+  qcFailed(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    stepName: string;
+    actorId?: string;
+    remarks?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.QC_FAILED,
+      title: 'QC failed',
+      description: input.remarks ?? input.stepName,
+      actorId: input.actorId,
+    };
+  }
+
+  qcHeld(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    stepName: string;
+    actorId?: string;
+    remarks?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.QC_HELD,
+      title: 'QC on hold',
+      description: input.remarks ?? input.stepName,
+      actorId: input.actorId,
+    };
+  }
+
+  workflowReworked(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    targetStepCode: string;
+    actorId?: string;
+    remarks?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.WORKFLOW_REWORKED,
+      title: 'Rework initiated',
+      description: input.remarks ?? `Rework on ${input.targetStepCode}`,
+      metadata: { targetStepCode: input.targetStepCode },
+      actorId: input.actorId,
+    };
+  }
 }
 
 export const workflowTimelineService = new WorkflowTimelineService();

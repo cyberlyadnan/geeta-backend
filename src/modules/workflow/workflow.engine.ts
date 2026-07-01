@@ -2,13 +2,14 @@ import {
   WorkflowHistoryAction,
   WorkflowInstanceStatus,
   WorkflowTaskStatus,
+  ReworkStatus,
   type Prisma,
 } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { eventBus, APP_EVENTS } from '../../events/eventBus.js';
 import { resolveReadyTaskIds, type TaskDependencyEdge } from './dependency-engine.js';
-import { assertTaskTransition } from './task-state-machine.js';
+import { assertTaskTransition, isTaskTerminal } from './task-state-machine.js';
 import {
   assertWorkflowInstanceTransition,
   isWorkflowTerminal,
@@ -50,6 +51,32 @@ export interface AdvanceWorkflowResult {
   newlyReadyTaskIds: string[];
   workflowStatus: WorkflowInstanceStatus;
   workflowCompleted: boolean;
+}
+
+export type QcOutcomeResult =
+  | 'PASS'
+  | 'PASS_WITH_REMARKS'
+  | 'FAIL'
+  | 'ON_HOLD'
+  | 'REWORK_REQUIRED';
+
+export interface ProcessQcOutcomeInput {
+  workflowInstanceId: string;
+  qcTaskId: string;
+  result: QcOutcomeResult;
+  actorId?: string;
+  remarks?: string;
+  targetTaskId?: string;
+}
+
+export interface ProcessQcOutcomeResponse {
+  workflowInstanceId: string;
+  qcTaskId: string;
+  qcTaskStatus: WorkflowTaskStatus;
+  result: QcOutcomeResult;
+  reworkTargetTaskId?: string;
+  reworkRequestId?: string;
+  advanceResult?: AdvanceWorkflowResult;
 }
 
 export class WorkflowEngine {
@@ -437,6 +464,288 @@ export class WorkflowEngine {
     }
 
     return result;
+  }
+
+  /**
+   * QC Engine entry point — records outcome and delegates workflow progression.
+   * Never activates downstream tasks directly except via advance() on pass.
+   */
+  async processQcOutcome(input: ProcessQcOutcomeInput): Promise<ProcessQcOutcomeResponse> {
+    if (input.result === 'PASS' || input.result === 'PASS_WITH_REMARKS') {
+      const advanceResult = await this.advance({
+        workflowInstanceId: input.workflowInstanceId,
+        taskId: input.qcTaskId,
+        action: 'complete',
+        actorId: input.actorId,
+        remarks: input.remarks,
+      });
+      return {
+        workflowInstanceId: input.workflowInstanceId,
+        qcTaskId: input.qcTaskId,
+        qcTaskStatus: advanceResult.taskStatus,
+        result: input.result,
+        advanceResult,
+      };
+    }
+
+    if (input.result === 'ON_HOLD') {
+      const qcTaskStatus = await this.applyQcHold(input);
+      return {
+        workflowInstanceId: input.workflowInstanceId,
+        qcTaskId: input.qcTaskId,
+        qcTaskStatus,
+        result: input.result,
+      };
+    }
+
+    const rework = await this.applyQcRework(input);
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      qcTaskId: input.qcTaskId,
+      qcTaskStatus: rework.qcTaskStatus,
+      result: input.result,
+      reworkTargetTaskId: rework.targetTaskId,
+      reworkRequestId: rework.reworkRequestId,
+    };
+  }
+
+  private async applyQcHold(input: ProcessQcOutcomeInput): Promise<WorkflowTaskStatus> {
+    return prisma.$transaction(async (tx) => {
+      const task = await tx.workflowTask.findFirst({
+        where: { id: input.qcTaskId, workflowInstanceId: input.workflowInstanceId },
+        select: {
+          id: true,
+          status: true,
+          workflowStep: { select: { stepCode: true, stepName: true } },
+        },
+      });
+      if (!task) throw ApiError.notFound('QC workflow task not found');
+      assertTaskTransition(task.status, WorkflowTaskStatus.ON_HOLD);
+
+      await tx.workflowTask.update({
+        where: { id: task.id },
+        data: { status: WorkflowTaskStatus.ON_HOLD, ...(input.remarks ? { remarks: input.remarks } : {}) },
+      });
+
+      await tx.workflowTaskHistory.create({
+        data: {
+          taskId: task.id,
+          action: WorkflowHistoryAction.ON_HOLD,
+          remarks: input.remarks,
+          performedById: input.actorId,
+        },
+      });
+
+      await workflowTimelineService.recordEvents(
+        [
+          workflowTimelineService.qcHeld({
+            workflowInstanceId: input.workflowInstanceId,
+            taskId: task.id,
+            stepName: task.workflowStep.stepName,
+            actorId: input.actorId,
+            remarks: input.remarks,
+          }),
+        ],
+        tx,
+      );
+
+      return WorkflowTaskStatus.ON_HOLD;
+    });
+  }
+
+  private async applyQcRework(input: ProcessQcOutcomeInput): Promise<{
+    qcTaskStatus: WorkflowTaskStatus;
+    targetTaskId: string;
+    reworkRequestId: string;
+  }> {
+    return prisma.$transaction(async (tx) => {
+      const qcTask = await tx.workflowTask.findFirst({
+        where: { id: input.qcTaskId, workflowInstanceId: input.workflowInstanceId },
+        select: {
+          id: true,
+          status: true,
+          stepOrder: true,
+          workflowStep: {
+            select: { stepCode: true, stepName: true, allowRework: true, metadata: true },
+          },
+        },
+      });
+      if (!qcTask) throw ApiError.notFound('QC workflow task not found');
+      if (!qcTask.workflowStep.allowRework) {
+        throw ApiError.conflict('Rework is not allowed for this workflow step');
+      }
+
+      const targetTaskId = await this.resolveReworkTargetTaskId(
+        input.workflowInstanceId,
+        qcTask.id,
+        qcTask.stepOrder,
+        qcTask.workflowStep.metadata,
+        input.targetTaskId,
+        tx,
+      );
+
+      const targetTask = await tx.workflowTask.findUnique({
+        where: { id: targetTaskId },
+        select: { id: true, status: true, stepOrder: true, workflowStep: { select: { stepCode: true } } },
+      });
+      if (!targetTask) throw ApiError.notFound('Rework target task not found');
+
+      assertTaskTransition(qcTask.status, WorkflowTaskStatus.BLOCKED);
+
+      await tx.workflowTask.update({
+        where: { id: qcTask.id },
+        data: { status: WorkflowTaskStatus.BLOCKED, ...(input.remarks ? { remarks: input.remarks } : {}) },
+      });
+
+      await tx.workflowTaskHistory.create({
+        data: {
+          taskId: qcTask.id,
+          action: WorkflowHistoryAction.REJECTED,
+          remarks: input.remarks,
+          performedById: input.actorId,
+        },
+      });
+
+      const downstreamTasks = await tx.workflowTask.findMany({
+        where: {
+          workflowInstanceId: input.workflowInstanceId,
+          stepOrder: { gt: targetTask.stepOrder },
+          status: {
+            notIn: [
+              WorkflowTaskStatus.CANCELLED,
+              WorkflowTaskStatus.SKIPPED,
+            ],
+          },
+        },
+        select: { id: true, status: true },
+      });
+
+      for (const downstream of downstreamTasks) {
+        if (downstream.id === qcTask.id) continue;
+        if (isTaskTerminal(downstream.status)) {
+          await tx.workflowTask.update({
+            where: { id: downstream.id },
+            data: { status: WorkflowTaskStatus.BLOCKED, completedAt: null },
+          });
+          continue;
+        }
+        if (downstream.status !== WorkflowTaskStatus.BLOCKED) {
+          await tx.workflowTask.update({
+            where: { id: downstream.id },
+            data: { status: WorkflowTaskStatus.BLOCKED },
+          });
+        }
+      }
+
+      await tx.workflowTask.update({
+        where: { id: targetTask.id },
+        data: {
+          status: WorkflowTaskStatus.REWORK,
+          completedAt: null,
+        },
+      });
+
+      await tx.workflowTaskHistory.create({
+        data: {
+          taskId: targetTask.id,
+          action: WorkflowHistoryAction.REWORKED,
+          remarks: input.remarks,
+          performedById: input.actorId,
+        },
+      });
+
+      const reworkCycle =
+        (await tx.reworkRequest.count({ where: { targetTaskId: targetTask.id } })) + 1;
+
+      const reworkRequest = await tx.reworkRequest.create({
+        data: {
+          taskId: qcTask.id,
+          targetTaskId: targetTask.id,
+          status: ReworkStatus.OPEN,
+          reason: input.result === 'FAIL' ? 'QC inspection failed' : 'QC rework required',
+          notes: input.remarks,
+          reworkCycle,
+          createdById: input.actorId,
+        },
+        select: { id: true },
+      });
+
+      await workflowTimelineService.recordEvents(
+        [
+          workflowTimelineService.qcFailed({
+            workflowInstanceId: input.workflowInstanceId,
+            taskId: qcTask.id,
+            stepName: qcTask.workflowStep.stepName,
+            actorId: input.actorId,
+            remarks: input.remarks,
+          }),
+          workflowTimelineService.workflowReworked({
+            workflowInstanceId: input.workflowInstanceId,
+            taskId: targetTask.id,
+            targetStepCode: targetTask.workflowStep.stepCode,
+            actorId: input.actorId,
+            remarks: input.remarks,
+          }),
+        ],
+        tx,
+      );
+
+      return {
+        qcTaskStatus: WorkflowTaskStatus.BLOCKED,
+        targetTaskId: targetTask.id,
+        reworkRequestId: reworkRequest.id,
+      };
+    });
+  }
+
+  private async resolveReworkTargetTaskId(
+    workflowInstanceId: string,
+    qcTaskId: string,
+    qcStepOrder: number,
+    stepMetadata: unknown,
+    explicitTargetTaskId: string | undefined,
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    if (explicitTargetTaskId) return explicitTargetTaskId;
+
+    const metadata = (stepMetadata ?? {}) as { reworkTargetStepCode?: string };
+    if (metadata.reworkTargetStepCode) {
+      const match = await tx.workflowTask.findFirst({
+        where: {
+          workflowInstanceId,
+          workflowStep: { stepCode: metadata.reworkTargetStepCode },
+        },
+        select: { id: true },
+      });
+      if (match) return match.id;
+    }
+
+    const completedPredecessor = await tx.workflowTask.findFirst({
+      where: {
+        workflowInstanceId,
+        stepOrder: { lt: qcStepOrder },
+        status: WorkflowTaskStatus.COMPLETED,
+      },
+      orderBy: { stepOrder: 'desc' },
+      select: { id: true },
+    });
+    if (completedPredecessor) return completedPredecessor.id;
+
+    const predecessor = await tx.workflowTask.findFirst({
+      where: {
+        workflowInstanceId,
+        stepOrder: { lt: qcStepOrder },
+        id: { not: qcTaskId },
+      },
+      orderBy: { stepOrder: 'desc' },
+      select: { id: true },
+    });
+
+    if (!predecessor) {
+      throw ApiError.conflict('Unable to resolve rework target task from workflow template');
+    }
+
+    return predecessor.id;
   }
 
   private resolveAdvanceTargetStatus(action: AdvanceWorkflowInput['action']): WorkflowTaskStatus {

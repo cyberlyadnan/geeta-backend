@@ -197,6 +197,13 @@ enum ActivityAction {
   TASK_ATTACHMENT_ADDED
   SUPERVISOR_REQUESTED
   TASK_ISSUE_REPORTED
+  QC_STARTED
+  QC_PASSED
+  QC_FAILED
+  QC_HOLD
+  REWORK_REQUESTED
+  QC_NOTE_ADDED
+  QC_ATTACHMENT_ADDED
   USER_LOGIN
   USER_LOGIN_BLOCKED
   USER_CREATED
@@ -474,6 +481,34 @@ enum ReworkStatus {
   CLOSED
 }
 
+enum QualityInspectionStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum QualityInspectionResult {
+  PASS
+  FAIL
+  PASS_WITH_REMARKS
+  ON_HOLD
+  REWORK_REQUIRED
+}
+
+enum QualityDefectSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum QcAttachmentCategory {
+  PHOTO
+  PDF
+  REPORT
+  ANNOTATED_ARTWORK
+}
+
 enum QuoteStatus {
   DRAFT
   SENT
@@ -568,6 +603,7 @@ model User {
   assignedWorkflowTasks    WorkflowTask[]           @relation("WorkflowTaskAssignee")
   workflowTaskHistory      WorkflowTaskHistory[]    @relation("WorkflowTaskHistoryPerformer")
   reworkRequestsCreated    ReworkRequest[]          @relation("ReworkRequestCreator")
+  qualityInspections       QualityInspection[]      @relation("QualityInspector")
   quotes                   Quote[]
   auditLogs                AuditLog[]
   vendorComplianceCreated  VendorComplianceRequest[] @relation("VendorComplianceCreatedBy")
@@ -597,6 +633,7 @@ model User {
   productionNotesAuthored        WorkflowTaskProductionNote[]   @relation("ProductionNoteAuthor")
   taskAttachmentsUploaded        WorkflowTaskAttachment[]       @relation("TaskAttachmentUploader")
   executionAlertsCreated         WorkflowTaskExecutionAlert[]   @relation("ExecutionAlertCreator")
+  qcAttachmentsUploaded          QualityInspectionAttachment[] @relation("QcAttachmentUploader")
 
   @@index([roleId])
   @@index([status])
@@ -1004,6 +1041,7 @@ model ProductOfferingVersion {
   orderItems            OrderItem[]
   productionOrderItems  ProductionOrderItem[]
   quoteItems            QuoteItem[]
+  qualityChecklistTemplates QualityChecklistTemplate[]
 
   @@unique([productOfferingId, versionNumber])
   @@index([productOfferingId, status, deletedAt])
@@ -1245,6 +1283,8 @@ model FileAsset {
   artworkVersions     ArtworkVersion[]
   taskAttachments     WorkflowTaskAttachment[]
   productionNoteFiles WorkflowTaskProductionNote[]
+  qcInspectionAttachments QualityInspectionAttachment[]
+  qcDefectAttachments   QualityInspectionDefect[]
 
   @@index([uploadedById])
   @@index([createdAt])
@@ -1340,6 +1380,7 @@ model WorkflowTemplateStep {
   workflowTasks    WorkflowTask[]
   instructions     String?                        @db.Text
   metadata         Json                           @default("{}")
+  checklistTemplates QualityChecklistTemplate[]
   dependencies     WorkflowTemplateStepDependency[] @relation("StepDependsOn")
   dependents       WorkflowTemplateStepDependency[] @relation("StepRequiredBy")
 
@@ -1605,6 +1646,7 @@ model WorkflowInstance {
   tasks               WorkflowTask[]
   jobCards            ProductionJobCard[]
   timelineEvents      WorkflowTimelineEvent[]
+  qualityInspections  QualityInspection[]
 
   @@index([orderId])
   @@index([workflowTemplateId])
@@ -1654,6 +1696,8 @@ model WorkflowTask {
   attachments        WorkflowTaskAttachment[]
   executionAlerts    WorkflowTaskExecutionAlert[]
   holds              WorkflowTaskHold[]
+  qualityInspections QualityInspection[]
+  reworkTargets      ReworkRequest[]        @relation("ReworkTargetTask")
 
   @@unique([workflowInstanceId, workflowTemplateStepId])
   @@index([workflowInstanceId])
@@ -1939,21 +1983,149 @@ model WorkflowTaskHistory {
 }
 
 model ReworkRequest {
-  id          String       @id @default(cuid())
-  taskId      String       @map("task_id")
-  status      ReworkStatus @default(OPEN)
-  reason      String       @db.Text
-  notes       String?      @db.Text
-  createdById String?      @map("created_by_id")
-  createdAt   DateTime     @default(now()) @map("created_at")
+  id              String       @id @default(cuid())
+  taskId          String       @map("task_id")
+  targetTaskId    String?      @map("target_task_id")
+  qcInspectionId  String?      @map("qc_inspection_id")
+  status          ReworkStatus @default(OPEN)
+  reason          String       @db.Text
+  notes           String?      @db.Text
+  reworkCycle     Int          @default(1) @map("rework_cycle")
+  createdById     String?      @map("created_by_id")
+  createdAt       DateTime     @default(now()) @map("created_at")
 
-  task      WorkflowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  createdBy User?        @relation("ReworkRequestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  task          WorkflowTask        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  targetTask    WorkflowTask?       @relation("ReworkTargetTask", fields: [targetTaskId], references: [id], onDelete: SetNull)
+  qcInspection  QualityInspection?  @relation(fields: [qcInspectionId], references: [id], onDelete: SetNull)
+  createdBy     User?               @relation("ReworkRequestCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([taskId])
+  @@index([targetTaskId])
+  @@index([qcInspectionId])
   @@index([createdById])
   @@index([status])
   @@map("rework_requests")
+}
+
+model QualityChecklistTemplate {
+  id                       String   @id @default(cuid())
+  name                     String
+  code                     String   @unique
+  description              String?  @db.Text
+  workflowTemplateStepId   String?  @map("workflow_template_step_id")
+  productOfferingVersionId String?  @map("product_offering_version_id")
+  isActive                 Boolean  @default(true) @map("is_active")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  workflowTemplateStep   WorkflowTemplateStep?   @relation(fields: [workflowTemplateStepId], references: [id], onDelete: SetNull)
+  productOfferingVersion ProductOfferingVersion? @relation(fields: [productOfferingVersionId], references: [id], onDelete: SetNull)
+  items                  QualityChecklistTemplateItem[]
+  inspections            QualityInspection[]
+
+  @@index([workflowTemplateStepId])
+  @@index([productOfferingVersionId, isActive])
+  @@map("quality_checklist_templates")
+}
+
+model QualityChecklistTemplateItem {
+  id          String  @id @default(cuid())
+  templateId  String  @map("template_id")
+  itemCode    String  @map("item_code")
+  label       String
+  description String? @db.Text
+  sortOrder   Int     @default(0) @map("sort_order")
+  isRequired  Boolean @default(true) @map("is_required")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  template QualityChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, itemCode])
+  @@index([templateId, sortOrder])
+  @@map("quality_checklist_template_items")
+}
+
+model QualityInspection {
+  id                 String                    @id @default(cuid())
+  workflowTaskId     String                    @map("workflow_task_id")
+  workflowInstanceId String                    @map("workflow_instance_id")
+  inspectorId        String                    @map("inspector_id")
+  checklistTemplateId String?                  @map("checklist_template_id")
+  status             QualityInspectionStatus   @default(DRAFT)
+  result             QualityInspectionResult?
+  remarks            String?                   @db.Text
+  reworkCycle        Int                       @default(0) @map("rework_cycle")
+  startedAt          DateTime?                 @map("started_at")
+  completedAt        DateTime?                 @map("completed_at")
+  durationSeconds    Int                       @default(0) @map("duration_seconds")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+
+  workflowTask       WorkflowTask              @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  workflowInstance   WorkflowInstance          @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  inspector          User                      @relation("QualityInspector", fields: [inspectorId], references: [id], onDelete: Restrict)
+  checklistTemplate  QualityChecklistTemplate? @relation(fields: [checklistTemplateId], references: [id], onDelete: SetNull)
+  items              QualityInspectionItem[]
+  defects            QualityInspectionDefect[]
+  attachments        QualityInspectionAttachment[]
+  reworkRequests     ReworkRequest[]
+
+  @@index([workflowTaskId, status])
+  @@index([workflowInstanceId])
+  @@index([inspectorId, status])
+  @@index([result])
+  @@index([completedAt(sort: Desc)])
+  @@map("quality_inspections")
+}
+
+model QualityInspectionItem {
+  id               String   @id @default(cuid())
+  inspectionId     String   @map("inspection_id")
+  templateItemId   String?  @map("template_item_id")
+  itemCode         String   @map("item_code")
+  label            String
+  passed           Boolean?
+  remarks          String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@index([inspectionId])
+  @@map("quality_inspection_items")
+}
+
+model QualityInspectionDefect {
+  id           String                @id @default(cuid())
+  inspectionId String                @map("inspection_id")
+  category     String
+  severity     QualityDefectSeverity @default(MEDIUM)
+  description  String                @db.Text
+  remarks      String?               @db.Text
+  fileAssetId  String?               @map("file_asset_id")
+  createdAt    DateTime              @default(now()) @map("created_at")
+
+  inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  fileAsset  FileAsset?          @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
+
+  @@index([inspectionId])
+  @@map("quality_inspection_defects")
+}
+
+model QualityInspectionAttachment {
+  id           String               @id @default(cuid())
+  inspectionId String               @map("inspection_id")
+  fileAssetId  String               @map("file_asset_id")
+  category     QcAttachmentCategory
+  label        String?
+  uploadedById String               @map("uploaded_by_id")
+  createdAt    DateTime             @default(now()) @map("created_at")
+
+  inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  fileAsset  FileAsset           @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  uploadedBy User                @relation("QcAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([inspectionId, createdAt(sort: Desc)])
+  @@map("quality_inspection_attachments")
 }
 
 model WorkflowSlaBreach {

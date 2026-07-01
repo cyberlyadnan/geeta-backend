@@ -46,7 +46,7 @@ export const TASK_EXECUTION_SELECT = {
   completedAt: true,
   instructions: true,
   estimatedMinutes: true,
-  workflowStep: { select: { stepCode: true, stepName: true } },
+  workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
   workflowInstance: {
     select: {
       id: true,

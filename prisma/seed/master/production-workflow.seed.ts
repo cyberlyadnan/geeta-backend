@@ -36,6 +36,8 @@ const TEMPLATE_STEPS = [
     stepType: 'QUALITY_CHECK' as const,
     stepOrder: 3,
     expectedMinutes: 20,
+    allowRework: true,
+    metadata: { reworkTargetStepCode: 'PRINTING' },
   },
   {
     departmentCode: 'PACKING',
@@ -140,6 +142,8 @@ export async function seedProductionWorkflow(ctx: SeedContext): Promise<void> {
           stepOrder: step.stepOrder,
           expectedMinutes: step.expectedMinutes,
           isMandatory: true,
+          ...('allowRework' in step ? { allowRework: step.allowRework } : {}),
+          ...('metadata' in step ? { metadata: step.metadata } : {}),
         },
       });
     } else {
@@ -153,6 +157,8 @@ export async function seedProductionWorkflow(ctx: SeedContext): Promise<void> {
           stepOrder: step.stepOrder,
           expectedMinutes: step.expectedMinutes,
           isMandatory: true,
+          ...('allowRework' in step ? { allowRework: step.allowRework } : {}),
+          ...('metadata' in step ? { metadata: step.metadata } : {}),
         },
       });
       stepIdsByCode.set(step.stepCode, created.id);

@@ -27,6 +27,13 @@ export const APP_EVENTS = {
   TASK_ATTACHMENT_ADDED: 'workflow:task_attachment_added',
   SUPERVISOR_REQUESTED: 'workflow:supervisor_requested',
   TASK_ISSUE_REPORTED: 'workflow:task_issue_reported',
+  QC_STARTED: 'qc:started',
+  QC_PASSED: 'qc:passed',
+  QC_FAILED: 'qc:failed',
+  QC_HOLD: 'qc:hold',
+  REWORK_REQUESTED: 'qc:rework_requested',
+  QC_NOTE_ADDED: 'qc:note_added',
+  QC_ATTACHMENT_ADDED: 'qc:attachment_added',
   SUPPORT_TICKET_CREATED: 'support:ticket_created',
 } as const;
 

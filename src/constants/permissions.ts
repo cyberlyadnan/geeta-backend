@@ -37,6 +37,11 @@ export const PERMISSIONS = {
     VIEW_ALL: 'production.task.view.all',
     ALL: 'production.task:*',
   },
+  PRODUCTION_QC: {
+    INSPECT: 'production.qc.inspect',
+    VIEW_ALL: 'production.qc.view.all',
+    ALL: 'production.qc:*',
+  },
   REPORTS: {
     READ: 'reports:read',
     ALL: 'reports:*',

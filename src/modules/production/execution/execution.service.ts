@@ -2,6 +2,7 @@ import {
   ActivityAction,
   ProductionExecutionAlertType,
   WorkflowHistoryAction,
+  WorkflowStepType,
   WorkflowTaskExecutionIntervalType,
   WorkflowTaskExecutionSessionStatus,
   WorkflowTaskStatus,
@@ -65,6 +66,7 @@ export class ExecutionService {
   ) {
     const task = await executionRepository.findTaskForExecution(taskId);
     if (!task) throw ApiError.notFound('Workflow task not found');
+    this.assertNotQcExecutionTask(task.workflowStep.stepType);
     if (isTaskTerminal(task.status)) {
       throw ApiError.conflict(`Cannot start task in terminal state ${task.status}`);
     }
@@ -492,6 +494,7 @@ export class ExecutionService {
   ) {
     const task = await executionRepository.findTaskForExecution(taskId);
     if (!task) throw ApiError.notFound('Workflow task not found');
+    this.assertNotQcExecutionTask(task.workflowStep.stepType);
 
     const assignment = await executionRepository.findActiveAssignment(taskId);
     const operatorId = assignment?.operatorId ?? actorId;
@@ -551,6 +554,10 @@ export class ExecutionService {
     permissions: string[],
     body: PresignAttachmentBody,
   ) {
+    const task = await executionRepository.findTaskForExecution(taskId);
+    if (!task) throw ApiError.notFound('Workflow task not found');
+    this.assertNotQcExecutionTask(task.workflowStep.stepType);
+
     const assignment = await executionRepository.findActiveAssignment(taskId);
     if (!assignment) throw ApiError.conflict('Task must be assigned to upload attachments');
     assertCanExecuteTask(assignment.operatorId, actorId, role, permissions);
@@ -572,6 +579,7 @@ export class ExecutionService {
   ) {
     const task = await executionRepository.findTaskForExecution(taskId);
     if (!task) throw ApiError.notFound('Workflow task not found');
+    this.assertNotQcExecutionTask(task.workflowStep.stepType);
 
     const assignment = await executionRepository.findActiveAssignment(taskId);
     if (!assignment) throw ApiError.conflict('Task must be assigned to upload attachments');
@@ -758,6 +766,7 @@ export class ExecutionService {
   ) {
     const task = await executionRepository.findTaskForExecution(taskId);
     if (!task) throw ApiError.notFound('Workflow task not found');
+    this.assertNotQcExecutionTask(task.workflowStep.stepType);
 
     const assignment = await executionRepository.findActiveAssignment(taskId);
     if (!assignment) throw ApiError.conflict('Task must be assigned for execution');
@@ -876,6 +885,12 @@ export class ExecutionService {
     });
     eventBus.emitEvent(event, payload);
     void productionQueueCache.invalidateAll();
+  }
+
+  private assertNotQcExecutionTask(stepType: WorkflowStepType): void {
+    if (stepType === WorkflowStepType.QUALITY_CHECK) {
+      throw ApiError.conflict('QC tasks must be inspected via the Quality Control module');
+    }
   }
 }
 
