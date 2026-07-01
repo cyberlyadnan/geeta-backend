@@ -19,6 +19,7 @@ import { assertTaskTransition, isTaskTerminal } from '../../workflow/task-state-
 import { workflowEngine } from '../../workflow/workflow.engine.js';
 import { workflowTimelineService } from '../../workflow/workflow-timeline.service.js';
 import { productionQueueCache } from '../queue/queue.cache.js';
+import { machineService } from '../machines/machine.service.js';
 import { assertCanExecuteTask, assertCanViewDepartmentExecution } from './execution.access.js';
 import {
   mapAttachmentToDto,
@@ -473,6 +474,10 @@ export class ExecutionService {
       workflowInstanceId: task.workflowInstanceId,
       newlyReadyTaskIds: advanceResult.newlyReadyTaskIds,
     });
+
+    if (task.assignedMachineId) {
+      void machineService.releaseMachineIfIdle(task.assignedMachineId, actorId);
+    }
 
     return {
       session: await this.getExecution(taskId),

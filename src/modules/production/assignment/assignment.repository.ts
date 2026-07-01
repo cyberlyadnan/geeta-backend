@@ -75,6 +75,7 @@ export const MY_TASK_SELECT = {
   remarks: true,
   status: true,
   assignedAt: true,
+  machine: { select: { id: true, machineCode: true, machineName: true, machineType: true, operationalStatus: true, notes: true } },
   department: { select: { id: true, code: true, name: true } },
   workflowTask: {
     select: {

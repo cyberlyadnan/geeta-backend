@@ -35,6 +35,11 @@ export const APP_EVENTS = {
   QC_NOTE_ADDED: 'qc:note_added',
   QC_ATTACHMENT_ADDED: 'qc:attachment_added',
   CONTROL_CENTER_UPDATED: 'production:control_center_updated',
+  MACHINE_CREATED: 'machine:created',
+  MACHINE_UPDATED: 'machine:updated',
+  MACHINE_ASSIGNED: 'machine:assigned',
+  MACHINE_STATUS_CHANGED: 'machine:status_changed',
+  MACHINE_ARCHIVED: 'machine:archived',
   SUPPORT_TICKET_CREATED: 'support:ticket_created',
 } as const;
 

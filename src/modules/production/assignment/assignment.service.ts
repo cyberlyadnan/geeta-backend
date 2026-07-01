@@ -23,6 +23,8 @@ import {
   mapOperatorToDto,
 } from './assignment.dto.js';
 import { assignmentRepository } from './assignment.repository.js';
+import { machineService } from '../machines/machine.service.js';
+import { ASSIGNABLE_MACHINE_STATUSES } from '../machines/machine.constants.js';
 import type {
   AssignTaskBody,
   MyTasksQuery,
@@ -155,6 +157,10 @@ export class AssignmentService {
       operatorId: body.operatorId,
       actorId,
     });
+
+    if (body.machineId) {
+      void machineService.onMachineAssigned(body.machineId, body.taskId, assignment.id, actorId);
+    }
 
     return mapAssignmentToDto(assignment);
   }
@@ -339,6 +345,18 @@ export class AssignmentService {
       });
     }
 
+    if (current.machineId && current.machineId !== nextMachineId) {
+      void machineService.releaseMachineIfIdle(current.machineId, actorId);
+    }
+    if (nextMachineId) {
+      void machineService.onMachineAssigned(
+        nextMachineId,
+        current.workflowTaskId,
+        assignment.id,
+        actorId,
+      );
+    }
+
     return mapAssignmentToDto(assignment);
   }
 
@@ -431,6 +449,10 @@ export class AssignmentService {
       actorId,
     });
 
+    if (current.machineId) {
+      void machineService.releaseMachineIfIdle(current.machineId, actorId);
+    }
+
     return { success: true, taskId: current.workflowTaskId };
   }
 
@@ -502,10 +524,19 @@ export class AssignmentService {
 
     if (machineId) {
       const machine = await prisma.machine.findFirst({
-        where: { id: machineId, departmentId: task.departmentId, status: 'ACTIVE' },
+        where: {
+          id: machineId,
+          departmentId: task.departmentId,
+          isActive: true,
+          operationalStatus: { in: [...ASSIGNABLE_MACHINE_STATUSES] },
+        },
         select: { id: true },
       });
-      if (!machine) throw ApiError.badRequest('Machine not found or not in task department');
+      if (!machine) {
+        throw ApiError.badRequest(
+          'Machine not found, inactive, or not available for assignment in this department',
+        );
+      }
     }
   }
 

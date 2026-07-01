@@ -2,6 +2,7 @@ import { eventBus, APP_EVENTS } from '../eventBus.js';
 import { logger } from '../../logs/logger.js';
 import { controlCenterCache } from '../../modules/production/control-center/control-center.cache.js';
 import { productionQueueCache } from '../../modules/production/queue/queue.cache.js';
+import { machineCache } from '../../modules/production/machines/machine.cache.js';
 import { emitControlCenterUpdated } from '../../websocket/emitters/control-center.emitter.js';
 
 export function registerProductionQueueListeners(): void {
@@ -53,5 +54,27 @@ export function registerProductionQueueListeners(): void {
   );
   eventBus.on(APP_EVENTS.TASK_ISSUE_REPORTED, (payload) =>
     invalidate(APP_EVENTS.TASK_ISSUE_REPORTED, payload),
+  );
+
+  const invalidateMachines = (event: string, payload: unknown) => {
+    logger.debug('Invalidating machine cache', { event, payload });
+    void machineCache.invalidateAll();
+    invalidate(event, payload);
+  };
+
+  eventBus.on(APP_EVENTS.MACHINE_CREATED, (payload) =>
+    invalidateMachines(APP_EVENTS.MACHINE_CREATED, payload),
+  );
+  eventBus.on(APP_EVENTS.MACHINE_UPDATED, (payload) =>
+    invalidateMachines(APP_EVENTS.MACHINE_UPDATED, payload),
+  );
+  eventBus.on(APP_EVENTS.MACHINE_ASSIGNED, (payload) =>
+    invalidateMachines(APP_EVENTS.MACHINE_ASSIGNED, payload),
+  );
+  eventBus.on(APP_EVENTS.MACHINE_STATUS_CHANGED, (payload) =>
+    invalidateMachines(APP_EVENTS.MACHINE_STATUS_CHANGED, payload),
+  );
+  eventBus.on(APP_EVENTS.MACHINE_ARCHIVED, (payload) =>
+    invalidateMachines(APP_EVENTS.MACHINE_ARCHIVED, payload),
   );
 }

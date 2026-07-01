@@ -204,6 +204,11 @@ enum ActivityAction {
   REWORK_REQUESTED
   QC_NOTE_ADDED
   QC_ATTACHMENT_ADDED
+  MACHINE_CREATED
+  MACHINE_UPDATED
+  MACHINE_ASSIGNED
+  MACHINE_STATUS_CHANGED
+  MACHINE_ARCHIVED
   USER_LOGIN
   USER_LOGIN_BLOCKED
   USER_CREATED
@@ -519,6 +524,15 @@ enum QuoteStatus {
   CONVERTED
 }
 
+enum MachineOperationalStatus {
+  AVAILABLE
+  BUSY
+  RESERVED
+  MAINTENANCE
+  OFFLINE
+}
+
+/// @deprecated use MachineOperationalStatus + isActive — kept for migration compatibility
 enum MachineStatus {
   ACTIVE
   INACTIVE
@@ -634,6 +648,8 @@ model User {
   taskAttachmentsUploaded        WorkflowTaskAttachment[]       @relation("TaskAttachmentUploader")
   executionAlertsCreated         WorkflowTaskExecutionAlert[]   @relation("ExecutionAlertCreator")
   qcAttachmentsUploaded          QualityInspectionAttachment[] @relation("QcAttachmentUploader")
+  machineStatusChanges           MachineStatusHistory[]        @relation("MachineStatusChanger")
+  machineMaintenancePerformed    MachineMaintenanceRecord[]    @relation("MachineMaintenancePerformer")
 
   @@index([roleId])
   @@index([status])
@@ -1421,25 +1437,84 @@ model ProductOfferingWorkflow {
 }
 
 model Machine {
-  id           String        @id @default(cuid())
-  facilityId   String        @map("facility_id")
-  departmentId String        @map("department_id")
-  machineCode  String        @unique @map("machine_code")
-  machineName  String        @map("machine_name")
-  status       MachineStatus @default(ACTIVE)
-  metadata     Json          @default("{}")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  id                   String                   @id @default(cuid())
+  facilityId           String                   @map("facility_id")
+  departmentId         String                   @map("department_id")
+  machineCode          String                   @unique @map("machine_code")
+  machineName          String                   @map("machine_name")
+  machineType          String?                  @map("machine_type")
+  manufacturer         String?
+  model                String?
+  capabilities         Json                     @default("[]")
+  supportedProcesses   Json                     @default("[]") @map("supported_processes")
+  minSheetWidthMm      Decimal?                 @map("min_sheet_width_mm") @db.Decimal(10, 2)
+  minSheetHeightMm     Decimal?                 @map("min_sheet_height_mm") @db.Decimal(10, 2)
+  maxSheetWidthMm      Decimal?                 @map("max_sheet_width_mm") @db.Decimal(10, 2)
+  maxSheetHeightMm     Decimal?                 @map("max_sheet_height_mm") @db.Decimal(10, 2)
+  maxPrintWidthMm      Decimal?                 @map("max_print_width_mm") @db.Decimal(10, 2)
+  maxPrintHeightMm     Decimal?                 @map("max_print_height_mm") @db.Decimal(10, 2)
+  speedRating          String?                  @map("speed_rating")
+  capacityPerHour      Int?                     @map("capacity_per_hour")
+  workingHours         Json                     @default("{}") @map("working_hours")
+  averageRuntimeMinutes Int?                    @map("average_runtime_minutes")
+  supportedProductIds  Json                     @default("[]") @map("supported_product_ids")
+  operationalStatus    MachineOperationalStatus @default(AVAILABLE) @map("operational_status")
+  isActive             Boolean                  @default(true) @map("is_active")
+  notes                String?                  @db.Text
+  status               MachineStatus            @default(ACTIVE)
+  metadata             Json                     @default("{}")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
 
-  facility       Facility       @relation(fields: [facilityId], references: [id], onDelete: Restrict)
-  department     Department     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  assignedTasks  WorkflowTask[]
-  taskAssignments WorkflowTaskAssignment[]
+  facility            Facility                   @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  department          Department                 @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignedTasks       WorkflowTask[]
+  taskAssignments     WorkflowTaskAssignment[]
+  statusHistory       MachineStatusHistory[]
+  maintenanceRecords  MachineMaintenanceRecord[]
 
   @@index([facilityId])
   @@index([departmentId])
-  @@index([status])
+  @@index([departmentId, isActive])
+  @@index([operationalStatus])
+  @@index([isActive, operationalStatus])
+  @@index([machineCode])
   @@map("machines")
+}
+
+model MachineStatusHistory {
+  id             String                    @id @default(cuid())
+  machineId      String                    @map("machine_id")
+  fromStatus     MachineOperationalStatus? @map("from_status")
+  toStatus       MachineOperationalStatus  @map("to_status")
+  reason         String?                   @db.Text
+  workflowTaskId String?                   @map("workflow_task_id")
+  assignmentId   String?                   @map("assignment_id")
+  changedById    String?                   @map("changed_by_id")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+
+  machine   Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation("MachineStatusChanger", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([machineId, createdAt(sort: Desc)])
+  @@map("machine_status_history")
+}
+
+model MachineMaintenanceRecord {
+  id            String    @id @default(cuid())
+  machineId     String    @map("machine_id")
+  title         String
+  description   String?   @db.Text
+  startedAt     DateTime  @map("started_at")
+  endedAt       DateTime? @map("ended_at")
+  performedById String?   @map("performed_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  machine     Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  performedBy User?   @relation("MachineMaintenancePerformer", fields: [performedById], references: [id], onDelete: SetNull)
+
+  @@index([machineId, startedAt(sort: Desc)])
+  @@map("machine_maintenance_records")
 }
 
 model WorkflowSlaPolicy {

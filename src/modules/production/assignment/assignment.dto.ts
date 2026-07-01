@@ -72,6 +72,14 @@ export interface MyAssignedTaskDto {
   estimatedMinutes: number;
   assignedAt: string;
   remarks: string | null;
+  machine: {
+    id: string;
+    machineCode: string;
+    machineName: string;
+    machineType: string | null;
+    operationalStatus: string;
+    notes: string | null;
+  } | null;
 }
 
 function toIso(value: Date | null | undefined): string | null {
@@ -212,5 +220,15 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
     estimatedMinutes: record.estimatedMinutes,
     assignedAt: record.assignedAt.toISOString(),
     remarks: record.remarks,
+    machine: record.machine
+      ? {
+          id: record.machine.id,
+          machineCode: record.machine.machineCode,
+          machineName: record.machine.machineName,
+          machineType: record.machine.machineType,
+          operationalStatus: record.machine.operationalStatus,
+          notes: record.machine.notes,
+        }
+      : null,
   };
 }

@@ -2,6 +2,7 @@ import type { RoleName } from '@prisma/client';
 import { ApiError } from '../../../common/errors/ApiError.js';
 import { assertCanViewControlCenter } from './control-center.access.js';
 import { controlCenterCache } from './control-center.cache.js';
+import { machineRepository } from '../machines/machine.repository.js';
 import {
   mapDepartmentsOverview,
   mapFactoryOverview,
@@ -17,10 +18,11 @@ export class ControlCenterService {
     assertCanViewControlCenter(role, permissions);
 
     return controlCenterCache.getDashboard(async () => {
-      const [overview, departments, kpis] = await Promise.all([
+      const [overview, departments, kpis, machines] = await Promise.all([
         controlCenterRepository.getFactoryOverview(),
         controlCenterRepository.listDepartmentsOverview(),
         controlCenterRepository.getProductionKpis(),
+        machineRepository.getOverview(),
       ]);
 
       const mappedDepartments = mapDepartmentsOverview(departments);
@@ -30,6 +32,7 @@ export class ControlCenterService {
         departments: mappedDepartments,
         kpis,
         heatmap: mapHeatmap(mappedDepartments),
+        machines,
         refreshedAt: new Date().toISOString(),
       };
     });

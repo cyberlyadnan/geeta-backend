@@ -42,6 +42,7 @@ export const TASK_EXECUTION_SELECT = {
   departmentId: true,
   status: true,
   assignedToId: true,
+  assignedMachineId: true,
   startedAt: true,
   completedAt: true,
   instructions: true,

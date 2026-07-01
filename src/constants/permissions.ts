@@ -46,6 +46,11 @@ export const PERMISSIONS = {
     VIEW: 'production.control.view',
     ALL: 'production.control:*',
   },
+  PRODUCTION_MACHINE: {
+    VIEW: 'production.machine.view',
+    MANAGE: 'production.machine.manage',
+    ALL: 'production.machine:*',
+  },
   REPORTS: {
     READ: 'reports:read',
     ALL: 'reports:*',
