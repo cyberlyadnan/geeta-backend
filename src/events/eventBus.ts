@@ -34,6 +34,7 @@ export const APP_EVENTS = {
   REWORK_REQUESTED: 'qc:rework_requested',
   QC_NOTE_ADDED: 'qc:note_added',
   QC_ATTACHMENT_ADDED: 'qc:attachment_added',
+  CONTROL_CENTER_UPDATED: 'production:control_center_updated',
   SUPPORT_TICKET_CREATED: 'support:ticket_created',
 } as const;
 

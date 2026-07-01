@@ -1,11 +1,16 @@
 import { eventBus, APP_EVENTS } from '../eventBus.js';
 import { logger } from '../../logs/logger.js';
+import { controlCenterCache } from '../../modules/production/control-center/control-center.cache.js';
 import { productionQueueCache } from '../../modules/production/queue/queue.cache.js';
+import { emitControlCenterUpdated } from '../../websocket/emitters/control-center.emitter.js';
 
 export function registerProductionQueueListeners(): void {
   const invalidate = (event: string, payload: unknown) => {
     logger.debug('Invalidating production queue cache', { event, payload });
     void productionQueueCache.invalidateAll();
+    void controlCenterCache.invalidateAll().then(() => {
+      emitControlCenterUpdated({ refreshedAt: new Date().toISOString(), source: event });
+    });
   };
 
   eventBus.on(APP_EVENTS.TASK_READY, (payload) => invalidate(APP_EVENTS.TASK_READY, payload));
@@ -42,5 +47,11 @@ export function registerProductionQueueListeners(): void {
   eventBus.on(APP_EVENTS.QC_HOLD, (payload) => invalidate(APP_EVENTS.QC_HOLD, payload));
   eventBus.on(APP_EVENTS.REWORK_REQUESTED, (payload) =>
     invalidate(APP_EVENTS.REWORK_REQUESTED, payload),
+  );
+  eventBus.on(APP_EVENTS.SUPERVISOR_REQUESTED, (payload) =>
+    invalidate(APP_EVENTS.SUPERVISOR_REQUESTED, payload),
+  );
+  eventBus.on(APP_EVENTS.TASK_ISSUE_REPORTED, (payload) =>
+    invalidate(APP_EVENTS.TASK_ISSUE_REPORTED, payload),
   );
 }

@@ -15,14 +15,14 @@ const ROLES = [
     name: RoleName.ADMIN,
     displayName: 'Administrator',
     description: 'Organization administrator',
-    permissions: ['users:*', 'orders:*', 'reports:*', 'vendors:*', 'production.queue:*', 'production.qc:*'],
+    permissions: ['users:*', 'orders:*', 'reports:*', 'vendors:*', 'production.queue:*', 'production.qc:*', 'production.control:*'],
     isSystem: true,
   },
   {
     name: RoleName.MANAGER,
     displayName: 'Manager',
     description: 'Operations manager',
-    permissions: ['orders:*', 'workflow:*', 'reports:read', 'vendors:*', 'production.queue:*', 'production.task.assign', 'production.task.view.all', 'production.task.execute', 'production.qc:*'],
+    permissions: ['orders:*', 'workflow:*', 'reports:read', 'vendors:*', 'production.queue:*', 'production.task.assign', 'production.task.view.all', 'production.task.execute', 'production.qc:*', 'production.control:*'],
     isSystem: true,
   },
   {

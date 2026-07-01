@@ -42,6 +42,10 @@ export const PERMISSIONS = {
     VIEW_ALL: 'production.qc.view.all',
     ALL: 'production.qc:*',
   },
+  PRODUCTION_CONTROL: {
+    VIEW: 'production.control.view',
+    ALL: 'production.control:*',
+  },
   REPORTS: {
     READ: 'reports:read',
     ALL: 'reports:*',

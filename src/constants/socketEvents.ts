@@ -12,6 +12,7 @@ export const SOCKET_EVENTS = {
   NOTIFICATION_NEW: 'notification:new',
   WORKFLOW_STEP_UPDATED: 'workflow:step_updated',
   WORKFLOW_SLA_WARNING: 'workflow:sla_warning',
+  CONTROL_CENTER_UPDATED: 'production:control_center_updated',
 } as const;
 
 export const SOCKET_ROOMS = {
@@ -19,4 +20,5 @@ export const SOCKET_ROOMS = {
   order: (orderId: string) => `order:${orderId}`,
   workflow: (workflowId: string) => `workflow:${workflowId}`,
   role: (role: string) => `role:${role}`,
+  productionControl: 'production:control-center',
 } as const;
