@@ -7,6 +7,13 @@ export const APP_EVENTS = {
   PAYMENT_RECEIVED: 'payment:received',
   WALLET_TRANSACTION: 'wallet:transaction',
   WORKFLOW_STEP_COMPLETED: 'workflow:step_completed',
+  WORKFLOW_CREATED: 'workflow:created',
+  WORKFLOW_COMPLETED: 'workflow:completed',
+  WORKFLOW_CANCELLED: 'workflow:cancelled',
+  TASK_CREATED: 'workflow:task_created',
+  TASK_READY: 'workflow:task_ready',
+  TASK_COMPLETED: 'workflow:task_completed',
+  TASK_ACTIVATED: 'workflow:task_activated',
   SUPPORT_TICKET_CREATED: 'support:ticket_created',
 } as const;
 

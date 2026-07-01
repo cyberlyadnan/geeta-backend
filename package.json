@@ -16,6 +16,8 @@
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.prisma\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "typecheck": "prisma generate && tsc --noEmit",
+    "test": "tsx --test src/modules/workflow/__tests__/**/*.test.ts",
+    "test:workflow": "tsx --test src/modules/workflow/__tests__/**/*.test.ts",
     "prisma:generate": "dotenv -e .env -e .env.local -- prisma generate",
     "prisma:migrate": "dotenv -e .env -e .env.local -- prisma migrate dev",
     "prisma:migrate:deploy": "dotenv -e .env -e .env.local -- prisma migrate deploy",

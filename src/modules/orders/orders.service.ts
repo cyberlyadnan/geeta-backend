@@ -28,6 +28,7 @@ import { walletLedgerService } from '../../services/ledger/wallet-ledger.service
 import { activityLogService } from '../../services/activity/activity-log.service.js';
 import { allocateOrderNumber } from './order-number.service.js';
 import { notifyUser, recordOrderEvent } from './order-events.service.js';
+import { workflowEngine } from '../workflow/workflow.engine.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import type { CreateProductionOrderInput, ListOrdersQuery, OrderPreviewInput } from './orders.validation.js';
 
@@ -274,15 +275,29 @@ export class OrdersService {
         await tx.vendorOrderDraft.deleteMany({ where: { id: input.draftId, userId } });
       }
 
+      const workflowResult = await workflowEngine.createForProductionOrder(
+        {
+          orderId: created.id,
+          productionOrderItemId: orderItem.id,
+          productOfferingVersionId: computed.versionId,
+          createdById: userId,
+          metadata: { orderNumber },
+        },
+        tx,
+      );
+
       return {
         orderId: created.id,
         orderNumber,
         status: initialStatusInTx,
         createdAt: created.createdAt,
+        workflowResult,
       };
       },
       { maxWait: 10_000, timeout: 45_000 },
     );
+
+    workflowEngine.publishCreationEvents(orderResult.workflowResult);
 
     void notifyUser(userId, {
       type: 'ORDER_CREATED',

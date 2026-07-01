@@ -299,12 +299,16 @@ enum WorkflowStatus {
 
 enum WorkflowTaskStatus {
   PENDING
+  WAITING
   READY
   ASSIGNED
   IN_PROGRESS
   ON_HOLD
+  PAUSED
+  BLOCKED
   COMPLETED
   REJECTED
+  REWORK
   CANCELLED
   SKIPPED
 }
@@ -347,11 +351,29 @@ enum ProductionOrderStatus {
 }
 
 enum WorkflowInstanceStatus {
-  READY
-  IN_PROGRESS
+  DRAFT
+  INITIALIZED
+  RUNNING
+  PAUSED
   COMPLETED
   CANCELLED
+  FAILED
+  /// Legacy — prefer INITIALIZED
+  READY
+  /// Legacy — prefer RUNNING
+  IN_PROGRESS
+  /// Legacy — prefer PAUSED
   ON_HOLD
+}
+
+enum WorkflowStepDependencyType {
+  FINISH_TO_START
+  START_TO_START
+}
+
+enum WorkflowTimelineEntityType {
+  WORKFLOW_INSTANCE
+  WORKFLOW_TASK
 }
 
 enum WorkflowHistoryAction {
@@ -362,7 +384,15 @@ enum WorkflowHistoryAction {
   REJECTED
   REWORKED
   ON_HOLD
+  PAUSED
+  RESUMED
+  BLOCKED
+  UNBLOCKED
+  ACTIVATED
+  SKIPPED
+  CANCELLED
   COMMENT_ADDED
+  STATUS_CHANGED
 }
 
 enum ReworkStatus {
@@ -482,6 +512,8 @@ model User {
   masterValidationRulesCreated MasterValidationRule[]      @relation("MasterValidationRuleCreatedBy")
   masterCoverageRulesCreated   MasterCoverageRule[]        @relation("MasterCoverageRuleCreatedBy")
   fileUploadRulesCreated       FileUploadRuleTemplate[]    @relation("FileUploadRuleCreatedBy")
+  workflowInstancesCreated     WorkflowInstance[]          @relation("WorkflowInstanceCreator")
+  workflowTimelineEvents       WorkflowTimelineEvent[]     @relation("WorkflowTimelineActor")
 
   @@index([roleId])
   @@index([status])
@@ -1217,11 +1249,30 @@ model WorkflowTemplateStep {
   department       Department         @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   slaPolicy        WorkflowSlaPolicy?
   workflowTasks    WorkflowTask[]
+  instructions     String?                        @db.Text
+  metadata         Json                           @default("{}")
+  dependencies     WorkflowTemplateStepDependency[] @relation("StepDependsOn")
+  dependents       WorkflowTemplateStepDependency[] @relation("StepRequiredBy")
 
   @@unique([workflowTemplateId, stepOrder])
   @@index([workflowTemplateId])
   @@index([departmentId])
   @@map("workflow_template_steps")
+}
+
+model WorkflowTemplateStepDependency {
+  id                     String                     @id @default(cuid())
+  workflowTemplateStepId String                     @map("workflow_template_step_id")
+  dependsOnStepId        String                     @map("depends_on_step_id")
+  dependencyType         WorkflowStepDependencyType @default(FINISH_TO_START) @map("dependency_type")
+  createdAt              DateTime                   @default(now()) @map("created_at")
+
+  workflowTemplateStep WorkflowTemplateStep @relation("StepDependsOn", fields: [workflowTemplateStepId], references: [id], onDelete: Cascade)
+  dependsOnStep        WorkflowTemplateStep @relation("StepRequiredBy", fields: [dependsOnStepId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowTemplateStepId, dependsOnStepId])
+  @@index([dependsOnStepId])
+  @@map("workflow_template_step_dependencies")
 }
 
 /// Links a product offering version to its production workflow template (one per version).
@@ -1345,6 +1396,7 @@ model ProductionOrderItem {
   files                  OrderItemFile[]
   orderArtworks          OrderArtwork[]
   jobCards               ProductionJobCard[]
+  workflowInstance       WorkflowInstance?
 
   @@index([orderId])
   @@index([productOfferingVersionId])
@@ -1442,23 +1494,32 @@ model OrderItemFile {
 }
 
 model WorkflowInstance {
-  id                 String                 @id @default(cuid())
-  orderId            String                 @map("order_id")
-  workflowTemplateId String                 @map("workflow_template_id")
-  status             WorkflowInstanceStatus @default(READY)
-  currentStepOrder   Int                    @default(1) @map("current_step_order")
-  startedAt          DateTime?              @map("started_at")
-  completedAt        DateTime?              @map("completed_at")
-  createdAt          DateTime               @default(now()) @map("created_at")
+  id                      String                 @id @default(cuid())
+  orderId                 String                 @map("order_id")
+  productionOrderItemId   String                 @unique @map("production_order_item_id")
+  workflowTemplateId      String                 @map("workflow_template_id")
+  templateVersion         Int                    @default(1) @map("template_version")
+  status                  WorkflowInstanceStatus @default(INITIALIZED)
+  currentStepOrder        Int                    @default(1) @map("current_step_order")
+  startedAt               DateTime?              @map("started_at")
+  completedAt             DateTime?              @map("completed_at")
+  createdById             String?                @map("created_by_id")
+  metadata                Json                   @default("{}")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
 
-  order            ProductionOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  workflowTemplate WorkflowTemplate @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
-  tasks            WorkflowTask[]
-  jobCards         ProductionJobCard[]
+  order               ProductionOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productionOrderItem ProductionOrderItem    @relation(fields: [productionOrderItemId], references: [id], onDelete: Cascade)
+  workflowTemplate    WorkflowTemplate       @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
+  createdBy           User?                  @relation("WorkflowInstanceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  tasks               WorkflowTask[]
+  jobCards            ProductionJobCard[]
+  timelineEvents      WorkflowTimelineEvent[]
 
   @@index([orderId])
   @@index([workflowTemplateId])
   @@index([status])
+  @@index([createdAt(sort: Desc)])
   @@map("workflow_instances")
 }
 
@@ -1467,10 +1528,15 @@ model WorkflowTask {
   workflowInstanceId     String             @map("workflow_instance_id")
   workflowTemplateStepId String             @map("workflow_template_step_id")
   departmentId           String             @map("department_id")
+  stepOrder              Int                @map("step_order")
+  priority               WorkflowPriority   @default(NORMAL)
+  estimatedMinutes       Int                @map("estimated_minutes")
+  instructions           String?            @db.Text
+  metadata               Json               @default("{}")
   assignedToId           String?            @map("assigned_to_id")
   assignedDepartmentId   String?            @map("assigned_department_id")
   assignedMachineId      String?            @map("assigned_machine_id")
-  status                 WorkflowTaskStatus @default(PENDING)
+  status                 WorkflowTaskStatus @default(BLOCKED)
   queuedAt               DateTime?          @map("queued_at")
   assignedAt             DateTime?          @map("assigned_at")
   startedAt              DateTime?          @map("started_at")
@@ -1478,6 +1544,7 @@ model WorkflowTask {
   dueAt                  DateTime?          @map("due_at")
   remarks                String?            @db.Text
   createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
 
   workflowInstance   WorkflowInstance     @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
   workflowStep       WorkflowTemplateStep @relation(fields: [workflowTemplateStepId], references: [id], onDelete: Restrict)
@@ -1488,9 +1555,14 @@ model WorkflowTask {
   history            WorkflowTaskHistory[]
   reworks            ReworkRequest[]
   slaBreaches        WorkflowSlaBreach[]
+  dependencies       WorkflowTaskDependency[] @relation("TaskDependsOn")
+  dependents         WorkflowTaskDependency[] @relation("TaskRequiredBy")
 
+  @@unique([workflowInstanceId, workflowTemplateStepId])
   @@index([workflowInstanceId])
-  @@index([departmentId])
+  @@index([workflowInstanceId, stepOrder])
+  @@index([departmentId, status])
+  @@index([departmentId, status, priority, dueAt])
   @@index([assignedToId])
   @@index([assignedDepartmentId])
   @@index([assignedMachineId])
@@ -1498,6 +1570,42 @@ model WorkflowTask {
   @@index([queuedAt])
   @@index([assignedAt])
   @@map("workflow_tasks")
+}
+
+model WorkflowTaskDependency {
+  id              String                     @id @default(cuid())
+  taskId          String                     @map("task_id")
+  dependsOnTaskId String                     @map("depends_on_task_id")
+  dependencyType  WorkflowStepDependencyType @default(FINISH_TO_START) @map("dependency_type")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+
+  task          WorkflowTask @relation("TaskDependsOn", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTask WorkflowTask @relation("TaskRequiredBy", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
+  @@map("workflow_task_dependencies")
+}
+
+model WorkflowTimelineEvent {
+  id                 String                     @id @default(cuid())
+  workflowInstanceId String                     @map("workflow_instance_id")
+  entityType         WorkflowTimelineEntityType @map("entity_type")
+  entityId           String?                    @map("entity_id")
+  eventType          String                     @map("event_type")
+  title              String
+  description        String?                    @db.Text
+  metadata           Json                       @default("{}")
+  actorId            String?                    @map("actor_id")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+
+  workflowInstance WorkflowInstance @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  actor            User?            @relation("WorkflowTimelineActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([workflowInstanceId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@index([eventType])
+  @@map("workflow_timeline_events")
 }
 
 model WorkflowTaskHistory {
