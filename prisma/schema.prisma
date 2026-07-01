@@ -185,6 +185,9 @@ enum ActivityAction {
   ORDER_WALLET_CHARGED
   ORDER_DRAFT_SAVED
   ORDER_STATUS_CHANGED
+  TASK_ASSIGNED
+  TASK_REASSIGNED
+  TASK_UNASSIGNED
   USER_LOGIN
   USER_LOGIN_BLOCKED
   USER_CREATED
@@ -393,6 +396,30 @@ enum WorkflowHistoryAction {
   CANCELLED
   COMMENT_ADDED
   STATUS_CHANGED
+  UNASSIGNED
+  REASSIGNED
+}
+
+enum WorkflowTaskAssignmentStatus {
+  ACTIVE
+  SUPERSEDED
+  UNASSIGNED
+}
+
+enum WorkflowTaskAssignmentHistoryAction {
+  ASSIGNED
+  REASSIGNED
+  UNASSIGNED
+  PRIORITY_CHANGED
+  DUE_DATE_CHANGED
+  OPERATOR_CHANGED
+  REMARKS_CHANGED
+  MACHINE_CHANGED
+}
+
+enum DepartmentStaffRole {
+  OPERATOR
+  SUPERVISOR
 }
 
 enum ReworkStatus {
@@ -514,6 +541,12 @@ model User {
   fileUploadRulesCreated       FileUploadRuleTemplate[]    @relation("FileUploadRuleCreatedBy")
   workflowInstancesCreated     WorkflowInstance[]          @relation("WorkflowInstanceCreator")
   workflowTimelineEvents       WorkflowTimelineEvent[]     @relation("WorkflowTimelineActor")
+  departmentAssignments        UserDepartmentAssignment[]  @relation("UserDepartmentMember")
+  departmentAssignmentsCreated UserDepartmentAssignment[]  @relation("UserDepartmentAssignedBy")
+  taskAssignmentsAsOperator    WorkflowTaskAssignment[]      @relation("TaskAssignmentOperator")
+  taskAssignmentsCreated       WorkflowTaskAssignment[]      @relation("TaskAssignmentAssigner")
+  taskAssignmentHistoryPerformed WorkflowTaskAssignmentHistory[] @relation("TaskAssignmentHistoryPerformer")
+  taskAssignmentHistoryAsOperator WorkflowTaskAssignmentHistory[] @relation("TaskAssignmentHistoryOperator")
 
   @@index([roleId])
   @@index([status])
@@ -1204,6 +1237,8 @@ model Department {
   workflowSteps         WorkflowTemplateStep[]
   workflowTasks         WorkflowTask[]         @relation("WorkflowTaskStepDepartment")
   assignedWorkflowTasks WorkflowTask[]         @relation("WorkflowTaskAssignedDepartment")
+  staffAssignments      UserDepartmentAssignment[]
+  taskAssignments       WorkflowTaskAssignment[]
   machines              Machine[]
 
   @@index([facilityId])
@@ -1304,6 +1339,7 @@ model Machine {
   facility       Facility       @relation(fields: [facilityId], references: [id], onDelete: Restrict)
   department     Department     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   assignedTasks  WorkflowTask[]
+  taskAssignments WorkflowTaskAssignment[]
 
   @@index([facilityId])
   @@index([departmentId])
@@ -1557,6 +1593,8 @@ model WorkflowTask {
   slaBreaches        WorkflowSlaBreach[]
   dependencies       WorkflowTaskDependency[] @relation("TaskDependsOn")
   dependents         WorkflowTaskDependency[] @relation("TaskRequiredBy")
+  assignments        WorkflowTaskAssignment[]
+  assignmentHistory  WorkflowTaskAssignmentHistory[]
 
   @@unique([workflowInstanceId, workflowTemplateStepId])
   @@index([workflowInstanceId])
@@ -1570,6 +1608,90 @@ model WorkflowTask {
   @@index([queuedAt])
   @@index([assignedAt])
   @@map("workflow_tasks")
+}
+
+model UserDepartmentAssignment {
+  id            String              @id @default(cuid())
+  userId        String              @map("user_id")
+  departmentId  String              @map("department_id")
+  roleCode      DepartmentStaffRole @default(OPERATOR) @map("role_code")
+  isPrimary     Boolean             @default(false) @map("is_primary")
+  isActive      Boolean             @default(true) @map("is_active")
+  effectiveFrom DateTime            @default(now()) @map("effective_from")
+  effectiveTo   DateTime?           @map("effective_to")
+  assignedById  String?             @map("assigned_by_id")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  user       User       @relation("UserDepartmentMember", fields: [userId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  assignedBy User?      @relation("UserDepartmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, departmentId])
+  @@index([departmentId, isActive])
+  @@index([userId, isActive])
+  @@map("user_department_assignments")
+}
+
+model WorkflowTaskAssignment {
+  id               String                       @id @default(cuid())
+  workflowTaskId   String                       @map("workflow_task_id")
+  operatorId       String                       @map("operator_id")
+  departmentId     String                       @map("department_id")
+  machineId        String?                      @map("machine_id")
+  assignedById     String                       @map("assigned_by_id")
+  assignedAt       DateTime                     @default(now()) @map("assigned_at")
+  priority         WorkflowPriority             @default(NORMAL)
+  dueAt            DateTime?                    @map("due_at")
+  estimatedMinutes Int                          @map("estimated_minutes")
+  remarks          String?                      @db.Text
+  status           WorkflowTaskAssignmentStatus @default(ACTIVE)
+  supersededAt     DateTime?                    @map("superseded_at")
+  createdAt        DateTime                     @default(now()) @map("created_at")
+  updatedAt        DateTime                     @updatedAt @map("updated_at")
+
+  workflowTask WorkflowTask @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  operator     User         @relation("TaskAssignmentOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  machine      Machine?     @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  assignedBy   User         @relation("TaskAssignmentAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+  history      WorkflowTaskAssignmentHistory[]
+
+  @@index([workflowTaskId, status])
+  @@index([operatorId, status])
+  @@index([departmentId, status])
+  @@index([assignedAt(sort: Desc)])
+  @@map("workflow_task_assignments")
+}
+
+model WorkflowTaskAssignmentHistory {
+  id                 String                              @id @default(cuid())
+  assignmentId       String?                             @map("assignment_id")
+  workflowTaskId     String                              @map("workflow_task_id")
+  action             WorkflowTaskAssignmentHistoryAction
+  operatorId         String?                             @map("operator_id")
+  previousOperatorId String?                             @map("previous_operator_id")
+  priority           WorkflowPriority?                   @map("priority")
+  previousPriority   WorkflowPriority?                   @map("previous_priority")
+  dueAt              DateTime?                           @map("due_at")
+  previousDueAt      DateTime?                           @map("previous_due_at")
+  remarks            String?                             @db.Text
+  previousRemarks    String?                             @map("previous_remarks") @db.Text
+  machineId          String?                             @map("machine_id")
+  previousMachineId  String?                             @map("previous_machine_id")
+  metadata           Json                                @default("{}")
+  performedById      String?                             @map("performed_by_id")
+  createdAt          DateTime                            @default(now()) @map("created_at")
+
+  assignment   WorkflowTaskAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  workflowTask WorkflowTask            @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  operator     User?                   @relation("TaskAssignmentHistoryOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  performedBy  User?                   @relation("TaskAssignmentHistoryPerformer", fields: [performedById], references: [id], onDelete: SetNull)
+
+  @@index([workflowTaskId, createdAt(sort: Desc)])
+  @@index([assignmentId])
+  @@index([performedById])
+  @@map("workflow_task_assignment_history")
 }
 
 model WorkflowTaskDependency {

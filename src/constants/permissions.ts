@@ -30,6 +30,12 @@ export const PERMISSIONS = {
     ALL: 'production.queue:*',
     dept: (code: string) => `production.queue.dept:${code}`,
   },
+  PRODUCTION_TASK: {
+    ASSIGN: 'production.task.assign',
+    VIEW_OWN: 'production.task.view.own',
+    VIEW_ALL: 'production.task.view.all',
+    ALL: 'production.task:*',
+  },
   REPORTS: {
     READ: 'reports:read',
     ALL: 'reports:*',

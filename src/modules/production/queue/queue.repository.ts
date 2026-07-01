@@ -24,9 +24,22 @@ export const QUEUE_TASK_LIST_SELECT = {
   queuedAt: true,
   dueAt: true,
   createdAt: true,
+  assignedAt: true,
   department: { select: { id: true, code: true, name: true } },
   workflowStep: { select: { id: true, stepCode: true, stepName: true, stepType: true } },
   reworks: { where: { status: 'OPEN' }, select: { id: true }, take: 1 },
+  assignments: {
+    where: { status: 'ACTIVE' },
+    take: 1,
+    select: {
+      id: true,
+      status: true,
+      assignedAt: true,
+      priority: true,
+      dueAt: true,
+      operator: { select: { id: true, firstName: true, lastName: true } },
+    },
+  },
   workflowInstance: {
     select: {
       id: true,

@@ -22,4 +22,12 @@ export function registerProductionQueueListeners(): void {
   eventBus.on(APP_EVENTS.WORKFLOW_CANCELLED, (payload) =>
     invalidate(APP_EVENTS.WORKFLOW_CANCELLED, payload),
   );
+
+  eventBus.on(APP_EVENTS.TASK_ASSIGNED, (payload) => invalidate(APP_EVENTS.TASK_ASSIGNED, payload));
+  eventBus.on(APP_EVENTS.TASK_REASSIGNED, (payload) =>
+    invalidate(APP_EVENTS.TASK_REASSIGNED, payload),
+  );
+  eventBus.on(APP_EVENTS.TASK_UNASSIGNED, (payload) =>
+    invalidate(APP_EVENTS.TASK_UNASSIGNED, payload),
+  );
 }

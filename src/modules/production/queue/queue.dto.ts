@@ -3,6 +3,7 @@ import type {
   QueueTaskDetailRecord,
   QueueTaskListRecord,
 } from './queue.repository.js';
+import { mapQueueAssignmentSummary } from '../assignment/assignment.dto.js';
 
 export interface DepartmentQueueCountsDto {
   ready: number;
@@ -74,6 +75,12 @@ export interface QueueTaskCardDto {
   dueAt: string | null;
   estimatedMinutes: number;
   badges: QueueTaskBadgesDto;
+  assignment: {
+    assignmentId: string | null;
+    status: string | null;
+    assignedAt: string | null;
+    operator: { id: string; name: string } | null;
+  };
 }
 
 export interface QueueTaskDetailDto extends QueueTaskCardDto {
@@ -211,6 +218,7 @@ export function mapQueueTaskCard(record: QueueTaskListRecord): QueueTaskCardDto 
     dueAt: toIso(record.dueAt),
     estimatedMinutes: record.estimatedMinutes,
     badges: buildBadges(record),
+    assignment: mapQueueAssignmentSummary(record.assignments[0]),
   };
 }
 

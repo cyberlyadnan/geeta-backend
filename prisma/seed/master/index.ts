@@ -13,6 +13,7 @@ import { seedCategories } from './categories.seed.js';
 import { seedDeliverySettings } from './delivery-settings.seed.js';
 import { seedPlatformSettings } from './settings.seed.js';
 import { seedProductionWorkflow } from './production-workflow.seed.js';
+import { seedProductionStaff } from './production-staff.seed.js';
 import { PRICING_STRATEGIES } from './pricing-strategies.seed.js';
 
 export async function seedMasterData(ctx: SeedContext): Promise<void> {
@@ -32,6 +33,7 @@ export async function seedMasterData(ctx: SeedContext): Promise<void> {
   await seedDeliverySettings(ctx);
   await seedPlatformSettings(ctx);
   await seedProductionWorkflow(ctx);
+  await seedProductionStaff(ctx);
 
   log.info(`Registered ${PRICING_STRATEGIES.length} pricing strategy keys (catalog)`);
   log.info('Production master data seed complete');
@@ -51,4 +53,5 @@ export {
   seedDeliverySettings,
   seedPlatformSettings,
   seedProductionWorkflow,
+  seedProductionStaff,
 };

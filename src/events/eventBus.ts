@@ -14,6 +14,11 @@ export const APP_EVENTS = {
   TASK_READY: 'workflow:task_ready',
   TASK_COMPLETED: 'workflow:task_completed',
   TASK_ACTIVATED: 'workflow:task_activated',
+  TASK_ASSIGNED: 'workflow:task_assigned',
+  TASK_REASSIGNED: 'workflow:task_reassigned',
+  TASK_UNASSIGNED: 'workflow:task_unassigned',
+  TASK_PRIORITY_CHANGED: 'workflow:task_priority_changed',
+  TASK_DUE_DATE_CHANGED: 'workflow:task_due_date_changed',
   SUPPORT_TICKET_CREATED: 'support:ticket_created',
 } as const;
 
