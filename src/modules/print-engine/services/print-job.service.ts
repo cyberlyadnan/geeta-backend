@@ -445,10 +445,7 @@ export class PrintJobService {
   private artworkValidationAllowsOrder(
     detail: NonNullable<Awaited<ReturnType<typeof printEngineRepository['getArtworkVersionDetail']>>>,
   ): boolean {
-    if (!detail.validation) {
-      return detail.processingStatus !== 'FAILED';
-    }
-    return detail.validation.canProceed;
+    return detail.processingStatus !== 'FAILED';
   }
 
   async validateArtworksForOrder(
