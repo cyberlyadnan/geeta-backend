@@ -196,33 +196,33 @@ export class PrintJobService {
       versionId: input.versionId,
     });
 
-    // Process inline so validation completes without a background worker (dev/single-node).
-    // If a worker is also running, duplicate processing is harmless (idempotent upserts).
-    try {
-      await artworkProcessingService.processArtworkVersion(
-        result.artworkVersionId,
-        input.versionId,
-      );
-    } catch (error) {
-      logger.error('Artwork processing failed after upload', {
-        artworkVersionId: result.artworkVersionId,
-        versionId: input.versionId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      await prisma.artworkVersion.update({
-        where: { id: result.artworkVersionId },
-        data: { processingStatus: 'FAILED' },
-      }).catch(() => undefined);
-      await prisma.artworkFile.update({
-        where: { id: result.artworkFileId },
-        data: { processingStatus: 'FAILED' },
-      }).catch(() => undefined);
-    }
-
+    // Return immediately — inspection runs in the worker or as a background task.
     if (queued) {
-      logger.debug('Artwork also queued for worker processing', {
+      logger.debug('Artwork queued for worker processing', {
         artworkVersionId: result.artworkVersionId,
       });
+    } else {
+      void artworkProcessingService
+        .processArtworkVersion(result.artworkVersionId, input.versionId)
+        .catch((error) => {
+          logger.error('Artwork background processing failed after upload', {
+            artworkVersionId: result.artworkVersionId,
+            versionId: input.versionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          void prisma.artworkVersion
+            .update({
+              where: { id: result.artworkVersionId },
+              data: { processingStatus: 'FAILED' },
+            })
+            .catch(() => undefined);
+          void prisma.artworkFile
+            .update({
+              where: { id: result.artworkFileId },
+              data: { processingStatus: 'FAILED' },
+            })
+            .catch(() => undefined);
+        });
     }
 
     return result;
