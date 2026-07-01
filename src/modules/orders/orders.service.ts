@@ -73,9 +73,26 @@ export class OrdersService {
     const computed = await this.computeOrderTotals(userId, input);
 
     if (input.artworks?.length) {
-      const canProceed = computed.validationSnapshot?.['canProceed'];
-      if (canProceed === false) {
-        throw ApiError.badRequest('Artwork validation failed — fix errors before submitting');
+      const snapshot = computed.validationSnapshot as {
+        canProceed?: boolean;
+        items?: Array<{
+          validation?: { overallLevel?: string; canProceed?: boolean; checks?: Array<{ message: string }> };
+        }>;
+      } | null;
+
+      if (snapshot?.canProceed === false) {
+        const errorChecks =
+          snapshot.items
+            ?.flatMap((item) => item.validation?.checks ?? [])
+            .filter((check) => check && 'message' in check)
+            .map((check) => check.message) ?? [];
+
+        const message =
+          errorChecks.length > 0
+            ? `Artwork validation failed: ${errorChecks[0]}`
+            : 'Artwork validation failed — fix errors before submitting';
+
+        throw ApiError.badRequest(message);
       }
     }
 

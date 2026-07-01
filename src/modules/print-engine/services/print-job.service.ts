@@ -432,6 +432,25 @@ export class PrintJobService {
     };
   }
 
+  private artworkSlotSatisfiesRequirement(
+    slot: ArtworkUploadSlot,
+    detail: Awaited<ReturnType<typeof printEngineRepository['getArtworkVersionDetail']>> | null | undefined,
+    requirementCode: string,
+  ): boolean {
+    if (slot.requirementCode === requirementCode) return true;
+    const linkedCode = detail?.artworkFile.fileRequirement?.code;
+    return linkedCode === requirementCode;
+  }
+
+  private artworkValidationAllowsOrder(
+    detail: NonNullable<Awaited<ReturnType<typeof printEngineRepository['getArtworkVersionDetail']>>>,
+  ): boolean {
+    if (!detail.validation) {
+      return detail.processingStatus !== 'FAILED';
+    }
+    return detail.validation.canProceed;
+  }
+
   async validateArtworksForOrder(
     userId: string,
     versionId: string,
@@ -442,17 +461,19 @@ export class PrintJobService {
     if (!resolved) throw ApiError.notFound('Product version not found');
 
     const required = resolved.context.fileRequirements.filter((r) => r.requirementType === 'REQUIRED');
-    const provided = new Set(slots.map((s) => s.requirementCode));
-
-    for (const req of required) {
-      if (!provided.has(req.code)) {
-        throw ApiError.badRequest(`Required artwork missing: ${req.label}`);
-      }
-    }
 
     const details = await Promise.all(
       slots.map((slot) => printEngineRepository.getArtworkVersionDetail(slot.artworkVersionId)),
     );
+
+    for (const req of required) {
+      const satisfied = slots.some((slot, index) =>
+        this.artworkSlotSatisfiesRequirement(slot, details[index], req.code),
+      );
+      if (!satisfied) {
+        throw ApiError.badRequest(`Required artwork missing: ${req.label}`);
+      }
+    }
 
     const items: Array<{ artworkVersionId: string; validation: unknown }> = [];
     let canProceed = true;
@@ -463,7 +484,7 @@ export class PrintJobService {
       if (!detail || detail.artworkFile.ownerId !== userId) {
         throw ApiError.badRequest(`Invalid artwork: ${slot.requirementCode}`);
       }
-      if (!detail.validation?.canProceed) canProceed = false;
+      if (!this.artworkValidationAllowsOrder(detail)) canProceed = false;
       items.push({
         artworkVersionId: slot.artworkVersionId,
         validation: detail.validation,
@@ -481,11 +502,9 @@ export class PrintJobService {
       resolved.context.fileRequirements.find((r) => r.code === requirementCode) ??
       resolved.context.fileRequirements[0];
 
-    const version = await printEngineRepository.getVersionContext(versionId);
-    let legacy = version?.fileRequirementsRel.find((r) => r.code === requirementCode);
-
+    const effectiveCode = contextReq?.code ?? requirementCode;
     const template = contextReq ?? {
-      code: requirementCode,
+      code: effectiveCode,
       label: 'Main Artwork',
       requirementType: 'REQUIRED',
       maxFileSizeMb: 100,
@@ -493,9 +512,12 @@ export class PrintJobService {
       allowedFileTypes: ['PDF', 'PNG', 'JPG', 'JPEG', 'WEBP', 'CDR'],
     };
 
+    const version = await printEngineRepository.getVersionContext(versionId);
+    let legacy = version?.fileRequirementsRel.find((r) => r.code === effectiveCode);
+
     if (!legacy) {
       legacy = await this.ensureLegacyFileRequirement(versionId, {
-        code: requirementCode,
+        code: effectiveCode,
         label: template.label,
         requirementType: template.requirementType,
         maxFileSizeMb: template.maxFileSizeMb,
@@ -510,7 +532,7 @@ export class PrintJobService {
 
     return {
       id: legacy.id,
-      code: requirementCode,
+      code: effectiveCode,
       maxFileSizeMb: template.maxFileSizeMb ?? legacy.maxFileSizeMb ?? 100,
       printLayerId: legacy.printLayer?.id ?? null,
     };
