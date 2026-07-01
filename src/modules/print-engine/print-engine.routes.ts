@@ -8,8 +8,10 @@ import {
   printJobController,
   productionArtworkController,
 } from './print-engine.controller.js';
+import { artworkMultipartUpload } from './middleware/artwork-upload.middleware.js';
 import {
   artworkApprovalSchema,
+  artworkMultipartBodySchema,
   artworkPresignSchema,
   artworkRegisterSchema,
   artworkVersionIdParamSchema,
@@ -50,6 +52,13 @@ vendorRouter.post(
   '/artwork/register',
   validate(artworkRegisterSchema),
   printJobController.registerArtwork,
+);
+
+vendorRouter.post(
+  '/artwork/upload',
+  artworkMultipartUpload.single('file'),
+  validate(artworkMultipartBodySchema),
+  printJobController.uploadArtworkMultipart,
 );
 
 vendorRouter.get(

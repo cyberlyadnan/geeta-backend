@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs';
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { assertR2Config, getPresignS3Client, getS3Client } from './storage.provider.js';
@@ -97,6 +98,25 @@ export class StorageService {
   getPublicUrlForKey(key: string): string {
     const config = assertR2Config();
     return buildPublicUrl(config.publicUrl, key);
+  }
+
+  async putArtworkObjectFromFile(input: {
+    key: string;
+    filePath: string;
+    contentType: string;
+    fileSize: number;
+  }): Promise<void> {
+    const config = assertR2Config();
+    const client = getS3Client();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: config.bucketName,
+        Key: input.key,
+        Body: createReadStream(input.filePath),
+        ContentType: input.contentType,
+        ContentLength: input.fileSize,
+      }),
+    );
   }
 
   createPresignedVendorComplianceUpload(

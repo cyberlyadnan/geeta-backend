@@ -23,6 +23,7 @@ import { enqueueArtworkProcessing } from '../../../queues/artwork-processing.que
 import { artworkProcessingService } from './artwork-processing.service.js';
 import { buildArtworkInspection } from '../artwork-inspection/artwork-inspection.builder.js';
 import { buildInspectionContext } from '../artwork-inspection/requirements-panel.builder.js';
+import { storageService } from '../../../services/storage/storage.service.js';
 import type { PriceCalculationResult } from '../../../services/pricing-engine/pricing.types.js';
 import type {
   ArtworkUploadSlot,
@@ -226,6 +227,49 @@ export class PrintJobService {
     }
 
     return result;
+  }
+
+  /**
+   * Server-side upload to R2 — avoids browser CORS to Cloudflare storage (production-safe).
+   */
+  async uploadArtworkMultipart(
+    userId: string,
+    input: {
+      versionId: string;
+      requirementCode: string;
+      filePath: string;
+      originalName: string;
+      mimeType: string;
+      fileSize: number;
+    },
+  ) {
+    const requirement = await this.resolveUploadRequirement(input.versionId, input.requirementCode);
+    const contentType = normalizeArtworkContentType(input.mimeType, input.originalName);
+
+    assertValidArtworkUpload(
+      contentType,
+      input.fileSize,
+      input.originalName,
+      requirement.maxFileSizeMb ?? undefined,
+    );
+
+    const key = buildArtworkObjectKey(userId, input.versionId, input.originalName, contentType);
+
+    await storageService.putArtworkObjectFromFile({
+      key,
+      filePath: input.filePath,
+      contentType,
+      fileSize: input.fileSize,
+    });
+
+    return this.registerArtwork(userId, {
+      versionId: input.versionId,
+      requirementCode: input.requirementCode,
+      fileName: input.originalName,
+      fileKey: key,
+      mimeType: contentType,
+      fileSize: input.fileSize,
+    });
   }
 
   async getArtworkStatus(artworkVersionId: string, userId: string) {

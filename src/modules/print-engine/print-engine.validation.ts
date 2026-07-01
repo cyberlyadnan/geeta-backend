@@ -40,6 +40,11 @@ export const artworkRegisterSchema = z.object({
   fileSize: z.number().int().positive(),
 });
 
+export const artworkMultipartBodySchema = z.object({
+  versionId: z.string().min(1),
+  requirementCode: z.string().min(1),
+});
+
 export const livePricingSchema = z.object({
   productId: z.string().min(1),
   versionId: z.string().min(1),

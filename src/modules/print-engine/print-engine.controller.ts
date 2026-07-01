@@ -29,6 +29,33 @@ export const printJobController = {
     res.status(201).json({ success: true, data });
   }),
 
+  uploadArtworkMultipart: asyncHandler(async (req: Request, res: Response) => {
+    const file = req.file;
+    if (!file) {
+      throw ApiError.badRequest('Artwork file is required');
+    }
+
+    const { versionId, requirementCode } = req.body as {
+      versionId: string;
+      requirementCode: string;
+    };
+
+    try {
+      const data = await printJobService.uploadArtworkMultipart(req.user!.id, {
+        versionId,
+        requirementCode,
+        filePath: file.path,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+      });
+      res.status(201).json({ success: true, data });
+    } finally {
+      const { unlink } = await import('node:fs/promises');
+      await unlink(file.path).catch(() => undefined);
+    }
+  }),
+
   getArtworkStatus: asyncHandler(async (req: Request, res: Response) => {
     const { artworkVersionId } = req.validatedParams as { artworkVersionId: string };
     const data = await printJobService.getArtworkStatus(artworkVersionId, req.user!.id);
