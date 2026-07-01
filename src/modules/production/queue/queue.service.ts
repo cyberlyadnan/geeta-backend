@@ -1,0 +1,88 @@
+import type { RoleName } from '@prisma/client';
+import { ApiError } from '../../../common/errors/ApiError.js';
+import {
+  assertDepartmentAccess,
+  canViewAllDepartments,
+  getAllowedDepartmentCodes,
+} from './queue.access.js';
+import { mapDepartmentListItem, mapQueueTaskCard, mapQueueTaskDetail } from './queue.dto.js';
+import { productionQueueCache } from './queue.cache.js';
+import { queueRepository } from './queue.repository.js';
+import type { DepartmentQueueQuery } from './queue.validation.js';
+
+export class QueueService {
+  async listDepartments(role: RoleName, permissions: string[]) {
+    const allowedCodes = canViewAllDepartments(role, permissions)
+      ? undefined
+      : getAllowedDepartmentCodes(permissions);
+
+    if (!canViewAllDepartments(role, permissions) && (!allowedCodes || allowedCodes.length === 0)) {
+      throw ApiError.forbidden('No department queue access configured');
+    }
+
+    return productionQueueCache.getDepartments(async () => {
+      const departments = await queueRepository.listActiveDepartments(allowedCodes);
+
+      const items = await Promise.all(
+        departments.map(async (dept) => {
+          const counts = await queueRepository.getDepartmentCounts(dept.id);
+          return mapDepartmentListItem({ ...dept, counts });
+        }),
+      );
+
+      return { items };
+    });
+  }
+
+  async getDepartmentQueue(
+    departmentId: string,
+    query: DepartmentQueueQuery,
+    role: RoleName,
+    permissions: string[],
+  ) {
+    const department = await queueRepository.findDepartmentById(departmentId);
+    if (!department) throw ApiError.notFound('Department not found');
+
+    assertDepartmentAccess(department.code, role, permissions);
+
+    const queryKey = JSON.stringify({ departmentId, ...query });
+
+    const result = await productionQueueCache.getDepartmentQueue(
+      departmentId,
+      queryKey,
+      () => queueRepository.listDepartmentQueue(departmentId, query),
+    );
+
+    return {
+      department,
+      items: result.items.map(mapQueueTaskCard),
+      meta: {
+        nextCursor: result.nextCursor,
+        hasMore: result.hasMore,
+        limit: result.limit,
+      },
+    };
+  }
+
+  async getTaskDetail(
+    departmentId: string,
+    taskId: string,
+    role: RoleName,
+    permissions: string[],
+  ) {
+    const department = await queueRepository.findDepartmentById(departmentId);
+    if (!department) throw ApiError.notFound('Department not found');
+
+    assertDepartmentAccess(department.code, role, permissions);
+
+    const task = await queueRepository.findQueueTaskDetail(departmentId, taskId);
+    if (!task) throw ApiError.notFound('Queue task not found');
+
+    return {
+      department,
+      task: mapQueueTaskDetail(task),
+    };
+  }
+}
+
+export const queueService = new QueueService();

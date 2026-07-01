@@ -24,6 +24,12 @@ export const PERMISSIONS = {
     UPDATE: 'workflow:update',
     ALL: 'workflow:*',
   },
+  PRODUCTION_QUEUE: {
+    VIEW: 'production.queue.view',
+    VIEW_ALL: 'production.queue.view.all',
+    ALL: 'production.queue:*',
+    dept: (code: string) => `production.queue.dept:${code}`,
+  },
   REPORTS: {
     READ: 'reports:read',
     ALL: 'reports:*',
