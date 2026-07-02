@@ -34,6 +34,7 @@
     "seed:master": "dotenv -e .env -e .env.local -- tsx prisma/seed/run.ts --only=master",
     "seed:products": "dotenv -e .env -e .env.local -- tsx prisma/seed/run.ts --only=products",
     "seed:pricing": "dotenv -e .env -e .env.local -- tsx prisma/seed/run.ts --only=pricing",
+    "seed:orders": "dotenv -e .env -e .env.local -- tsx prisma/seed/run.ts --only=orders",
     "perf:api": "dotenv -e .env -e .env.local -- tsx scripts/perf/api-probe.ts",
     "perf:network": "dotenv -e .env -e .env.local -- tsx scripts/perf/network-benchmark.ts",
     "perf:explain": "dotenv -e .env -e .env.local -- tsx scripts/perf/explain-analyze.ts",

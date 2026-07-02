@@ -15,6 +15,10 @@ export interface MasterRegistry {
   categories: Map<string, string>;
   families: Map<string, string>;
   series: Map<string, string>;
+  /** Production ERP master data */
+  facilityId?: string;
+  departments: Map<string, string>;
+  workflowTemplates: Map<string, string>;
 }
 
 export function createEmptyRegistry(): MasterRegistry {
@@ -31,6 +35,8 @@ export function createEmptyRegistry(): MasterRegistry {
     categories: new Map(),
     families: new Map(),
     series: new Map(),
+    departments: new Map(),
+    workflowTemplates: new Map(),
   };
 }
 
