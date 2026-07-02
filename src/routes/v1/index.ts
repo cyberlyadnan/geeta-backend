@@ -42,6 +42,7 @@ import { executionRoutes } from '../../modules/production/execution/index.js';
 import { qcRoutes } from '../../modules/production/qc/index.js';
 import { controlCenterRoutes } from '../../modules/production/control-center/index.js';
 import { machineRoutes } from '../../modules/production/machines/index.js';
+import { productionOrderRoutes } from '../../modules/production/orders/index.js';
 
 const v1Router = Router();
 
@@ -86,5 +87,6 @@ v1Router.use('/production', executionRoutes);
 v1Router.use('/production', qcRoutes);
 v1Router.use('/production', controlCenterRoutes);
 v1Router.use('/production', machineRoutes);
+v1Router.use('/production', productionOrderRoutes);
 
 export { v1Router };

@@ -51,6 +51,12 @@ export const PERMISSIONS = {
     MANAGE: 'production.machine.manage',
     ALL: 'production.machine:*',
   },
+  PRODUCTION_ORDER: {
+    VIEW: 'production.order.view',
+    VIEW_ALL: 'production.order.view.all',
+    MANAGE: 'production.order.manage',
+    ALL: 'production.order:*',
+  },
   REPORTS: {
     READ: 'reports:read',
     ALL: 'reports:*',

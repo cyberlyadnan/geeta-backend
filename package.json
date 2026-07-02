@@ -24,6 +24,7 @@
     "test:qc": "tsx --test src/modules/production/qc/__tests__/**/*.test.ts",
     "test:control-center": "tsx --test src/modules/production/control-center/__tests__/**/*.test.ts",
     "test:machines": "tsx --test src/modules/production/machines/__tests__/**/*.test.ts",
+    "test:production-orders": "tsx --test src/modules/production/orders/__tests__/**/*.test.ts",
     "prisma:generate": "dotenv -e .env -e .env.local -- prisma generate",
     "prisma:migrate": "dotenv -e .env -e .env.local -- prisma migrate dev",
     "prisma:migrate:deploy": "dotenv -e .env -e .env.local -- prisma migrate deploy",
