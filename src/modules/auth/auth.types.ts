@@ -21,6 +21,7 @@ export interface AuthUserResponse {
   phone: string | null;
   role: RoleName;
   status: string;
+  permissions: string[];
   vendorProfile?: VendorProfileSummary | null;
 }
 

@@ -1,4 +1,5 @@
 import type { Prisma, Role, VendorProfile } from '@prisma/client';
+import { extractPermissions } from '../../modules/auth/auth.utils.js';
 
 /** Fields safe to return from any authenticated API */
 export const USER_PUBLIC_SELECT = {
@@ -96,6 +97,7 @@ export interface SafeAuthUserDto {
   phone: string | null;
   role: Role['name'];
   status: string;
+  permissions: string[];
   vendorProfile: SafeVendorProfileSummaryDto | null;
 }
 
@@ -168,6 +170,7 @@ export function mapUserSessionToAuthDto(user: UserSessionRecord): SafeAuthUserDt
     phone: user.phone,
     role: user.role.name,
     status: user.status,
+    permissions: extractPermissions(user.role),
     vendorProfile: mapVendorProfileSummaryToDto(user.vendorProfile),
   };
 }

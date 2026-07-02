@@ -50,6 +50,13 @@ import {
   computeTotalDuration,
   durationSeconds,
 } from './time-tracking.util.js';
+import { logger } from '../../../logs/logger.js';
+import type { TimelineEventInput } from '../../workflow/workflow-timeline.service.js';
+
+const EXECUTION_TX_OPTIONS = {
+  maxWait: 10000,
+  timeout: 20000,
+} as const;
 
 type SessionTotals = {
   workingDurationSeconds: number;
@@ -121,20 +128,17 @@ export class ExecutionService {
         },
       });
 
-      await workflowTimelineService.recordEvents(
-        [
-          workflowTimelineService.taskStarted({
-            workflowInstanceId: task.workflowInstanceId,
-            taskId,
-            stepName: task.workflowStep.stepName,
-            actorId,
-          }),
-        ],
-        tx,
-      );
-
       return created;
-    });
+    }, EXECUTION_TX_OPTIONS);
+
+    await this.recordTimelineEvents([
+      workflowTimelineService.taskStarted({
+        workflowInstanceId: task.workflowInstanceId,
+        taskId,
+        stepName: task.workflowStep.stepName,
+        actorId,
+      }),
+    ]);
 
     this.afterExecutionMutation(ActivityAction.TASK_STARTED, APP_EVENTS.TASK_STARTED, {
       taskId,
@@ -190,18 +194,16 @@ export class ExecutionService {
           startedAt: now,
         },
       });
-      await workflowTimelineService.recordEvents(
-        [
-          workflowTimelineService.taskPaused({
-            workflowInstanceId: task.workflowInstanceId,
-            taskId,
-            actorId,
-            remarks: body.remarks,
-          }),
-        ],
-        tx,
-      );
-    });
+    }, EXECUTION_TX_OPTIONS);
+
+    await this.recordTimelineEvents([
+      workflowTimelineService.taskPaused({
+        workflowInstanceId: task.workflowInstanceId,
+        taskId,
+        actorId,
+        remarks: body.remarks,
+      }),
+    ]);
 
     this.afterExecutionMutation(ActivityAction.TASK_PAUSED, APP_EVENTS.TASK_PAUSED, {
       taskId,
@@ -259,17 +261,15 @@ export class ExecutionService {
           startedAt: now,
         },
       });
-      await workflowTimelineService.recordEvents(
-        [
-          workflowTimelineService.taskResumed({
-            workflowInstanceId: task.workflowInstanceId,
-            taskId,
-            actorId,
-          }),
-        ],
-        tx,
-      );
-    });
+    }, EXECUTION_TX_OPTIONS);
+
+    await this.recordTimelineEvents([
+      workflowTimelineService.taskResumed({
+        workflowInstanceId: task.workflowInstanceId,
+        taskId,
+        actorId,
+      }),
+    ]);
 
     this.afterExecutionMutation(ActivityAction.TASK_RESUMED, APP_EVENTS.TASK_RESUMED, {
       taskId,
@@ -333,19 +333,17 @@ export class ExecutionService {
           createdById: actorId,
         },
       });
-      await workflowTimelineService.recordEvents(
-        [
-          workflowTimelineService.taskHeld({
-            workflowInstanceId: task.workflowInstanceId,
-            taskId,
-            reason: body.reason,
-            actorId,
-            notes: body.notes,
-          }),
-        ],
-        tx,
-      );
-    });
+    }, EXECUTION_TX_OPTIONS);
+
+    await this.recordTimelineEvents([
+      workflowTimelineService.taskHeld({
+        workflowInstanceId: task.workflowInstanceId,
+        taskId,
+        reason: body.reason,
+        actorId,
+        notes: body.notes,
+      }),
+    ]);
 
     this.afterExecutionMutation(ActivityAction.TASK_HELD, APP_EVENTS.TASK_HELD, {
       taskId,
@@ -409,17 +407,15 @@ export class ExecutionService {
           startedAt: now,
         },
       });
-      await workflowTimelineService.recordEvents(
-        [
-          workflowTimelineService.taskResumed({
-            workflowInstanceId: task.workflowInstanceId,
-            taskId,
-            actorId,
-          }),
-        ],
-        tx,
-      );
-    });
+    }, EXECUTION_TX_OPTIONS);
+
+    await this.recordTimelineEvents([
+      workflowTimelineService.taskResumed({
+        workflowInstanceId: task.workflowInstanceId,
+        taskId,
+        actorId,
+      }),
+    ]);
 
     this.afterExecutionMutation(ActivityAction.TASK_RESUMED, APP_EVENTS.TASK_RESUMED, {
       taskId,
@@ -457,7 +453,7 @@ export class ExecutionService {
           activeIntervalType: null,
         },
       });
-    });
+    }, EXECUTION_TX_OPTIONS);
 
     const advanceResult = await workflowEngine.advance({
       workflowInstanceId: task.workflowInstanceId,
@@ -529,19 +525,16 @@ export class ExecutionService {
         },
       });
 
-      await workflowTimelineService.recordEvents(
-        [
-          workflowTimelineService.taskNoteAdded({
-            workflowInstanceId: task.workflowInstanceId,
-            taskId,
-            actorId,
-          }),
-        ],
-        tx,
-      );
-
       return created;
-    });
+    }, EXECUTION_TX_OPTIONS);
+
+    await this.recordTimelineEvents([
+      workflowTimelineService.taskNoteAdded({
+        workflowInstanceId: task.workflowInstanceId,
+        taskId,
+        actorId,
+      }),
+    ]);
 
     this.afterExecutionMutation(ActivityAction.TASK_NOTE_ADDED, APP_EVENTS.TASK_NOTE_ADDED, {
       taskId,
@@ -634,20 +627,17 @@ export class ExecutionService {
         },
       });
 
-      await workflowTimelineService.recordEvents(
-        [
-          workflowTimelineService.taskAttachmentAdded({
-            workflowInstanceId: task.workflowInstanceId,
-            taskId,
-            category: body.category,
-            actorId,
-          }),
-        ],
-        tx,
-      );
-
       return created;
-    });
+    }, EXECUTION_TX_OPTIONS);
+
+    await this.recordTimelineEvents([
+      workflowTimelineService.taskAttachmentAdded({
+        workflowInstanceId: task.workflowInstanceId,
+        taskId,
+        category: body.category,
+        actorId,
+      }),
+    ]);
 
     this.afterExecutionMutation(
       ActivityAction.TASK_ATTACHMENT_ADDED,
@@ -847,25 +837,22 @@ export class ExecutionService {
         },
       });
 
-      const timelineFactory =
-        alertType === ProductionExecutionAlertType.SUPERVISOR_REQUEST
-          ? workflowTimelineService.supervisorRequested
-          : workflowTimelineService.issueReported;
-
-      await workflowTimelineService.recordEvents(
-        [
-          timelineFactory({
-            workflowInstanceId: task.workflowInstanceId,
-            taskId,
-            actorId,
-            notes: body.notes,
-          }),
-        ],
-        tx,
-      );
-
       return created;
-    });
+    }, EXECUTION_TX_OPTIONS);
+
+    const timelineFactory =
+      alertType === ProductionExecutionAlertType.SUPERVISOR_REQUEST
+        ? workflowTimelineService.supervisorRequested
+        : workflowTimelineService.issueReported;
+
+    await this.recordTimelineEvents([
+      timelineFactory({
+        workflowInstanceId: task.workflowInstanceId,
+        taskId,
+        actorId,
+        notes: body.notes,
+      }),
+    ]);
 
     this.afterExecutionMutation(activityAction, eventName, {
       taskId,
@@ -874,6 +861,20 @@ export class ExecutionService {
     });
 
     return { id: alert.id, alertType, createdAt: alert.createdAt.toISOString() };
+  }
+
+  private async recordTimelineEvents(events: TimelineEventInput[]): Promise<void> {
+    if (events.length === 0) return;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await workflowTimelineService.recordEvents(events, tx);
+      }, EXECUTION_TX_OPTIONS);
+    } catch (error) {
+      logger.warn('Failed to record workflow timeline events', {
+        eventCount: events.length,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private afterExecutionMutation(

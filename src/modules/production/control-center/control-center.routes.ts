@@ -13,55 +13,60 @@ import {
 const router = Router();
 router.use(authenticate);
 
-const managerRoles = [RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER] as const;
+const productionRoles = [
+  RoleName.SUPER_ADMIN,
+  RoleName.ADMIN,
+  RoleName.MANAGER,
+  RoleName.STAFF,
+] as const;
 
 router.get(
   '/control-center',
-  authorize(...managerRoles),
+  authorize(...productionRoles),
   controlCenterController.dashboard,
 );
 
 router.get(
   '/control-center/overview',
-  authorize(...managerRoles),
+  authorize(...productionRoles),
   controlCenterController.overview,
 );
 
 router.get(
   '/control-center/departments',
-  authorize(...managerRoles),
+  authorize(...productionRoles),
   controlCenterController.departments,
 );
 
 router.get(
   '/control-center/kpis',
-  authorize(...managerRoles),
+  authorize(...productionRoles),
   controlCenterController.kpis,
 );
 
 router.get(
   '/control-center/heatmap',
-  authorize(...managerRoles),
+  authorize(...productionRoles),
   controlCenterController.heatmap,
 );
 
 router.get(
   '/control-center/timeline',
-  authorize(...managerRoles),
+  authorize(...productionRoles),
   validate(timelineQuerySchema, 'query'),
   controlCenterController.timeline,
 );
 
 router.get(
   '/control-center/alerts',
-  authorize(...managerRoles),
+  authorize(...productionRoles),
   validate(alertsQuerySchema, 'query'),
   controlCenterController.alerts,
 );
 
 router.get(
   '/control-center/orders/:orderId',
-  authorize(...managerRoles),
+  authorize(...productionRoles),
   validate(orderIdParamSchema, 'params'),
   controlCenterController.orderDrillDown,
 );
