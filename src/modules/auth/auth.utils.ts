@@ -33,7 +33,7 @@ export function mapUserToAuthResponse(
   return mapUserSessionToAuthDto(user);
 }
 
-export function extractPermissions(role: Role): string[] {
+export function extractPermissions(role: Pick<Role, 'permissions'>): string[] {
   const permissions = role.permissions;
   if (Array.isArray(permissions)) {
     return permissions.filter((p): p is string => typeof p === 'string');
