@@ -65,13 +65,20 @@ export class ProductsService {
     };
   }
 
-  async findAll(params?: { search?: string; categoryId?: string; page?: number; limit?: number }) {
+  async findAll(params?: {
+    search?: string;
+    categoryId?: string;
+    familyId?: string;
+    seriesId?: string;
+    page?: number;
+    limit?: number;
+  }) {
     const page = params?.page ?? 1;
     const limit = Math.min(params?.limit ?? 50, 100);
     const skip = (page - 1) * limit;
 
     let categoryIds: string[] | undefined;
-    if (params?.categoryId) {
+    if (params?.categoryId && !params.familyId && !params.seriesId) {
       categoryIds = await categoryRepository.resolveTreeIds(params.categoryId);
     }
 
@@ -83,9 +90,13 @@ export class ProductsService {
           { shortDescription: { contains: params.search, mode: 'insensitive' } },
         ],
       }),
-      ...(categoryIds && {
-        series: { family: { categoryId: { in: categoryIds } } },
-      }),
+      ...(params?.seriesId
+        ? { seriesId: params.seriesId }
+        : params?.familyId
+          ? { series: { familyId: params.familyId, deletedAt: null, isActive: true } }
+          : categoryIds
+            ? { series: { family: { categoryId: { in: categoryIds }, deletedAt: null }, deletedAt: null } }
+            : {}),
     };
 
     const [items, total] = await Promise.all([
@@ -113,6 +124,99 @@ export class ProductsService {
     if (!product?.versions[0]) throw ApiError.notFound('Product not found');
 
     return mapVendorProductDetail(product);
+  }
+
+  /** Vendor browse: families under a category (active only). */
+  async listFamilies(categoryId: string) {
+    const category = await prisma.category.findFirst({
+      where: { id: categoryId, deletedAt: null, isActive: true },
+    });
+    if (!category) throw ApiError.notFound('Category not found');
+
+    const families = await prisma.productFamily.findMany({
+      where: {
+        categoryId,
+        deletedAt: null,
+        isActive: true,
+        status: ProductStatus.ACTIVE,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      include: {
+        series: {
+          where: { deletedAt: null, isActive: true, status: ProductStatus.ACTIVE },
+          include: {
+            _count: {
+              select: {
+                offerings: {
+                  where: this.vendorVisibilityFilter(),
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      items: families
+        .map((f) => {
+          const productCount = f.series.reduce((sum, s) => sum + s._count.offerings, 0);
+          return {
+            id: f.id,
+            categoryId: f.categoryId,
+            name: f.name,
+            slug: f.slug,
+            description: f.description,
+            imageUrl: null,
+            sortOrder: f.sortOrder,
+            seriesCount: f.series.length,
+            productCount,
+          };
+        })
+        .filter((f) => f.productCount > 0),
+    };
+  }
+
+  /** Vendor browse: series under a family (active only). */
+  async listSeries(familyId: string) {
+    const family = await prisma.productFamily.findFirst({
+      where: { id: familyId, deletedAt: null, isActive: true },
+    });
+    if (!family) throw ApiError.notFound('Family not found');
+
+    const series = await prisma.productSeries.findMany({
+      where: {
+        familyId,
+        deletedAt: null,
+        isActive: true,
+        status: ProductStatus.ACTIVE,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      include: {
+        _count: {
+          select: {
+            offerings: {
+              where: this.vendorVisibilityFilter(),
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      items: series
+        .map((s) => ({
+          id: s.id,
+          familyId: s.familyId,
+          name: s.name,
+          slug: s.slug,
+          description: s.description,
+          imageUrl: null,
+          sortOrder: s.sortOrder,
+          productCount: s._count.offerings,
+        }))
+        .filter((s) => s.productCount > 0),
+    };
   }
 
   async calculatePrice(input: CalculatePriceInput) {

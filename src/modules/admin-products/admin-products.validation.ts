@@ -7,6 +7,8 @@ export const listProductsQuerySchema = z.object({
   search: z.string().optional(),
   status: z.nativeEnum(ProductStatus).optional(),
   categoryId: z.string().optional(),
+  familyId: z.string().optional(),
+  seriesId: z.string().optional(),
   visibility: z.nativeEnum(ProductVisibility).optional(),
   sortBy: z.enum(['name', 'createdAt', 'sortOrder', 'status']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
@@ -38,8 +40,8 @@ const quantityTierSchema = z.object({
 
 export const createProductSchema = z.object({
   name: z.string().min(2).max(200),
-  categoryId: z.string().min(1),
-  subcategoryId: z.string().optional(),
+  /** Explicit catalog placement — no auto-created family/series. */
+  seriesId: z.string().min(1),
   description: z.string().optional(),
   shortDescription: z.string().optional(),
   sku: z.string().optional(),
@@ -115,6 +117,7 @@ export const upsertQuantityTierSchema = z.object({
 
 export const createCategorySchema = z.object({
   name: z.string().min(1).max(200),
+  /** Advanced only — not used for catalog building (families replace nesting). */
   parentId: z.string().optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
   imageUrl: z.string().url().optional().nullable(),
@@ -125,6 +128,65 @@ export const createCategorySchema = z.object({
 export const updateCategorySchema = createCategorySchema.partial();
 
 export const categoryIdParamSchema = z.object({ id: z.string().min(1) });
+
+export const listFamiliesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  search: z.string().optional(),
+  categoryId: z.string().optional(),
+  status: z.nativeEnum(ProductStatus).optional(),
+});
+
+export const createFamilySchema = z.object({
+  categoryId: z.string().min(1),
+  name: z.string().min(1).max(200),
+  slug: z.string().min(1).max(200).optional(),
+  description: z.string().max(5000).optional().nullable(),
+  imageUrl: z.string().url().optional().nullable(),
+  imageKey: z.string().optional().nullable(),
+  sortOrder: z.number().int().optional(),
+  status: z.nativeEnum(ProductStatus).optional(),
+});
+
+export const updateFamilySchema = createFamilySchema.partial();
+
+export const familyIdParamSchema = z.object({ id: z.string().min(1) });
+
+export const listSeriesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  search: z.string().optional(),
+  familyId: z.string().optional(),
+  categoryId: z.string().optional(),
+  status: z.nativeEnum(ProductStatus).optional(),
+});
+
+export const createSeriesSchema = z.object({
+  familyId: z.string().min(1),
+  name: z.string().min(1).max(200),
+  slug: z.string().min(1).max(200).optional(),
+  description: z.string().max(5000).optional().nullable(),
+  imageUrl: z.string().url().optional().nullable(),
+  imageKey: z.string().optional().nullable(),
+  productCode: z.string().max(64).optional().nullable(),
+  productionDays: z.number().int().positive().optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
+  sortOrder: z.number().int().optional(),
+  status: z.nativeEnum(ProductStatus).optional(),
+});
+
+export const updateSeriesSchema = createSeriesSchema.partial();
+
+export const seriesIdParamSchema = z.object({ id: z.string().min(1) });
+
+export const reorderCatalogSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.string().min(1),
+      sortOrder: z.number().int(),
+    }),
+  ).min(1),
+});
 
 export type ListProductsQuery = z.infer<typeof listProductsQuerySchema>;
 export type CreateProductInput = z.infer<typeof createProductSchema>;
@@ -139,3 +201,10 @@ export type ListPricingRulesQuery = z.infer<typeof listPricingRulesQuerySchema>;
 export type UpsertQuantityTierInput = z.infer<typeof upsertQuantityTierSchema>;
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+export type ListFamiliesQuery = z.infer<typeof listFamiliesQuerySchema>;
+export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
+export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
+export type ListSeriesQuery = z.infer<typeof listSeriesQuerySchema>;
+export type CreateSeriesInput = z.infer<typeof createSeriesSchema>;
+export type UpdateSeriesInput = z.infer<typeof updateSeriesSchema>;
+export type ReorderCatalogInput = z.infer<typeof reorderCatalogSchema>;

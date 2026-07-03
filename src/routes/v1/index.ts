@@ -22,6 +22,9 @@ import { storageRoutes } from '../../modules/storage/index.js';
 import { adminWalletsRoutes } from '../../modules/admin-wallets/index.js';
 import {
   adminProductsRoutes,
+  adminFamiliesRoutes,
+  adminSeriesRoutes,
+  adminCatalogRoutes,
   adminAttributesRoutes,
   adminPricingRulesRoutes,
   adminCategoriesRoutes,
@@ -76,6 +79,9 @@ v1Router.use('/admin/products', adminProductsRoutes);
 v1Router.use('/admin/attributes', adminAttributesRoutes);
 v1Router.use('/admin/pricing-rules', adminPricingRulesRoutes);
 v1Router.use('/admin/categories', adminCategoriesRoutes);
+v1Router.use('/admin/families', adminFamiliesRoutes);
+v1Router.use('/admin/series', adminSeriesRoutes);
+v1Router.use('/admin/catalog', adminCatalogRoutes);
 v1Router.use('/admin/monitoring', adminMonitoringRoutes);
 v1Router.use('/print-jobs', printJobRoutes);
 v1Router.use('/rate-catalog', rateCatalogRoutes);

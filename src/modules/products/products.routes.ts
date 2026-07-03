@@ -8,6 +8,8 @@ const router = Router();
 
 router.use(authenticate);
 router.get('/', productsController.list);
+router.get('/families', productsController.listFamilies);
+router.get('/series', productsController.listSeries);
 router.post('/calculate-price', validate(calculatePriceSchema), productsController.calculatePrice);
 router.get('/:id', productsController.getById);
 

@@ -62,7 +62,8 @@ const PRODUCT_DETAIL_INCLUDE = {
 
 export class AdminProductsService {
   async list(query: ListProductsQuery) {
-    const { page, limit, search, status, categoryId, visibility, sortBy, sortOrder } = query;
+    const { page, limit, search, status, categoryId, familyId, seriesId, visibility, sortBy, sortOrder } =
+      query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.ProductOfferingWhereInput = {
@@ -76,9 +77,13 @@ export class AdminProductsService {
           { sku: { contains: search, mode: 'insensitive' } },
         ],
       }),
-      ...(categoryId && {
-        series: { family: { categoryId } },
-      }),
+      ...(seriesId
+        ? { seriesId }
+        : familyId
+          ? { series: { familyId, deletedAt: null } }
+          : categoryId
+            ? { series: { family: { categoryId, deletedAt: null }, deletedAt: null } }
+            : {}),
     };
 
     const [items, total] = await Promise.all([
@@ -114,56 +119,20 @@ export class AdminProductsService {
     return { ...dto, activityLogs: logs };
   }
 
-  private async resolveCategoryId(categoryId: string, subcategoryId?: string) {
-    const leafId = subcategoryId ?? categoryId;
-    const cat = await prisma.category.findFirst({
-      where: { id: leafId, deletedAt: null },
-    });
-    if (!cat) throw ApiError.badRequest('Category not found');
-    return cat.id;
-  }
-
-  private async ensureCatalogHierarchy(categoryId: string, productName: string) {
-    const category = await prisma.category.findUniqueOrThrow({ where: { id: categoryId } });
-
-    const familySlug = await uniqueSlug(
-      `${category.slug}-family`,
-      async (s) => !!(await prisma.productFamily.findUnique({ where: { slug: s } })),
-    );
-
-    let family = await prisma.productFamily.findFirst({
-      where: { categoryId, slug: familySlug },
-    });
-    if (!family) {
-      family = await prisma.productFamily.create({
-        data: {
-          categoryId,
-          name: category.name,
-          slug: familySlug,
-          status: ProductStatus.ACTIVE,
-        },
-      });
+  async create(input: CreateProductInput, actorId: string, meta?: { ipAddress?: string; userAgent?: string }) {
+    if (!input.seriesId?.trim()) {
+      throw ApiError.badRequest('Series is required. Select Category → Family → Series before creating a product.');
     }
 
-    const seriesSlug = await uniqueSlug(productName, async (s) =>
-      !!(await prisma.productSeries.findUnique({ where: { slug: s } })),
-    );
-
-    const series = await prisma.productSeries.create({
-      data: {
-        familyId: family.id,
-        name: productName,
-        slug: seriesSlug,
-        status: ProductStatus.ACTIVE,
+    const series = await prisma.productSeries.findFirst({
+      where: { id: input.seriesId, deletedAt: null, isActive: true },
+      include: {
+        family: { select: { id: true, categoryId: true, deletedAt: true } },
       },
     });
-
-    return series;
-  }
-
-  async create(input: CreateProductInput, actorId: string, meta?: { ipAddress?: string; userAgent?: string }) {
-    const categoryId = await this.resolveCategoryId(input.categoryId, input.subcategoryId);
-    const series = await this.ensureCatalogHierarchy(categoryId, input.name);
+    if (!series || series.family.deletedAt) {
+      throw ApiError.badRequest('Series not found. Select a valid Family and Series.');
+    }
 
     const slug = await uniqueSlug(input.name, async (s) =>
       !!(await prisma.productOffering.findUnique({ where: { slug: s } })),
@@ -250,7 +219,12 @@ export class AdminProductsService {
       action: ActivityAction.PRODUCT_CREATED,
       productId: product.id,
       actorId,
-      metadata: { name: input.name, categoryId },
+      metadata: {
+        name: input.name,
+        seriesId: series.id,
+        familyId: series.family.id,
+        categoryId: series.family.categoryId,
+      },
       ipAddress: meta?.ipAddress,
       userAgent: meta?.userAgent,
     });

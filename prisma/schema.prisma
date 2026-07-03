@@ -914,6 +914,8 @@ model ProductFamily {
   name        String
   slug        String        @unique
   description String?       @db.Text
+  imageUrl    String?       @map("image_url")
+  imageKey    String?       @map("image_key")
   sortOrder   Int           @default(0) @map("sort_order")
   status      ProductStatus @default(ACTIVE)
   isActive    Boolean       @default(true) @map("is_active")
@@ -937,6 +939,8 @@ model ProductSeries {
   name           String
   slug           String        @unique
   description    String?       @db.Text
+  imageUrl       String?       @map("image_url")
+  imageKey       String?       @map("image_key")
   productCode    String?       @unique @map("product_code")
   productionDays Int?          @map("production_days")
   notes          String?       @db.Text

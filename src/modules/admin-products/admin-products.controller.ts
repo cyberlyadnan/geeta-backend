@@ -9,6 +9,7 @@ import {
   adminCategoriesService,
   adminProductImagesService,
 } from './admin-categories.service.js';
+import { adminCatalogService } from './admin-catalog.service.js';
 import type {
   CalculatePriceInput,
   CreateAttributeInput,
@@ -23,6 +24,13 @@ import type {
   UpsertQuantityTierInput,
   CreateCategoryInput,
   UpdateCategoryInput,
+  ListFamiliesQuery,
+  CreateFamilyInput,
+  UpdateFamilyInput,
+  ListSeriesQuery,
+  CreateSeriesInput,
+  UpdateSeriesInput,
+  ReorderCatalogInput,
 } from './admin-products.validation.js';
 import type { AddProductImageInput } from './admin-categories.service.js';
 
@@ -200,6 +208,79 @@ export class AdminProductsController {
   getCategoryCatalog = asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.validatedParams as { id: string };
     const result = await adminCategoriesService.getCatalogTree(id);
+    return ApiResponse.success(res, result);
+  });
+
+  // Families
+  listFamilies = asyncHandler(async (req: Request, res: Response) => {
+    const result = await adminCatalogService.listFamilies(req.validatedQuery as ListFamiliesQuery);
+    return ApiResponse.success(res, result);
+  });
+
+  getFamily = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminCatalogService.getFamily(id);
+    return ApiResponse.success(res, result);
+  });
+
+  createFamily = asyncHandler(async (req: Request, res: Response) => {
+    const result = await adminCatalogService.createFamily(req.body as CreateFamilyInput);
+    return ApiResponse.created(res, result, 'Family created');
+  });
+
+  updateFamily = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminCatalogService.updateFamily(id, req.body as UpdateFamilyInput);
+    return ApiResponse.success(res, result, 'Family updated');
+  });
+
+  deleteFamily = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminCatalogService.deleteFamily(id);
+    return ApiResponse.success(res, result, 'Family deleted');
+  });
+
+  reorderFamilies = asyncHandler(async (req: Request, res: Response) => {
+    const result = await adminCatalogService.reorderFamilies(req.body as ReorderCatalogInput);
+    return ApiResponse.success(res, result, 'Families reordered');
+  });
+
+  // Series
+  listSeries = asyncHandler(async (req: Request, res: Response) => {
+    const result = await adminCatalogService.listSeries(req.validatedQuery as ListSeriesQuery);
+    return ApiResponse.success(res, result);
+  });
+
+  getSeries = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminCatalogService.getSeries(id);
+    return ApiResponse.success(res, result);
+  });
+
+  createSeries = asyncHandler(async (req: Request, res: Response) => {
+    const result = await adminCatalogService.createSeries(req.body as CreateSeriesInput);
+    return ApiResponse.created(res, result, 'Series created');
+  });
+
+  updateSeries = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminCatalogService.updateSeries(id, req.body as UpdateSeriesInput);
+    return ApiResponse.success(res, result, 'Series updated');
+  });
+
+  deleteSeries = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminCatalogService.deleteSeries(id);
+    return ApiResponse.success(res, result, 'Series deleted');
+  });
+
+  reorderSeries = asyncHandler(async (req: Request, res: Response) => {
+    const result = await adminCatalogService.reorderSeries(req.body as ReorderCatalogInput);
+    return ApiResponse.success(res, result, 'Series reordered');
+  });
+
+  getCatalogExplorer = asyncHandler(async (_req: Request, res: Response) => {
+    const result = await adminCatalogService.getCatalogExplorer();
     return ApiResponse.success(res, result);
   });
 }

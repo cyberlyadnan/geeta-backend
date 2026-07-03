@@ -10,17 +10,26 @@ import {
   categoryIdParamSchema,
   createAttributeSchema,
   createCategorySchema,
+  createFamilySchema,
   createPricingRuleSchema,
   createProductSchema,
+  createSeriesSchema,
+  familyIdParamSchema,
   listAttributesQuerySchema,
+  listFamiliesQuerySchema,
   listPricingRulesQuerySchema,
   listProductsQuerySchema,
+  listSeriesQuerySchema,
   pricingRuleIdParamSchema,
   productIdParamSchema,
+  reorderCatalogSchema,
+  seriesIdParamSchema,
   updateAttributeSchema,
   updateCategorySchema,
+  updateFamilySchema,
   updatePricingRuleSchema,
   updateProductSchema,
+  updateSeriesSchema,
   upsertQuantityTierSchema,
 } from './admin-products.validation.js';
 import { addProductImageSchema } from './admin-categories.service.js';
@@ -121,3 +130,46 @@ categoriesRouter.patch(
 categoriesRouter.delete('/:id', validate(categoryIdParamSchema, 'params'), adminProductsController.deleteCategory);
 
 export { categoriesRouter as adminCategoriesRoutes };
+
+const familiesRouter = Router();
+familiesRouter.use(authenticate);
+familiesRouter.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
+
+familiesRouter.get('/', validate(listFamiliesQuerySchema, 'query'), adminProductsController.listFamilies);
+familiesRouter.post('/', validate(createFamilySchema), adminProductsController.createFamily);
+familiesRouter.post('/reorder', validate(reorderCatalogSchema), adminProductsController.reorderFamilies);
+familiesRouter.get('/:id', validate(familyIdParamSchema, 'params'), adminProductsController.getFamily);
+familiesRouter.patch(
+  '/:id',
+  validate(familyIdParamSchema, 'params'),
+  validate(updateFamilySchema),
+  adminProductsController.updateFamily,
+);
+familiesRouter.delete('/:id', validate(familyIdParamSchema, 'params'), adminProductsController.deleteFamily);
+
+export { familiesRouter as adminFamiliesRoutes };
+
+const seriesRouter = Router();
+seriesRouter.use(authenticate);
+seriesRouter.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
+
+seriesRouter.get('/', validate(listSeriesQuerySchema, 'query'), adminProductsController.listSeries);
+seriesRouter.post('/', validate(createSeriesSchema), adminProductsController.createSeries);
+seriesRouter.post('/reorder', validate(reorderCatalogSchema), adminProductsController.reorderSeries);
+seriesRouter.get('/:id', validate(seriesIdParamSchema, 'params'), adminProductsController.getSeries);
+seriesRouter.patch(
+  '/:id',
+  validate(seriesIdParamSchema, 'params'),
+  validate(updateSeriesSchema),
+  adminProductsController.updateSeries,
+);
+seriesRouter.delete('/:id', validate(seriesIdParamSchema, 'params'), adminProductsController.deleteSeries);
+
+export { seriesRouter as adminSeriesRoutes };
+
+const catalogRouter = Router();
+catalogRouter.use(authenticate);
+catalogRouter.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
+catalogRouter.get('/explorer', adminProductsController.getCatalogExplorer);
+
+export { catalogRouter as adminCatalogRoutes };
