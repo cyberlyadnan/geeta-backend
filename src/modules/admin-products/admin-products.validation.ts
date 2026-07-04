@@ -131,7 +131,7 @@ export const categoryIdParamSchema = z.object({ id: z.string().min(1) });
 
 export const listFamiliesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
   search: z.string().optional(),
   categoryId: z.string().optional(),
   status: z.nativeEnum(ProductStatus).optional(),
@@ -154,7 +154,7 @@ export const familyIdParamSchema = z.object({ id: z.string().min(1) });
 
 export const listSeriesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
   search: z.string().optional(),
   familyId: z.string().optional(),
   categoryId: z.string().optional(),

@@ -53,6 +53,7 @@ const VENDOR_DETAIL_INCLUDE = {
 } satisfies Prisma.ProductOfferingInclude;
 
 export class ProductsService {
+  /** Products vendors can browse/order (product Active is enough; version may still be draft). */
   private vendorVisibilityFilter(): Prisma.ProductOfferingWhereInput {
     return {
       deletedAt: null,
@@ -60,8 +61,18 @@ export class ProductsService {
       status: ProductStatus.ACTIVE,
       visibility: { in: [ProductVisibility.PUBLIC, ProductVisibility.VENDOR_ONLY] },
       versions: {
-        some: { isCurrent: true, deletedAt: null, status: 'ACTIVE' },
+        some: { isCurrent: true, deletedAt: null },
       },
+    };
+  }
+
+  /** Lighter filter for family/series product counts (any non-deleted offering). */
+  private catalogOfferingCountFilter(): Prisma.ProductOfferingWhereInput {
+    return {
+      deletedAt: null,
+      isActive: true,
+      status: { in: [ProductStatus.ACTIVE, ProductStatus.DRAFT] },
+      visibility: { in: [ProductVisibility.PUBLIC, ProductVisibility.VENDOR_ONLY, ProductVisibility.HIDDEN] },
     };
   }
 
@@ -126,7 +137,7 @@ export class ProductsService {
     return mapVendorProductDetail(product);
   }
 
-  /** Vendor browse: families under a category (active only). */
+  /** Vendor browse: all active families under a category. */
   async listFamilies(categoryId: string) {
     const category = await prisma.category.findFirst({
       where: { id: categoryId, deletedAt: null, isActive: true },
@@ -138,17 +149,21 @@ export class ProductsService {
         categoryId,
         deletedAt: null,
         isActive: true,
-        status: ProductStatus.ACTIVE,
+        status: { in: [ProductStatus.ACTIVE, ProductStatus.DRAFT] },
       },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: {
         series: {
-          where: { deletedAt: null, isActive: true, status: ProductStatus.ACTIVE },
+          where: {
+            deletedAt: null,
+            isActive: true,
+            status: { in: [ProductStatus.ACTIVE, ProductStatus.DRAFT] },
+          },
           include: {
             _count: {
               select: {
                 offerings: {
-                  where: this.vendorVisibilityFilter(),
+                  where: this.catalogOfferingCountFilter(),
                 },
               },
             },
@@ -158,26 +173,24 @@ export class ProductsService {
     });
 
     return {
-      items: families
-        .map((f) => {
-          const productCount = f.series.reduce((sum, s) => sum + s._count.offerings, 0);
-          return {
-            id: f.id,
-            categoryId: f.categoryId,
-            name: f.name,
-            slug: f.slug,
-            description: f.description,
-            imageUrl: null,
-            sortOrder: f.sortOrder,
-            seriesCount: f.series.length,
-            productCount,
-          };
-        })
-        .filter((f) => f.productCount > 0),
+      items: families.map((f) => {
+        const productCount = f.series.reduce((sum, s) => sum + s._count.offerings, 0);
+        return {
+          id: f.id,
+          categoryId: f.categoryId,
+          name: f.name,
+          slug: f.slug,
+          description: f.description,
+          imageUrl: null,
+          sortOrder: f.sortOrder,
+          seriesCount: f.series.length,
+          productCount,
+        };
+      }),
     };
   }
 
-  /** Vendor browse: series under a family (active only). */
+  /** Vendor browse: all active series under a family. */
   async listSeries(familyId: string) {
     const family = await prisma.productFamily.findFirst({
       where: { id: familyId, deletedAt: null, isActive: true },
@@ -189,14 +202,14 @@ export class ProductsService {
         familyId,
         deletedAt: null,
         isActive: true,
-        status: ProductStatus.ACTIVE,
+        status: { in: [ProductStatus.ACTIVE, ProductStatus.DRAFT] },
       },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: {
         _count: {
           select: {
             offerings: {
-              where: this.vendorVisibilityFilter(),
+              where: this.catalogOfferingCountFilter(),
             },
           },
         },
@@ -204,18 +217,16 @@ export class ProductsService {
     });
 
     return {
-      items: series
-        .map((s) => ({
-          id: s.id,
-          familyId: s.familyId,
-          name: s.name,
-          slug: s.slug,
-          description: s.description,
-          imageUrl: null,
-          sortOrder: s.sortOrder,
-          productCount: s._count.offerings,
-        }))
-        .filter((s) => s.productCount > 0),
+      items: series.map((s) => ({
+        id: s.id,
+        familyId: s.familyId,
+        name: s.name,
+        slug: s.slug,
+        description: s.description,
+        imageUrl: null,
+        sortOrder: s.sortOrder,
+        productCount: s._count.offerings,
+      })),
     };
   }
 
