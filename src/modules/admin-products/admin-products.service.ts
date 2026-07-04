@@ -138,6 +138,12 @@ export class AdminProductsService {
       !!(await prisma.productOffering.findUnique({ where: { slug: s } })),
     );
 
+    const productStatus = input.status ?? ProductStatus.DRAFT;
+    const versionStatus =
+      productStatus === ProductStatus.ACTIVE
+        ? ProductOfferingVersionStatus.ACTIVE
+        : ProductOfferingVersionStatus.DRAFT;
+
     const product = await prisma.$transaction(async (tx) => {
       const offering = await tx.productOffering.create({
         data: {
@@ -148,7 +154,9 @@ export class AdminProductsService {
           shortDescription: input.shortDescription,
           sku: input.sku,
           visibility: input.visibility ?? ProductVisibility.VENDOR_ONLY,
-          status: input.status ?? ProductStatus.DRAFT,
+          status: productStatus,
+          isActive:
+            productStatus !== ProductStatus.ARCHIVED && productStatus !== ProductStatus.INACTIVE,
           sortOrder: input.sortOrder ?? 0,
           isFeatured: input.isFeatured ?? false,
           thumbnailUrl: input.thumbnailUrl,
@@ -161,8 +169,9 @@ export class AdminProductsService {
           productOfferingId: offering.id,
           versionNumber: 1,
           versionLabel: 'v1',
-          status: ProductOfferingVersionStatus.DRAFT,
+          status: versionStatus,
           isCurrent: true,
+          publishedAt: versionStatus === ProductOfferingVersionStatus.ACTIVE ? new Date() : null,
         },
       });
 
@@ -238,24 +247,66 @@ export class AdminProductsService {
     actorId: string,
     meta?: { ipAddress?: string; userAgent?: string },
   ) {
-    const existing = await prisma.productOffering.findFirst({ where: { id, deletedAt: null } });
+    const existing = await prisma.productOffering.findFirst({
+      where: { id, deletedAt: null },
+      include: { versions: { where: { isCurrent: true }, take: 1 } },
+    });
     if (!existing) throw ApiError.notFound('Product not found');
 
-    await prisma.productOffering.update({
-      where: { id },
-      data: {
-        ...(input.name != null && { name: input.name }),
-        ...(input.description !== undefined && { description: input.description }),
-        ...(input.shortDescription !== undefined && { shortDescription: input.shortDescription }),
-        ...(input.sku !== undefined && { sku: input.sku }),
-        ...(input.visibility != null && { visibility: input.visibility }),
-        ...(input.status != null && { status: input.status }),
-        ...(input.thumbnailUrl !== undefined && { thumbnailUrl: input.thumbnailUrl }),
-        ...(input.thumbnailKey !== undefined && { thumbnailKey: input.thumbnailKey }),
-        ...(input.isActive != null && { isActive: input.isActive }),
-        ...(input.isFeatured != null && { isFeatured: input.isFeatured }),
-        ...(input.sortOrder != null && { sortOrder: input.sortOrder }),
-      },
+    const nextStatus = input.status ?? existing.status;
+    const statusChanged = input.status != null && input.status !== existing.status;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.productOffering.update({
+        where: { id },
+        data: {
+          ...(input.name != null && { name: input.name }),
+          ...(input.description !== undefined && { description: input.description }),
+          ...(input.shortDescription !== undefined && { shortDescription: input.shortDescription }),
+          ...(input.sku !== undefined && { sku: input.sku }),
+          ...(input.visibility != null && { visibility: input.visibility }),
+          ...(input.status != null && {
+            status: input.status,
+            isActive:
+              input.isActive ??
+              (input.status !== ProductStatus.ARCHIVED && input.status !== ProductStatus.INACTIVE),
+          }),
+          ...(input.thumbnailUrl !== undefined && { thumbnailUrl: input.thumbnailUrl }),
+          ...(input.thumbnailKey !== undefined && { thumbnailKey: input.thumbnailKey }),
+          ...(input.isActive != null && input.status == null && { isActive: input.isActive }),
+          ...(input.isFeatured != null && { isFeatured: input.isFeatured }),
+          ...(input.sortOrder != null && { sortOrder: input.sortOrder }),
+          ...(input.seriesId != null && { seriesId: input.seriesId }),
+        },
+      });
+
+      // Keep current version in sync with product Active/Draft so vendor visibility is consistent.
+      const currentVersion = existing.versions[0];
+      if (statusChanged && currentVersion) {
+        if (nextStatus === ProductStatus.ACTIVE) {
+          await tx.productOfferingVersion.update({
+            where: { id: currentVersion.id },
+            data: {
+              status: ProductOfferingVersionStatus.ACTIVE,
+              publishedAt: currentVersion.publishedAt ?? new Date(),
+            },
+          });
+        } else if (
+          nextStatus === ProductStatus.DRAFT ||
+          nextStatus === ProductStatus.INACTIVE ||
+          nextStatus === ProductStatus.ARCHIVED
+        ) {
+          await tx.productOfferingVersion.update({
+            where: { id: currentVersion.id },
+            data: {
+              status:
+                nextStatus === ProductStatus.DRAFT
+                  ? ProductOfferingVersionStatus.DRAFT
+                  : ProductOfferingVersionStatus.RETIRED,
+            },
+          });
+        }
+      }
     });
 
     void catalogAuditService.logProductActivity({
