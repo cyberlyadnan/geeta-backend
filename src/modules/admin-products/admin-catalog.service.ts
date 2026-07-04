@@ -178,6 +178,8 @@ export class AdminCatalogService {
         name: input.name,
         slug,
         description: input.description ?? null,
+        imageUrl: input.imageUrl ?? null,
+        imageKey: input.imageKey ?? null,
         sortOrder: input.sortOrder ?? 0,
         status: input.status ?? ProductStatus.ACTIVE,
         isActive: input.status !== ProductStatus.ARCHIVED && input.status !== ProductStatus.INACTIVE,
@@ -219,6 +221,8 @@ export class AdminCatalogService {
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.slug !== undefined ? { slug: input.slug } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
+        ...(input.imageKey !== undefined ? { imageKey: input.imageKey } : {}),
         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
         ...(input.status !== undefined
           ? {
