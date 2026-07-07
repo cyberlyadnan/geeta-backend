@@ -34,11 +34,14 @@ export interface OrderTotalsInput {
   productTotal: number;
   deliveryResolution: DeliveryResolution;
   taxRate?: number;
+  /** Added when artwork is sent via email (fileOption === 'email') */
+  artworkEmailCharge?: number;
 }
 
 export interface OrderTotalsResult {
   productTotal: number;
   deliveryCharge: number;
+  artworkEmailCharge: number;
   subtotalBeforeTax: number;
   taxAmount: number;
   grandTotal: number;

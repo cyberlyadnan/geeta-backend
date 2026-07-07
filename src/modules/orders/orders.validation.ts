@@ -41,7 +41,10 @@ const orderConfigurationFields = {
   deliveryAddress: z.string().max(2000).optional().nullable(),
 };
 
-export const orderPreviewSchema = z.object(orderConfigurationFields);
+export const orderPreviewSchema = z.object({
+  ...orderConfigurationFields,
+  fileOption: z.enum(['attach', 'email']).optional(),
+});
 
 export const createProductionOrderSchema = z.object({
   ...orderConfigurationFields,

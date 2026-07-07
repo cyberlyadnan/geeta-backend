@@ -31,6 +31,7 @@ import { notifyUser, recordOrderEvent } from './order-events.service.js';
 import { workflowEngine } from '../workflow/workflow.engine.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import type { CreateProductionOrderInput, ListOrdersQuery, OrderPreviewInput } from './orders.validation.js';
+import { ARTWORK_EMAIL_SERVICE_CHARGE } from './orders.constants.js';
 
 const ESTIMATED_DAYS_DEFAULT = 3;
 
@@ -122,6 +123,7 @@ export class OrdersService {
             coverageAdjustment: computed.livePricing?.adjustments.coverage ?? 0,
             coverageBreakdown: computed.livePricing?.adjustments.coverageBreakdown ?? [],
             delivery: computed.resolution,
+            artworkEmailCharge: computed.totals.artworkEmailCharge,
             walletBalanceBefore: wallet.balance,
           } as unknown as Prisma.InputJsonValue,
         },
@@ -429,7 +431,14 @@ export class OrdersService {
       throw ApiError.badRequest('Delivery address is required for delivery orders');
     }
 
-    const totals = calculateOrderTotals({ productTotal, deliveryResolution: resolution });
+    const artworkEmailCharge =
+      input.fileOption === 'email' ? ARTWORK_EMAIL_SERVICE_CHARGE : 0;
+
+    const totals = calculateOrderTotals({
+      productTotal,
+      deliveryResolution: resolution,
+      artworkEmailCharge,
+    });
 
     const configEntries = Object.entries(input.selections).map(([fieldCode, selectedValue]) => {
       const field = priceResult.lines.find((l) => l.code === fieldCode);

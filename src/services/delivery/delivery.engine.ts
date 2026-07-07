@@ -108,13 +108,15 @@ export function calculateOrderTotals(input: OrderTotalsInput): OrderTotalsResult
   const taxRate = input.taxRate ?? DEFAULT_GST_RATE;
   const { deliveryResolution, productTotal } = input;
   const deliveryCharge = deliveryResolution.deliveryCharge;
-  const subtotalBeforeTax = roundMoney(productTotal + deliveryCharge);
+  const artworkEmailCharge = roundMoney(input.artworkEmailCharge ?? 0);
+  const subtotalBeforeTax = roundMoney(productTotal + deliveryCharge + artworkEmailCharge);
   const taxAmount = roundMoney(subtotalBeforeTax * taxRate);
   const grandTotal = roundMoney(subtotalBeforeTax + taxAmount);
 
   return {
     productTotal: roundMoney(productTotal),
     deliveryCharge: roundMoney(deliveryCharge),
+    artworkEmailCharge,
     subtotalBeforeTax,
     taxAmount,
     grandTotal,
