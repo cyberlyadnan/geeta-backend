@@ -28,6 +28,20 @@ export type ProductCatalogEntry = {
   attributeProfileKey: keyof typeof ATTRIBUTE_PROFILES;
   tiers: Array<{ quantity: number; basePrice: number }>;
   isFeatured?: boolean;
+  /** Override print profile size template (e.g. per-GSM sheet sizes) */
+  sizeTemplateCode?: string;
+  /** Override print specification template code */
+  specCode?: string;
+  /** Explicit workflow template code (e.g. WF-DIGITAL) */
+  workflowTemplateCode?: string;
+  /** Series product code for ERP / production */
+  seriesProductCode?: string;
+  familySortOrder?: number;
+  seriesSortOrder?: number;
+  familyDescription?: string;
+  seriesDescription?: string;
+  productionDays?: number;
+  versionMetadata?: Record<string, unknown>;
 };
 
 export function placeholderImage(name: string): string {
@@ -170,39 +184,61 @@ export async function upsertProductCatalogEntry(
   const attributes = ATTRIBUTE_PROFILES[entry.attributeProfileKey];
 
   let familyId = registry.families.get(entry.familySlug);
+  const familyData = {
+    name: entry.familyName,
+    categoryId,
+    status: ProductStatus.ACTIVE,
+    isActive: true,
+    deletedAt: null as Date | null,
+    sortOrder: entry.familySortOrder ?? 0,
+    description: entry.familyDescription,
+  };
   if (!familyId) {
     const family = await prisma.productFamily.upsert({
       where: { slug: entry.familySlug },
-      update: { name: entry.familyName, categoryId, status: ProductStatus.ACTIVE, isActive: true, deletedAt: null },
+      update: familyData,
       create: {
-        categoryId,
-        name: entry.familyName,
+        ...familyData,
         slug: entry.familySlug,
-        status: ProductStatus.ACTIVE,
-        isActive: true,
-        sortOrder: 0,
       },
     });
     familyId = family.id;
     registry.families.set(entry.familySlug, familyId);
+  } else {
+    await prisma.productFamily.update({
+      where: { id: familyId },
+      data: familyData,
+    });
   }
 
   let seriesId = registry.series.get(entry.seriesSlug);
+  const seriesData = {
+    name: entry.seriesName,
+    familyId,
+    status: ProductStatus.ACTIVE,
+    isActive: true,
+    deletedAt: null as Date | null,
+    sortOrder: entry.seriesSortOrder ?? 0,
+    description: entry.seriesDescription,
+    productCode: entry.seriesProductCode,
+    productionDays: entry.productionDays ?? 2,
+  };
   if (!seriesId) {
     const series = await prisma.productSeries.upsert({
       where: { slug: entry.seriesSlug },
-      update: { name: entry.seriesName, familyId, status: ProductStatus.ACTIVE, isActive: true, deletedAt: null },
+      update: seriesData,
       create: {
-        familyId,
-        name: entry.seriesName,
+        ...seriesData,
         slug: entry.seriesSlug,
-        status: ProductStatus.ACTIVE,
-        isActive: true,
-        sortOrder: 0,
       },
     });
     seriesId = series.id;
     registry.series.set(entry.seriesSlug, seriesId);
+  } else {
+    await prisma.productSeries.update({
+      where: { id: seriesId },
+      data: seriesData,
+    });
   }
 
   const sku = entry.sku ?? makeSku(entry.slug);
@@ -240,8 +276,13 @@ export async function upsertProductCatalogEntry(
   });
 
   const processId = registry.printProcesses.get(profile.processCode);
-  const sizeTemplateId = registry.sizeTemplates.get(profile.sizeTemplateCode);
-  const specId = registry.printSpecifications.get(profile.specCode);
+  const resolvedSizeTemplateCode = entry.sizeTemplateCode ?? profile.sizeTemplateCode;
+  const resolvedSpecCode = entry.specCode ?? profile.specCode;
+  const sizeTemplateId = registry.sizeTemplates.get(resolvedSizeTemplateCode);
+  const specId = registry.printSpecifications.get(resolvedSpecCode);
+
+  if (!sizeTemplateId) throw new Error(`Size template not found: ${resolvedSizeTemplateCode}`);
+  if (!specId) throw new Error(`Print specification not found: ${resolvedSpecCode}`);
 
   if (!version) {
     version = await prisma.productOfferingVersion.create({
@@ -256,6 +297,7 @@ export async function upsertProductCatalogEntry(
         printProcessId: processId,
         sizeTemplateId,
         printSpecificationTemplateId: specId,
+        metadata: entry.versionMetadata ?? undefined,
       },
     });
   } else {
@@ -268,6 +310,7 @@ export async function upsertProductCatalogEntry(
         sizeTemplateId,
         printSpecificationTemplateId: specId,
         publishedAt: version.publishedAt ?? new Date(),
+        metadata: entry.versionMetadata ?? version.metadata ?? undefined,
       },
     });
   }
@@ -319,6 +362,22 @@ export async function upsertProductCatalogEntry(
 
   await ensureTiers(prisma, version.id, entry.tiers);
   await ensureAttributes(prisma, version.id, attributes);
+
+  if (entry.workflowTemplateCode) {
+    const workflowTemplateId = registry.workflowTemplates.get(entry.workflowTemplateCode);
+    if (!workflowTemplateId) {
+      throw new Error(`Workflow template not found: ${entry.workflowTemplateCode}`);
+    }
+    await prisma.productOfferingWorkflow.upsert({
+      where: { productOfferingVersionId: version.id },
+      update: { workflowTemplateId, isDefault: true },
+      create: {
+        productOfferingVersionId: version.id,
+        workflowTemplateId,
+        isDefault: true,
+      },
+    });
+  }
 }
 
 export { slugify };

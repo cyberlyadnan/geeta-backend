@@ -129,6 +129,27 @@ export const SIZE_TEMPLATES: TemplateSeed[] = [
       { code: 'STD_90X54', label: 'Standard (90×54 mm)', width: 90, height: 54, unitCode: 'MM' },
     ],
   },
+  {
+    code: 'CLIENT_SHEET_13X19',
+    name: 'Client Catalog — 13×19 Sheet',
+    strategyType: PrintSizeStrategyType.SHEET_BASED,
+    description: 'Single commercial sheet — 13×19 inch digital press',
+    config: {},
+    sortOrder: 20,
+    items: [{ code: '13X19', label: '13×19 inch', sheetCode: '13X19' }],
+  },
+  {
+    code: 'CLIENT_SHEET_12X18_13X19',
+    name: 'Client Catalog — 12×18 & 13×19 Sheets',
+    strategyType: PrintSizeStrategyType.SHEET_BASED,
+    description: 'Dual sheet sizes for heavier art paper and Croma gumming',
+    config: {},
+    sortOrder: 21,
+    items: [
+      { code: '12X18', label: '12×18 inch', sheetCode: '12X18' },
+      { code: '13X19', label: '13×19 inch', sheetCode: '13X19' },
+    ],
+  },
 ];
 
 export async function seedSizeTemplates(ctx: SeedContext): Promise<void> {

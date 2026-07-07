@@ -90,6 +90,14 @@ export const PRINT_SPECIFICATIONS = [
     validationEnabled: true, previewEnabled: true, coverageAnalysisEnabled: false,
     allowedFormats: ['PDF', 'AI', 'PNG'], sortOrder: 11,
   },
+  {
+    code: 'CLIENT_DIGITAL_SHEET',
+    name: 'Client Digital Sheet — 300 DPI CMYK',
+    finishedWidthMm: 330, finishedHeightMm: 483, artworkWidthMm: 336, artworkHeightMm: 489,
+    bleedMm: 3, safeAreaMm: 3, minDpi: 300, maxFileSizeMb: 100, colorMode: PrintColorMode.CMYK,
+    validationEnabled: true, previewEnabled: true, coverageAnalysisEnabled: false,
+    allowedFormats: ['PDF', 'AI', 'CDR', 'PSD', 'JPEG', 'PNG', 'JPG'], sortOrder: 12,
+  },
 ] as const;
 
 export async function seedPrintSpecifications(ctx: SeedContext): Promise<void> {

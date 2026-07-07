@@ -59,12 +59,15 @@ const PRODUCT_WORKFLOW_RULES: ProductLinkRule[] = [
   },
   {
     templateCode: 'WF-DIGITAL',
-    match: ({ categorySlug }) =>
+    match: ({ slug, categorySlug }) =>
       categorySlug === 'visiting-cards' ||
       categorySlug === 'wedding-cards' ||
       categorySlug === 'invitation-cards' ||
       categorySlug === 'flyers' ||
-      categorySlug === 'brochures',
+      categorySlug === 'brochures' ||
+      categorySlug === 'digital-printing' ||
+      slug.startsWith('art-paper-') ||
+      slug.includes('gumming'),
   },
 ];
 

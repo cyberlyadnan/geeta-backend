@@ -5,6 +5,7 @@ export type PrintProfileKey =
   | 'VISITING_CARD'
   | 'VISITING_CARD_UV'
   | 'DIGITAL_SHEET'
+  | 'CLIENT_DIGITAL_SHEET'
   | 'OFFSET_SHEET'
   | 'FLEX'
   | 'VINYL'
@@ -52,6 +53,15 @@ export const PRINT_PROFILES: Record<PrintProfileKey, PrintProfile> = {
     processCode: 'DIGITAL',
     sizeTemplateCode: 'DIGITAL_SHEET_SIZES',
     specCode: 'DIGITAL_SHEET_STD',
+    fileUploadCode: 'ARTWORK_MAIN',
+    artworkRuleCodes: ARTWORK_PROFILES.DIGITAL_SHEET,
+    validationRuleCodes: VALIDATION_PROFILES.DIGITAL_SHEET,
+    pricingStrategyKey: 'digital_standard',
+  },
+  CLIENT_DIGITAL_SHEET: {
+    processCode: 'DIGITAL',
+    sizeTemplateCode: 'CLIENT_SHEET_13X19',
+    specCode: 'CLIENT_DIGITAL_SHEET',
     fileUploadCode: 'ARTWORK_MAIN',
     artworkRuleCodes: ARTWORK_PROFILES.DIGITAL_SHEET,
     validationRuleCodes: VALIDATION_PROFILES.DIGITAL_SHEET,
