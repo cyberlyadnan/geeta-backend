@@ -88,8 +88,12 @@ function buildDimensionCompare(
     widthMm: Math.round((detected.widthMm - expected.widthMm) * 100) / 100,
     heightMm: Math.round((detected.heightMm - expected.heightMm) * 100) / 100,
   };
-  const match =
+  const directMatch =
     Math.abs(delta.widthMm) <= tolerance && Math.abs(delta.heightMm) <= tolerance;
+  const rotatedMatch =
+    Math.abs(detected.widthMm - expected.heightMm) <= tolerance &&
+    Math.abs(detected.heightMm - expected.widthMm) <= tolerance;
+  const match = directMatch || rotatedMatch;
 
   return {
     detected,
@@ -97,8 +101,12 @@ function buildDimensionCompare(
     delta,
     status: match ? 'MATCH' : 'MISMATCH',
     message: match
-      ? 'Perfect match'
+      ? rotatedMatch
+        ? 'Correct size — orientation normalized automatically'
+        : 'Correct size'
       : `Wrong artwork size — expected ${expected.widthMm} × ${expected.heightMm} mm`,
+    orientationNormalized: rotatedMatch,
+    recommendedRotationDeg: rotatedMatch ? 90 : null,
   };
 }
 

@@ -39,6 +39,52 @@ function worstLevel(checks: ValidationCheck[]): ValidationLevel {
   return 'SUCCESS';
 }
 
+function resolveTargetDimensions(spec: PrintSpecRules, resolvedSize?: ResolvedSize) {
+  if (resolvedSize?.widthMm && resolvedSize?.heightMm) {
+    const bleed = Number(spec.bleedMm ?? 0);
+    return {
+      trimW: resolvedSize.widthMm,
+      trimH: resolvedSize.heightMm,
+      designW: resolvedSize.widthMm + bleed * 2,
+      designH: resolvedSize.heightMm + bleed * 2,
+    };
+  }
+
+  const designW = spec.artworkWidthMm ? Number(spec.artworkWidthMm) : null;
+  const designH = spec.artworkHeightMm ? Number(spec.artworkHeightMm) : null;
+  const trimW =
+    spec.artworkWidthMm && spec.bleedMm
+      ? Number(spec.artworkWidthMm) - Number(spec.bleedMm) * 2
+      : spec.artworkWidthMm
+        ? Number(spec.artworkWidthMm)
+        : null;
+  const trimH =
+    spec.artworkHeightMm && spec.bleedMm
+      ? Number(spec.artworkHeightMm) - Number(spec.bleedMm) * 2
+      : spec.artworkHeightMm
+        ? Number(spec.artworkHeightMm)
+        : null;
+
+  return { trimW, trimH, designW, designH };
+}
+
+function dimensionsMatch(
+  actualW: number,
+  actualH: number,
+  expectedW: number,
+  expectedH: number,
+  tolerance: number,
+) {
+  const direct =
+    Math.abs(actualW - expectedW) <= tolerance &&
+    Math.abs(actualH - expectedH) <= tolerance;
+  const rotated =
+    Math.abs(actualW - expectedH) <= tolerance &&
+    Math.abs(actualH - expectedW) <= tolerance;
+
+  return { direct, rotated, any: direct || rotated };
+}
+
 export class ValidationEngine {
   validate(
     metadata: ArtworkMetadataDto,
@@ -53,9 +99,9 @@ export class ValidationEngine {
     this.checkPages(metadata, spec, checks);
     this.checkDpi(metadata, spec, checks);
     this.checkDimensions(metadata, spec, resolvedSize, checks);
-    this.checkBleed(metadata, spec, checks);
+    this.checkBleed(metadata, spec, resolvedSize, checks);
     this.checkSafeArea(metadata, spec, checks);
-    this.checkOrientation(metadata, spec, checks);
+    this.checkOrientation(metadata, spec, resolvedSize, checks);
     this.checkColorMode(metadata, spec, checks);
     this.checkTransparency(metadata, checks);
 
@@ -139,16 +185,14 @@ export class ValidationEngine {
     resolvedSize: ResolvedSize | undefined,
     checks: ValidationCheck[],
   ) {
-    const targetW = spec.artworkWidthMm ? Number(spec.artworkWidthMm) : resolvedSize?.widthMm;
-    const targetH = spec.artworkHeightMm ? Number(spec.artworkHeightMm) : resolvedSize?.heightMm;
+    const { designW: targetW, designH: targetH } = resolveTargetDimensions(spec, resolvedSize);
 
     if (!targetW || !targetH || !metadata.widthMm || !metadata.heightMm) return;
 
     const tolerance = Number(spec.bleedMm ?? 2);
-    const wDiff = Math.abs(metadata.widthMm - targetW);
-    const hDiff = Math.abs(metadata.heightMm - targetH);
+    const match = dimensionsMatch(metadata.widthMm, metadata.heightMm, targetW, targetH, tolerance);
 
-    if (wDiff > tolerance || hDiff > tolerance) {
+    if (!match.any) {
       checks.push({
         code: 'DIMENSIONS',
         level: 'WARNING',
@@ -156,7 +200,13 @@ export class ValidationEngine {
         details: { widthMm: metadata.widthMm, heightMm: metadata.heightMm, targetW, targetH },
       });
     } else {
-      checks.push({ code: 'DIMENSIONS', level: 'SUCCESS', message: 'Dimensions match target size' });
+      checks.push({
+        code: 'DIMENSIONS',
+        level: 'SUCCESS',
+        message: match.rotated
+          ? 'Dimensions match target size after orientation normalization'
+          : 'Dimensions match target size',
+      });
     }
 
     if (metadata.widthMm && metadata.heightMm && targetW && targetH) {
@@ -186,24 +236,25 @@ export class ValidationEngine {
     }
   }
 
-  private checkBleed(metadata: ArtworkMetadataDto, spec: PrintSpecRules, checks: ValidationCheck[]) {
+  private checkBleed(
+    metadata: ArtworkMetadataDto,
+    spec: PrintSpecRules,
+    resolvedSize: ResolvedSize | undefined,
+    checks: ValidationCheck[],
+  ) {
     const bleed = spec.bleedMm ? Number(spec.bleedMm) : null;
-    const trimW = spec.artworkWidthMm && bleed
-      ? Number(spec.artworkWidthMm) - bleed * 2
-      : null;
-    const trimH = spec.artworkHeightMm && bleed
-      ? Number(spec.artworkHeightMm) - bleed * 2
-      : null;
+    const { trimW, trimH, designW: expectedW, designH: expectedH } = resolveTargetDimensions(spec, resolvedSize);
 
-    if (!bleed || !trimW || !trimH || !metadata.widthMm || !metadata.heightMm) return;
-
-    const expectedW = Number(spec.artworkWidthMm);
-    const expectedH = Number(spec.artworkHeightMm);
+    if (!bleed || !trimW || !trimH || !expectedW || !expectedH || !metadata.widthMm || !metadata.heightMm) return;
     const tolerance = 1.5;
 
-    const matchesDesign =
-      Math.abs(metadata.widthMm - expectedW) <= tolerance &&
-      Math.abs(metadata.heightMm - expectedH) <= tolerance;
+    const matchesDesign = dimensionsMatch(
+      metadata.widthMm,
+      metadata.heightMm,
+      expectedW,
+      expectedH,
+      tolerance,
+    ).any;
 
     if (matchesDesign) {
       checks.push({
@@ -215,9 +266,13 @@ export class ValidationEngine {
       return;
     }
 
-    const matchesTrimOnly =
-      Math.abs(metadata.widthMm - trimW) <= tolerance &&
-      Math.abs(metadata.heightMm - trimH) <= tolerance;
+    const matchesTrimOnly = dimensionsMatch(
+      metadata.widthMm,
+      metadata.heightMm,
+      trimW,
+      trimH,
+      tolerance,
+    ).any;
 
     if (matchesTrimOnly) {
       checks.push({
@@ -249,10 +304,23 @@ export class ValidationEngine {
     });
   }
 
-  private checkOrientation(metadata: ArtworkMetadataDto, spec: PrintSpecRules, checks: ValidationCheck[]) {
-    const targetW = spec.artworkWidthMm ? Number(spec.artworkWidthMm) : null;
-    const targetH = spec.artworkHeightMm ? Number(spec.artworkHeightMm) : null;
+  private checkOrientation(
+    metadata: ArtworkMetadataDto,
+    spec: PrintSpecRules,
+    resolvedSize: ResolvedSize | undefined,
+    checks: ValidationCheck[],
+  ) {
+    const { designW: targetW, designH: targetH } = resolveTargetDimensions(spec, resolvedSize);
     if (!targetW || !targetH || !metadata.widthMm || !metadata.heightMm) return;
+
+    if (dimensionsMatch(metadata.widthMm, metadata.heightMm, targetW, targetH, Number(spec.bleedMm ?? 2)).rotated) {
+      checks.push({
+        code: 'ORIENTATION',
+        level: 'SUCCESS',
+        message: 'Orientation normalized automatically for preview and size validation',
+      });
+      return;
+    }
 
     const artLandscape = metadata.widthMm >= metadata.heightMm;
     const targetLandscape = targetW >= targetH;

@@ -71,6 +71,8 @@ export interface DimensionCompareDto {
   delta?: { widthMm: number; heightMm: number } | null;
   status: 'MATCH' | 'MISMATCH' | 'UNKNOWN';
   message: string;
+  orientationNormalized?: boolean;
+  recommendedRotationDeg?: number | null;
 }
 
 export interface ArtworkAnalysisDto {

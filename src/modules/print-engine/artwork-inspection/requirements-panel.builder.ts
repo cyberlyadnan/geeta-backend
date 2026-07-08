@@ -23,6 +23,10 @@ export function buildRequirementsPanel(
   productDisplayName: string | null | undefined,
   printSpec: Record<string, unknown> | null,
   fileRequirements: PrintJobContextDto['fileRequirements'],
+  overrides?: {
+    trimSize?: { widthMm: number; heightMm: number } | null;
+    designSize?: { widthMm: number; heightMm: number } | null;
+  },
 ): ArtworkRequirementsPanelDto {
   const spec = printSpec ?? {};
   const meta = extractSpecMetadata(asRecord(spec['metadata']));
@@ -31,24 +35,28 @@ export function buildRequirementsPanel(
     if (!req.maxFileSizeMb) return max;
     return max == null ? req.maxFileSizeMb : Math.min(max, req.maxFileSizeMb);
   }, null);
+  const fallbackTrimSize =
+    num(spec['finishedWidthMm']) && num(spec['finishedHeightMm'])
+      ? { widthMm: num(spec['finishedWidthMm'])!, heightMm: num(spec['finishedHeightMm'])! }
+      : null;
+  const fallbackDesignSize =
+    num(spec['artworkWidthMm']) && num(spec['artworkHeightMm'])
+      ? { widthMm: num(spec['artworkWidthMm'])!, heightMm: num(spec['artworkHeightMm'])! }
+      : null;
+  const activeTrimSize = overrides?.trimSize ?? fallbackTrimSize;
+  const safeAreaInset = num(spec['safeAreaMm']);
 
   return {
     productName,
     productDisplayName,
-    trimSize:
-      num(spec['finishedWidthMm']) && num(spec['finishedHeightMm'])
-        ? { widthMm: num(spec['finishedWidthMm'])!, heightMm: num(spec['finishedHeightMm'])! }
-        : null,
-    designSize:
-      num(spec['artworkWidthMm']) && num(spec['artworkHeightMm'])
-        ? { widthMm: num(spec['artworkWidthMm'])!, heightMm: num(spec['artworkHeightMm'])! }
-        : null,
+    trimSize: overrides?.trimSize ?? fallbackTrimSize,
+    designSize: overrides?.designSize ?? fallbackDesignSize,
     safeArea: meta.safeAreaWidthMm && meta.safeAreaHeightMm
       ? { widthMm: meta.safeAreaWidthMm, heightMm: meta.safeAreaHeightMm }
-      : num(spec['finishedWidthMm']) && num(spec['safeAreaMm'])
+      : activeTrimSize && safeAreaInset != null
         ? {
-            widthMm: Math.max(num(spec['finishedWidthMm'])! - num(spec['safeAreaMm'])! * 2, 0),
-            heightMm: Math.max(num(spec['finishedHeightMm'])! - num(spec['safeAreaMm'])! * 2, 0),
+            widthMm: Math.max(activeTrimSize.widthMm - safeAreaInset * 2, 0),
+            heightMm: Math.max(activeTrimSize.heightMm - safeAreaInset * 2, 0),
           }
         : null,
     bleedMm: num(spec['bleedMm']),
@@ -68,6 +76,10 @@ export function buildInspectionContext(
   context: PrintJobContextDto,
   productName: string,
   productDisplayName?: string | null,
+  overrides?: {
+    trimSize?: { widthMm: number; heightMm: number } | null;
+    designSize?: { widthMm: number; heightMm: number } | null;
+  },
 ): ArtworkInspectionContextDto {
   const printSpec = asRecord(context.printSpecification);
   const meta = extractSpecMetadata(printSpec?.['metadata'] as Record<string, unknown> | undefined);
@@ -102,6 +114,7 @@ export function buildInspectionContext(
     productDisplayName,
     printSpec,
     context.fileRequirements,
+    overrides,
   );
 
   const overlay = buildOverlaySpec({

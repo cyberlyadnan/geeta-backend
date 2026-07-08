@@ -122,4 +122,6 @@ export interface ArtworkUploadSlot {
   artworkVersionId: string;
 }
 
+export interface ArtworkUploadSizeInput extends SizeInput {}
+
 export { ArtworkApprovalStatus, ArtworkProcessingStatus, ValidationLevel };

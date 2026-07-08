@@ -29,6 +29,7 @@ export const artworkPresignSchema = z.object({
   fileName: z.string().min(1).max(255),
   contentType: z.string().min(1),
   fileSize: z.number().int().positive(),
+  size: sizeInputSchema.optional(),
 });
 
 export const artworkRegisterSchema = z.object({
@@ -38,11 +39,13 @@ export const artworkRegisterSchema = z.object({
   fileKey: z.string().min(1),
   mimeType: z.string().min(1),
   fileSize: z.number().int().positive(),
+  size: sizeInputSchema.optional(),
 });
 
 export const artworkMultipartBodySchema = z.object({
   versionId: z.string().min(1),
   requirementCode: z.string().min(1),
+  size: z.union([sizeInputSchema, z.string()]).optional(),
 });
 
 export const livePricingSchema = z.object({

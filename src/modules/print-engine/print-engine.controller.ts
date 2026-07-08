@@ -35,15 +35,23 @@ export const printJobController = {
       throw ApiError.badRequest('Artwork file is required');
     }
 
-    const { versionId, requirementCode } = req.body as {
+    const { versionId, requirementCode, size } = req.body as {
       versionId: string;
       requirementCode: string;
+      size?: string;
     };
+    const parsedSize =
+      typeof size === 'string' && size.trim().length > 0
+        ? JSON.parse(size)
+        : typeof size === 'object' && size
+          ? size
+          : undefined;
 
     try {
       const data = await printJobService.uploadArtworkMultipart(req.user!.id, {
         versionId,
         requirementCode,
+        size: parsedSize,
         filePath: file.path,
         originalName: file.originalname,
         mimeType: file.mimetype,

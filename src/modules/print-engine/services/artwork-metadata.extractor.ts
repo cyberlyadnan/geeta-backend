@@ -128,7 +128,7 @@ export class ArtworkMetadataExtractor {
     ext: string,
   ): Promise<ExtractedArtwork> {
     const buffer = await downloadObject(params.fileKey);
-    const image = sharp(buffer);
+    const image = sharp(buffer).rotate();
     const meta = await image.metadata();
 
     const widthPx = meta.width ?? 0;
@@ -160,6 +160,7 @@ export class ArtworkMetadataExtractor {
     }
 
     const previewBuffer = await sharp(buffer)
+      .rotate()
       .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 80 })
       .toBuffer();
@@ -189,6 +190,7 @@ export class ArtworkMetadataExtractor {
         rawMetadata: {
           channels: meta.channels,
           format: meta.format,
+          orientation: meta.orientation,
         },
       },
       previewKey,

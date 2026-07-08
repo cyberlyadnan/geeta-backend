@@ -1,6 +1,6 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { ActivityAction, FileRequirementType, SupportedFileType } from '@prisma/client';
+import { ActivityAction, FileRequirementType, SupportedFileType, type Prisma } from '@prisma/client';
 import { prisma } from '../../../config/database.js';
 import { ApiError } from '../../../common/errors/ApiError.js';
 import { activityLogService } from '../../../services/activity/activity-log.service.js';
@@ -27,6 +27,7 @@ import { storageService } from '../../../services/storage/storage.service.js';
 import type { PriceCalculationResult } from '../../../services/pricing-engine/pricing.types.js';
 import type {
   ArtworkUploadSlot,
+  ArtworkUploadSizeInput,
   LivePricingInput,
   PrintJobContextDto,
   SizeInput,
@@ -34,6 +35,13 @@ import type {
 } from '../types/print-engine.types.js';
 
 const PRESIGN_EXPIRY = 600;
+
+type StoredArtworkSizeContext = {
+  selectedSize?: ArtworkUploadSizeInput;
+  resolvedSize?: { widthMm: number; heightMm: number; code?: string; label?: string };
+  expectedDesignSize?: { widthMm: number; heightMm: number };
+  expectedTrimSize?: { widthMm: number; heightMm: number };
+};
 
 export class PrintJobService {
   async getContext(versionId: string): Promise<PrintJobContextDto> {
@@ -75,6 +83,7 @@ export class PrintJobService {
       fileName: string;
       contentType: string;
       fileSize: number;
+      size?: ArtworkUploadSizeInput;
     },
   ) {
     const requirement = await this.resolveUploadRequirement(input.versionId, input.requirementCode);
@@ -120,6 +129,7 @@ export class PrintJobService {
       fileKey: string;
       mimeType: string;
       fileSize: number;
+      size?: ArtworkUploadSizeInput;
     },
   ) {
     const requirement = await this.resolveUploadRequirement(input.versionId, input.requirementCode);
@@ -127,6 +137,37 @@ export class PrintJobService {
     const config = assertR2Config();
     const ext = input.fileName.split('.').pop()?.toLowerCase() ?? 'bin';
     const publicUrl = buildPublicUrl(config.publicUrl, input.fileKey);
+
+    const resolved = await printContextResolver.resolveForVersion(input.versionId);
+    const resolvedSize =
+      resolved?.sizeStrategy && input.size && sizeEngine.canResolve(resolved.sizeStrategy, input.size)
+        ? sizeEngine.resolve(resolved.sizeStrategy, input.size)
+        : null;
+    const bleedMm =
+      resolved?.context.printSpecification?.['bleedMm'] != null
+        ? Number(resolved.context.printSpecification['bleedMm'])
+        : 0;
+    const sizeContext: StoredArtworkSizeContext | null = resolvedSize
+      ? {
+          selectedSize: input.size,
+          resolvedSize: {
+            widthMm: resolvedSize.widthMm,
+            heightMm: resolvedSize.heightMm,
+            code: resolvedSize.code,
+            label: resolvedSize.label,
+          },
+          expectedTrimSize: {
+            widthMm: resolvedSize.widthMm,
+            heightMm: resolvedSize.heightMm,
+          },
+          expectedDesignSize: {
+            widthMm: resolvedSize.widthMm + bleedMm * 2,
+            heightMm: resolvedSize.heightMm + bleedMm * 2,
+          },
+        }
+      : input.size
+        ? { selectedSize: input.size }
+        : null;
 
     const result = await prisma.$transaction(async (tx) => {
       const fileAsset = await tx.fileAsset.create({
@@ -188,6 +229,19 @@ export class PrintJobService {
         },
       });
 
+      if (sizeContext) {
+        await tx.artworkMetadata.create({
+          data: {
+            artworkVersionId: artworkVersion.id,
+            fileFormat: ext.toUpperCase(),
+            hasTransparency: false,
+            rotation: 0,
+            fileSizeBytes: input.fileSize,
+            rawMetadata: ({ selectedSizeContext: sizeContext } as unknown) as Prisma.InputJsonValue,
+          },
+        });
+      }
+
       return { artworkFileId, artworkVersionId: artworkVersion.id, fileAssetId: fileAsset.id };
     });
 
@@ -241,6 +295,7 @@ export class PrintJobService {
       originalName: string;
       mimeType: string;
       fileSize: number;
+      size?: ArtworkUploadSizeInput;
     },
   ) {
     const requirement = await this.resolveUploadRequirement(input.versionId, input.requirementCode);
@@ -269,6 +324,7 @@ export class PrintJobService {
       fileKey: key,
       mimeType: contentType,
       fileSize: input.fileSize,
+      size: input.size,
     });
   }
 
@@ -288,10 +344,17 @@ export class PrintJobService {
         const productName =
           resolved.version.productOffering.displayName ??
           resolved.version.productOffering.name;
+        const rawMetadata =
+          (mapped.metadata?.rawMetadata as Record<string, unknown> | null) ?? null;
+        const selectedSizeContext = rawMetadata?.['selectedSizeContext'] as StoredArtworkSizeContext | undefined;
         const inspectionContext = buildInspectionContext(
           resolved.context,
           productName,
           resolved.version.productOffering.displayName,
+          {
+            trimSize: selectedSizeContext?.expectedTrimSize ?? null,
+            designSize: selectedSizeContext?.expectedDesignSize ?? null,
+          },
         );
         inspection = buildArtworkInspection(inspectionContext, {
           previewUrl: mapped.previewUrl,

@@ -1,5 +1,6 @@
 import { prisma } from '../../../config/database.js';
 import { coverageEngine } from '../engines/coverage.engine.js';
+import { sizeEngine } from '../engines/size.engine.js';
 import { validationEngine } from '../engines/validation.engine.js';
 import { printEngineRepository } from '../repositories/print-engine.repository.js';
 import { artworkMetadataExtractor } from './artwork-metadata.extractor.js';
@@ -35,6 +36,20 @@ export class ArtworkProcessingService {
       versionId,
     });
 
+    const existingRawMetadata =
+      (detail.metadata?.rawMetadata as Record<string, unknown> | null) ?? {};
+    const storedSizeContext = existingRawMetadata['selectedSizeContext'] as
+      | {
+          selectedSize?: { sizeCode?: string; width?: number; height?: number; unit?: 'MM' | 'CM' | 'INCH' | 'FT' };
+          resolvedSize?: { widthMm: number; heightMm: number };
+        }
+      | undefined;
+    const mergedRawMetadata = {
+      ...existingRawMetadata,
+      ...(extracted.metadata.rawMetadata ?? {}),
+      selectedSizeContext: storedSizeContext,
+    };
+
     await prisma.artworkMetadata.upsert({
       where: { artworkVersionId },
       create: {
@@ -50,7 +65,7 @@ export class ArtworkProcessingService {
         hasTransparency: extracted.metadata.hasTransparency,
         rotation: extracted.metadata.rotation,
         fileSizeBytes: extracted.metadata.fileSizeBytes,
-        rawMetadata: (extracted.metadata.rawMetadata ?? {}) as object,
+        rawMetadata: mergedRawMetadata as object,
       },
       update: {
         fileFormat: extracted.metadata.fileFormat,
@@ -63,7 +78,7 @@ export class ArtworkProcessingService {
         colorMode: extracted.metadata.colorMode as PrintColorMode | undefined,
         hasTransparency: extracted.metadata.hasTransparency,
         fileSizeBytes: extracted.metadata.fileSizeBytes,
-        rawMetadata: (extracted.metadata.rawMetadata ?? {}) as object,
+        rawMetadata: mergedRawMetadata as object,
       },
     });
 
@@ -81,6 +96,27 @@ export class ArtworkProcessingService {
     const resolved = await printContextResolver.resolveForVersion(versionId);
     const specRecord = resolved?.context.printSpecification ?? null;
     const spec = version.printSpecification;
+    const selectedSizeInput =
+      storedSizeContext?.selectedSize && resolved?.sizeStrategy
+        ? {
+            ...storedSizeContext.selectedSize,
+            strategyType: resolved.sizeStrategy.strategyType,
+          }
+        : undefined;
+    const resolvedSize =
+      resolved?.sizeStrategy && selectedSizeInput && sizeEngine.canResolve(resolved.sizeStrategy, selectedSizeInput)
+        ? sizeEngine.resolve(resolved.sizeStrategy, selectedSizeInput)
+        : storedSizeContext?.resolvedSize
+          ? {
+              label: 'Resolved upload size',
+              widthMm: Number(storedSizeContext.resolvedSize.widthMm),
+              heightMm: Number(storedSizeContext.resolvedSize.heightMm),
+              areaCm2:
+                (Number(storedSizeContext.resolvedSize.widthMm) *
+                  Number(storedSizeContext.resolvedSize.heightMm)) /
+                100,
+            }
+          : undefined;
 
     const validation = validationEngine.validate(
       extracted.metadata,
@@ -132,6 +168,7 @@ export class ArtworkProcessingService {
           message: rule.message ?? undefined,
         };
       }),
+      resolvedSize,
     );
 
     await prisma.artworkValidation.upsert({
