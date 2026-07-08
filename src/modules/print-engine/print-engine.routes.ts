@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { RoleName } from '@prisma/client';
+import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import { authorize } from '../../middleware/authorize.js';
 import { validate } from '../../validators/validate.js';
@@ -110,6 +111,12 @@ adminRouter.post(
   validate(versionIdParamSchema, 'params'),
   validate(createFileRequirementSchema),
   adminPrintEngineController.createFileRequirement,
+);
+
+adminRouter.delete(
+  '/file-requirements/:id',
+  validate(z.object({ id: z.string().min(1) }), 'params'),
+  adminPrintEngineController.deleteFileRequirement,
 );
 
 adminRouter.post(

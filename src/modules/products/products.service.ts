@@ -36,7 +36,6 @@ const VENDOR_DETAIL_INCLUDE = {
     include: {
       quantityPricing: { where: { isActive: true }, orderBy: { quantity: 'asc' } },
       configurationFields: {
-        where: { isVisible: true },
         orderBy: { sortOrder: 'asc' },
         include: {
           options: {
@@ -46,7 +45,37 @@ const VENDOR_DETAIL_INCLUDE = {
           },
         },
       },
+      configurationRules: {
+        orderBy: { sortOrder: 'asc' },
+        include: { targetField: { select: { id: true, code: true, label: true } } },
+      },
       pricingRules: { where: { status: 'ACTIVE' }, orderBy: [{ priority: 'desc' }] },
+      fileRequirementsRel: {
+        orderBy: { sortOrder: 'asc' },
+        include: { allowedFileTypes: true },
+      },
+      productPrintConfig: {
+        select: {
+          pricingStrategyKey: true,
+          printProcess: { select: { code: true, name: true, pricingStrategyKey: true } },
+          sizeTemplate: { select: { code: true, name: true, strategyType: true } },
+          printSpecificationTemplate: {
+            select: {
+              code: true,
+              bleedMm: true,
+              safeAreaMm: true,
+              minDpi: true,
+              maxFileSizeMb: true,
+              colorMode: true,
+              allowedFormats: true,
+            },
+          },
+          fileUploadRuleTemplate: {
+            select: { code: true, name: true, maxFileSizeMb: true, allowedFileTypes: true },
+          },
+        },
+      },
+      workflow: { include: { workflowTemplate: { select: { code: true, name: true } } } },
     },
   },
   images: { orderBy: { sortOrder: 'asc' } },

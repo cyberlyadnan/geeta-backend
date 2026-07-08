@@ -4,6 +4,7 @@ import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { adminProductsService } from './admin-products.service.js';
 import { adminAttributesService } from './admin-attributes.service.js';
+import { adminConfigRulesService } from './admin-config-rules.service.js';
 import { adminPricingRulesService } from './admin-pricing-rules.service.js';
 import {
   adminCategoriesService,
@@ -13,12 +14,16 @@ import { adminCatalogService } from './admin-catalog.service.js';
 import type {
   CalculatePriceInput,
   CreateAttributeInput,
+  CreateConfigRuleInput,
   CreatePricingRuleInput,
   CreateProductInput,
   ListAttributesQuery,
+  ListConfigRulesQuery,
   ListPricingRulesQuery,
   ListProductsQuery,
+  OrderConfigurationQuery,
   UpdateAttributeInput,
+  UpdateConfigRuleInput,
   UpdatePricingRuleInput,
   UpdateProductInput,
   UpsertQuantityTierInput,
@@ -142,6 +147,44 @@ export class AdminProductsController {
     const { id } = req.validatedParams as { id: string };
     const result = await adminAttributesService.delete(id, req.user!.id);
     return ApiResponse.success(res, result, 'Attribute deleted');
+  });
+
+  // Order configuration (ConfigurationRule + aggregated Product Version order config)
+  listConfigRules = asyncHandler(async (req: Request, res: Response) => {
+    const { versionId } = req.validatedQuery as ListConfigRulesQuery;
+    const result = await adminConfigRulesService.list(versionId);
+    return ApiResponse.success(res, result);
+  });
+
+  createConfigRule = asyncHandler(async (req: Request, res: Response) => {
+    const result = await adminConfigRulesService.create(req.body as CreateConfigRuleInput);
+    return ApiResponse.created(res, result, 'Configuration rule created');
+  });
+
+  updateConfigRule = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminConfigRulesService.update(id, req.body as UpdateConfigRuleInput);
+    return ApiResponse.success(res, result, 'Configuration rule updated');
+  });
+
+  deleteConfigRule = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await adminConfigRulesService.delete(id);
+    return ApiResponse.success(res, result, 'Configuration rule deleted');
+  });
+
+  getOrderConfiguration = asyncHandler(async (req: Request, res: Response) => {
+    const { versionId, selections } = req.validatedQuery as OrderConfigurationQuery;
+    let parsed: Record<string, string> = {};
+    if (selections) {
+      try {
+        parsed = JSON.parse(selections) as Record<string, string>;
+      } catch {
+        parsed = {};
+      }
+    }
+    const result = await adminConfigRulesService.getOrderConfiguration(versionId, parsed);
+    return ApiResponse.success(res, result);
   });
 
   // Pricing

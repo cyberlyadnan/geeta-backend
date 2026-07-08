@@ -97,6 +97,13 @@ export class AdminPrintEngineService {
     });
   }
 
+  async deleteFileRequirement(id: string) {
+    const existing = await prisma.fileRequirement.findUnique({ where: { id } });
+    if (!existing) throw ApiError.notFound('File requirement not found');
+    await prisma.fileRequirement.delete({ where: { id } });
+    return { id, deleted: true };
+  }
+
   async createPrintLayer(
     versionId: string,
     data: {

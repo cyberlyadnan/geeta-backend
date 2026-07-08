@@ -22,8 +22,11 @@ export class AdminAttributesService {
       id: f.id,
       code: f.code,
       label: f.label,
+      description: f.description,
       fieldType: f.fieldType,
+      placeholder: f.placeholder,
       isRequired: f.isRequired,
+      isVisible: f.isVisible,
       sortOrder: f.sortOrder,
       values: f.options.map((o) => ({
         id: o.id,
@@ -31,6 +34,7 @@ export class AdminAttributesService {
         value: o.value,
         sortOrder: o.sortOrder,
         isActive: o.isActive,
+        isDefault: o.isDefault,
         pricing: o.pricing
           ? {
               adjustmentType: o.pricing.adjustmentType,
@@ -57,6 +61,9 @@ export class AdminAttributesService {
           label: input.label,
           fieldType: input.fieldType,
           isRequired: input.isRequired ?? false,
+          isVisible: input.isVisible ?? true,
+          description: input.description,
+          placeholder: input.placeholder,
           sortOrder: input.sortOrder ?? 0,
         },
       });
@@ -144,6 +151,9 @@ export class AdminAttributesService {
         ...(input.label != null && { label: input.label }),
         ...(input.fieldType != null && { fieldType: input.fieldType }),
         ...(input.isRequired != null && { isRequired: input.isRequired }),
+        ...(input.isVisible != null && { isVisible: input.isVisible }),
+        ...(input.description !== undefined && { description: input.description }),
+        ...(input.placeholder !== undefined && { placeholder: input.placeholder }),
         ...(input.sortOrder != null && { sortOrder: input.sortOrder }),
       },
     });

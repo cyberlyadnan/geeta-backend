@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { ProductStatus, ProductVisibility, PricingAdjustmentType, ConfigurationFieldType, PricingRuleStatus } from '@prisma/client';
+import {
+  ProductStatus,
+  ProductVisibility,
+  PricingAdjustmentType,
+  ConfigurationFieldType,
+  ConfigurationRuleType,
+  PricingRuleStatus,
+} from '@prisma/client';
 
 export const listProductsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -74,8 +81,11 @@ export const createAttributeSchema = z.object({
   versionId: z.string().min(1),
   code: z.string().min(1).max(64),
   label: z.string().min(1),
+  description: z.string().max(2000).optional().nullable(),
   fieldType: z.nativeEnum(ConfigurationFieldType).default('DROPDOWN'),
+  placeholder: z.string().max(200).optional().nullable(),
   isRequired: z.boolean().optional(),
+  isVisible: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   values: z.array(attributeValueSchema).optional(),
 });
@@ -208,3 +218,33 @@ export type ListSeriesQuery = z.infer<typeof listSeriesQuerySchema>;
 export type CreateSeriesInput = z.infer<typeof createSeriesSchema>;
 export type UpdateSeriesInput = z.infer<typeof updateSeriesSchema>;
 export type ReorderCatalogInput = z.infer<typeof reorderCatalogSchema>;
+
+/** Simple condition: { field, equals } | { field, in: [] } | { and|or: [] } */
+const configConditionSchema: z.ZodType<Record<string, unknown>> = z.record(z.unknown());
+
+export const createConfigRuleSchema = z.object({
+  versionId: z.string().min(1),
+  targetFieldId: z.string().min(1),
+  ruleType: z.nativeEnum(ConfigurationRuleType),
+  condition: configConditionSchema,
+  sortOrder: z.number().int().optional(),
+});
+
+export const updateConfigRuleSchema = createConfigRuleSchema.partial().omit({ versionId: true });
+
+export const configRuleIdParamSchema = z.object({ id: z.string().min(1) });
+
+export const listConfigRulesQuerySchema = z.object({
+  versionId: z.string().min(1),
+});
+
+export const orderConfigurationQuerySchema = z.object({
+  versionId: z.string().min(1),
+  /** Optional JSON string of current vendor selections for resolved visibility */
+  selections: z.string().optional(),
+});
+
+export type CreateConfigRuleInput = z.infer<typeof createConfigRuleSchema>;
+export type UpdateConfigRuleInput = z.infer<typeof updateConfigRuleSchema>;
+export type ListConfigRulesQuery = z.infer<typeof listConfigRulesQuerySchema>;
+export type OrderConfigurationQuery = z.infer<typeof orderConfigurationQuerySchema>;

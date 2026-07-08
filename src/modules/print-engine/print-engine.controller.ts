@@ -113,6 +113,12 @@ export const adminPrintEngineController = {
     res.status(201).json({ success: true, data });
   }),
 
+  deleteFileRequirement: asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const data = await adminPrintEngineService.deleteFileRequirement(id);
+    res.json({ success: true, data });
+  }),
+
   createPrintLayer: asyncHandler(async (req: Request, res: Response) => {
     const { versionId } = req.validatedParams as { versionId: string };
     const data = await adminPrintEngineService.createPrintLayer(versionId, req.body);

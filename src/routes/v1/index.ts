@@ -26,6 +26,7 @@ import {
   adminSeriesRoutes,
   adminCatalogRoutes,
   adminAttributesRoutes,
+  adminConfigRulesRoutes,
   adminPricingRulesRoutes,
   adminCategoriesRoutes,
 } from '../../modules/admin-products/index.js';
@@ -47,6 +48,7 @@ import { controlCenterRoutes } from '../../modules/production/control-center/ind
 import { machineRoutes } from '../../modules/production/machines/index.js';
 import { productionOrderRoutes } from '../../modules/production/orders/index.js';
 import { systemAdminRoutes } from '../../modules/system-admin/index.js';
+import { adminWorkflowRoutes } from '../../modules/admin-workflow/index.js';
 
 const v1Router = Router();
 
@@ -77,6 +79,7 @@ v1Router.use('/admin/storage', storageRoutes);
 v1Router.use('/admin/wallets', adminWalletsRoutes);
 v1Router.use('/admin/products', adminProductsRoutes);
 v1Router.use('/admin/attributes', adminAttributesRoutes);
+v1Router.use('/admin/config-rules', adminConfigRulesRoutes);
 v1Router.use('/admin/pricing-rules', adminPricingRulesRoutes);
 v1Router.use('/admin/categories', adminCategoriesRoutes);
 v1Router.use('/admin/families', adminFamiliesRoutes);
@@ -96,5 +99,6 @@ v1Router.use('/production', controlCenterRoutes);
 v1Router.use('/production', machineRoutes);
 v1Router.use('/production', productionOrderRoutes);
 v1Router.use('/admin/system', systemAdminRoutes);
+v1Router.use('/admin/workflows', adminWorkflowRoutes);
 
 export { v1Router };

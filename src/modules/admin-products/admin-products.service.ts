@@ -54,7 +54,37 @@ const PRODUCT_DETAIL_INCLUDE = {
           },
         },
       },
+      configurationRules: {
+        orderBy: { sortOrder: 'asc' },
+        include: { targetField: { select: { id: true, code: true, label: true } } },
+      },
       pricingRules: { orderBy: [{ priority: 'desc' }] },
+      fileRequirementsRel: {
+        orderBy: { sortOrder: 'asc' },
+        include: { allowedFileTypes: true },
+      },
+      productPrintConfig: {
+        select: {
+          pricingStrategyKey: true,
+          printProcess: { select: { code: true, name: true, pricingStrategyKey: true } },
+          sizeTemplate: { select: { code: true, name: true, strategyType: true } },
+          printSpecificationTemplate: {
+            select: {
+              code: true,
+              bleedMm: true,
+              safeAreaMm: true,
+              minDpi: true,
+              maxFileSizeMb: true,
+              colorMode: true,
+              allowedFormats: true,
+            },
+          },
+          fileUploadRuleTemplate: {
+            select: { code: true, name: true, maxFileSizeMb: true, allowedFileTypes: true },
+          },
+        },
+      },
+      workflow: { include: { workflowTemplate: { select: { id: true, code: true, name: true } } } },
     },
   },
   images: { orderBy: { sortOrder: 'asc' } },

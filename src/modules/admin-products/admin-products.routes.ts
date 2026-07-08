@@ -16,21 +16,26 @@ import {
   createSeriesSchema,
   familyIdParamSchema,
   listAttributesQuerySchema,
+  listConfigRulesQuerySchema,
   listFamiliesQuerySchema,
   listPricingRulesQuerySchema,
   listProductsQuerySchema,
   listSeriesQuerySchema,
+  orderConfigurationQuerySchema,
   pricingRuleIdParamSchema,
   productIdParamSchema,
   reorderCatalogSchema,
   seriesIdParamSchema,
   updateAttributeSchema,
   updateCategorySchema,
+  updateConfigRuleSchema,
   updateFamilySchema,
   updatePricingRuleSchema,
   updateProductSchema,
   updateSeriesSchema,
   upsertQuantityTierSchema,
+  createConfigRuleSchema,
+  configRuleIdParamSchema,
 } from './admin-products.validation.js';
 import { addProductImageSchema } from './admin-categories.service.js';
 import { z } from 'zod';
@@ -87,6 +92,27 @@ attributesRouter.patch(
 attributesRouter.delete('/:id', validate(attributeIdParamSchema, 'params'), adminProductsController.deleteAttribute);
 
 export { attributesRouter as adminAttributesRoutes };
+
+const configRulesRouter = Router();
+configRulesRouter.use(authenticate);
+configRulesRouter.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
+
+configRulesRouter.get('/', validate(listConfigRulesQuerySchema, 'query'), adminProductsController.listConfigRules);
+configRulesRouter.get(
+  '/order-configuration',
+  validate(orderConfigurationQuerySchema, 'query'),
+  adminProductsController.getOrderConfiguration,
+);
+configRulesRouter.post('/', validate(createConfigRuleSchema), adminProductsController.createConfigRule);
+configRulesRouter.patch(
+  '/:id',
+  validate(configRuleIdParamSchema, 'params'),
+  validate(updateConfigRuleSchema),
+  adminProductsController.updateConfigRule,
+);
+configRulesRouter.delete('/:id', validate(configRuleIdParamSchema, 'params'), adminProductsController.deleteConfigRule);
+
+export { configRulesRouter as adminConfigRulesRoutes };
 
 const pricingRouter = Router();
 pricingRouter.use(authenticate);

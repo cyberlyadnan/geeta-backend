@@ -17,7 +17,31 @@ type ProductDetailRow = Prisma.ProductOfferingGetPayload<{
       include: {
         quantityPricing: true;
         configurationFields: { include: { options: { include: { pricing: true } } } };
+        configurationRules: { include: { targetField: { select: { id: true; code: true; label: true } } } };
         pricingRules: true;
+        fileRequirementsRel: { include: { allowedFileTypes: true } };
+        productPrintConfig: {
+          select: {
+            pricingStrategyKey: true;
+            printProcess: { select: { code: true; name: true; pricingStrategyKey: true } };
+            sizeTemplate: { select: { code: true; name: true; strategyType: true } };
+            printSpecificationTemplate: {
+              select: {
+                code: true;
+                bleedMm: true;
+                safeAreaMm: true;
+                minDpi: true;
+                maxFileSizeMb: true;
+                colorMode: true;
+                allowedFormats: true;
+              };
+            };
+            fileUploadRuleTemplate: {
+              select: { code: true; name: true; maxFileSizeMb: true; allowedFileTypes: true };
+            };
+          };
+        };
+        workflow: { include: { workflowTemplate: { select: { id: true; code: true; name: true } } } };
       };
     };
     images: true;
@@ -88,6 +112,15 @@ export function mapProductDetailToDto(product: ProductDetailRow) {
     sortOrder: product.sortOrder,
     category: mapCategory(category),
     seriesId: product.seriesId,
+    series: {
+      id: product.series.id,
+      name: product.series.name,
+      family: {
+        id: product.series.family.id,
+        name: product.series.family.name,
+        category: mapCategory(category),
+      },
+    },
     images: product.images.map((img) => ({
       id: img.id,
       imageUrl: img.imageUrl,
@@ -113,18 +146,78 @@ export function mapProductDetailToDto(product: ProductDetailRow) {
             id: field.id,
             code: field.code,
             label: field.label,
+            description: field.description,
             fieldType: field.fieldType,
+            placeholder: field.placeholder,
             isRequired: field.isRequired,
+            isVisible: field.isVisible,
             sortOrder: field.sortOrder,
             values: field.options.map((opt) => ({
               id: opt.id,
               label: opt.label,
               value: opt.value,
               sortOrder: opt.sortOrder,
+              isDefault: opt.isDefault,
               isActive: opt.isActive,
               pricing: mapOptionPricing(opt.pricing),
             })),
           })),
+          configurationRules: currentVersion.configurationRules.map((rule) => ({
+            id: rule.id,
+            targetFieldId: rule.targetFieldId,
+            targetFieldCode: rule.targetField.code,
+            targetFieldLabel: rule.targetField.label,
+            ruleType: rule.ruleType,
+            condition: rule.condition,
+            sortOrder: rule.sortOrder,
+          })),
+          orderConfiguration: {
+            hasQuestions: currentVersion.configurationFields.length > 0,
+            hasRules: currentVersion.configurationRules.length > 0,
+            hasArtworkRequirements:
+              currentVersion.fileRequirementsRel.length > 0 ||
+              Boolean(currentVersion.productPrintConfig?.fileUploadRuleTemplate),
+            pricingStrategyKey:
+              currentVersion.productPrintConfig?.pricingStrategyKey ??
+              currentVersion.productPrintConfig?.printProcess?.pricingStrategyKey ??
+              null,
+            sizeTemplate: currentVersion.productPrintConfig?.sizeTemplate ?? null,
+            printSpecification: currentVersion.productPrintConfig?.printSpecificationTemplate
+              ? {
+                  code: currentVersion.productPrintConfig.printSpecificationTemplate.code,
+                  bleedMm:
+                    currentVersion.productPrintConfig.printSpecificationTemplate.bleedMm != null
+                      ? Number(currentVersion.productPrintConfig.printSpecificationTemplate.bleedMm)
+                      : null,
+                  safeAreaMm:
+                    currentVersion.productPrintConfig.printSpecificationTemplate.safeAreaMm != null
+                      ? Number(currentVersion.productPrintConfig.printSpecificationTemplate.safeAreaMm)
+                      : null,
+                  minDpi: currentVersion.productPrintConfig.printSpecificationTemplate.minDpi,
+                  maxFileSizeMb: currentVersion.productPrintConfig.printSpecificationTemplate.maxFileSizeMb,
+                  colorMode: currentVersion.productPrintConfig.printSpecificationTemplate.colorMode,
+                  allowedFormats: (currentVersion.productPrintConfig.printSpecificationTemplate
+                    .allowedFormats as string[]) ?? [],
+                }
+              : null,
+            fileRequirements: currentVersion.fileRequirementsRel.map((r) => ({
+              id: r.id,
+              code: r.code,
+              label: r.label,
+              requirementType: r.requirementType,
+              maxFileSizeMb: r.maxFileSizeMb,
+              allowMultiple: r.allowMultiple,
+              allowedFileTypes: r.allowedFileTypes.map((t) => t.fileType),
+            })),
+            workflow: currentVersion.workflow?.workflowTemplate
+              ? {
+                  id: currentVersion.workflow.workflowTemplate.id,
+                  code: currentVersion.workflow.workflowTemplate.code,
+                  name: currentVersion.workflow.workflowTemplate.name,
+                }
+              : null,
+            softArtworkValidation: true,
+          },
           pricingRules: currentVersion.pricingRules.map((rule) => ({
             id: rule.id,
             name: rule.name,
