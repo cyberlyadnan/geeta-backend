@@ -3,6 +3,7 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { WORKFLOW_TEMPLATE_WITH_STEPS } from '../workflow/workflow.repository.js';
 import { workflowTemplateCache } from '../workflow/workflow.cache.js';
+import { resolveFacilityId } from './ensure-default-facility.js';
 import type {
   CreateWorkflowTemplateInput,
   CursorQuery,
@@ -106,9 +107,11 @@ export class SystemWorkflowsService {
       await prisma.workflowTemplate.updateMany({ data: { isDefault: false }, where: { isDefault: true } });
     }
 
+    const facilityId = await resolveFacilityId(input.facilityId);
+
     const template = await prisma.workflowTemplate.create({
       data: {
-        facilityId: input.facilityId,
+        facilityId,
         name: input.name,
         code: input.code,
         description: input.description,

@@ -1,6 +1,7 @@
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { productionQueueCache } from '../production/queue/queue.cache.js';
+import { resolveFacilityId } from './ensure-default-facility.js';
 import type { CreateDepartmentInput, CursorQuery, UpdateDepartmentInput } from './system-admin.validation.js';
 
 export class SystemDepartmentsService {
@@ -93,8 +94,13 @@ export class SystemDepartmentsService {
     const existing = await prisma.department.findUnique({ where: { code: input.code } });
     if (existing) throw ApiError.conflict('Department code already exists');
 
+    const facilityId = await resolveFacilityId(input.facilityId);
+
     const dept = await prisma.department.create({
-      data: input,
+      data: {
+        ...input,
+        facilityId,
+      },
     });
 
     await productionQueueCache.invalidateAll();

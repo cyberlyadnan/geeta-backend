@@ -67,7 +67,7 @@ export const updateRolePermissionsSchema = z.object({
 });
 
 export const createDepartmentSchema = z.object({
-  facilityId: z.string().cuid(),
+  facilityId: z.string().cuid().optional(),
   name: z.string().min(1).max(120),
   code: z.string().min(2).max(40).regex(/^[A-Z0-9_]+$/),
   description: z.string().max(2000).optional(),
@@ -78,7 +78,7 @@ export const createDepartmentSchema = z.object({
 export const updateDepartmentSchema = createDepartmentSchema.partial().omit({ code: true });
 
 export const createWorkflowTemplateSchema = z.object({
-  facilityId: z.string().cuid(),
+  facilityId: z.string().cuid().optional(),
   name: z.string().min(1).max(200),
   code: z.string().min(2).max(60).regex(/^WF-[A-Z0-9_]+$/),
   description: z.string().max(2000).optional(),
