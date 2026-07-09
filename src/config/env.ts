@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import { enforceMinDuration } from '../utils/time.js';
+
+const jwtDuration = (defaultValue: string) =>
+  z
+    .string()
+    .default(defaultValue)
+    .transform((value) => enforceMinDuration(value));
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -37,8 +44,8 @@ const envSchema = z.object({
 
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
-  JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
-  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
+  JWT_ACCESS_EXPIRES_IN: jwtDuration('1d'),
+  JWT_REFRESH_EXPIRES_IN: jwtDuration('7d'),
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 

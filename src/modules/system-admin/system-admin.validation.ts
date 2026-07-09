@@ -80,7 +80,11 @@ export const updateDepartmentSchema = createDepartmentSchema.partial().omit({ co
 export const createWorkflowTemplateSchema = z.object({
   facilityId: z.string().cuid().optional(),
   name: z.string().min(1).max(200),
-  code: z.string().min(2).max(60).regex(/^WF-[A-Z0-9_]+$/),
+  code: z
+    .string()
+    .min(2)
+    .max(60)
+    .regex(/^WF-[A-Z0-9_-]+$/, 'Code must start with WF- and use only uppercase letters, numbers, underscores, or hyphens'),
   description: z.string().max(2000).optional(),
   isDefault: z.boolean().optional(),
 });

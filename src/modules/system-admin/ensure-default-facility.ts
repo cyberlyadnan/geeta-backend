@@ -1,17 +1,18 @@
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
-import { FACILITY_CODE } from '../../../prisma/seed/master/production.constants.js';
+
+const DEFAULT_FACILITY_CODE = 'GEETA-MAIN';
 
 /** Ensures a production facility exists after a full DB reset (manual ERP bootstrap). */
 export async function ensureDefaultFacility() {
   return prisma.facility.upsert({
-    where: { code: FACILITY_CODE },
+    where: { code: DEFAULT_FACILITY_CODE },
     update: {
       name: 'Geeta Print Main Facility',
       isActive: true,
     },
     create: {
-      code: FACILITY_CODE,
+      code: DEFAULT_FACILITY_CODE,
       name: 'Geeta Print Main Facility',
       address: 'Main production facility',
       isActive: true,
