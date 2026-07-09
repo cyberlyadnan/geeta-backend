@@ -49,6 +49,7 @@ import { machineRoutes } from '../../modules/production/machines/index.js';
 import { productionOrderRoutes } from '../../modules/production/orders/index.js';
 import { systemAdminRoutes } from '../../modules/system-admin/index.js';
 import { adminWorkflowRoutes } from '../../modules/admin-workflow/index.js';
+import { vendorCatalogRoutes } from '../../modules/vendor-catalog/index.js';
 
 const v1Router = Router();
 
@@ -72,6 +73,7 @@ v1Router.use('/delivery', deliveryRoutes);
 v1Router.use('/admin/delivery', adminDeliveryRoutes);
 v1Router.use('/contact', contactRoutes);
 v1Router.use('/vendors', vendorsRoutes);
+v1Router.use('/vendor', vendorCatalogRoutes);
 v1Router.use('/admin/vendors', adminVendorsRoutes);
 v1Router.use('/sliders', sliderRoutes);
 v1Router.use('/admin/sliders', adminSlidersRoutes);
