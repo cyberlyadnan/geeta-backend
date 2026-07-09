@@ -30,6 +30,7 @@ import { allocateOrderNumber } from './order-number.service.js';
 import { notifyUser, recordOrderEvent } from './order-events.service.js';
 import { workflowEngine } from '../workflow/workflow.engine.js';
 import { storageService } from '../../services/storage/storage.service.js';
+import { isPreviewableArtwork } from '../../services/storage/storage.utils.js';
 import type { CreateProductionOrderInput, ListOrdersQuery, OrderPreviewInput } from './orders.validation.js';
 import { ARTWORK_EMAIL_SERVICE_CHARGE } from './orders.constants.js';
 
@@ -532,22 +533,62 @@ async function resolveArtworkPreviewUrl(
     fileAsset.mimeType.toLowerCase().startsWith('image/');
   const isPdf = ext === 'pdf' || fileAsset.mimeType.toLowerCase() === 'application/pdf';
 
-  const storageKey = version?.previewKey ?? (isRaster || isPdf ? fileAsset.fileKey : null);
-  if (storageKey) {
+  async function presignKey(key: string, mimeType?: string): Promise<string | null> {
+    if (!key?.trim()) return null;
     try {
-      const signed = await storageService.createPresignedDownload(storageKey, {
+      const signed = await storageService.createPresignedDownload(key, {
         fileName: fileAsset.originalName,
-        mimeType: version?.previewKey ? 'image/webp' : fileAsset.mimeType,
+        mimeType,
       });
       return signed.url;
     } catch {
-      // Fall through to stored public URLs.
+      try {
+        return storageService.getPublicUrlForKey(key);
+      } catch {
+        return null;
+      }
     }
   }
 
+  // Generated WebP preview (PDF rasterization or optimized thumb)
   if (version?.previewUrl) return version.previewUrl;
+  if (version?.previewKey) {
+    const fromPreviewKey = await presignKey(version.previewKey, 'image/webp');
+    if (fromPreviewKey) return fromPreviewKey;
+  }
+
+  // Raster originals — public CDN URL is reliable for <img> (matches print-job status API)
   if (isRaster && fileAsset.fileUrl) return fileAsset.fileUrl;
+
+  if ((isRaster || isPdf) && isPreviewableArtwork(ext)) {
+    const fromFileKey = await presignKey(fileAsset.fileKey, fileAsset.mimeType);
+    if (fromFileKey) return fromFileKey;
+  }
+
   return null;
+}
+
+async function resolveArtworkFileUrl(fileAsset: {
+  fileUrl: string;
+  fileKey: string;
+  originalName: string;
+  mimeType: string;
+}): Promise<string | null> {
+  if (fileAsset.fileUrl) return fileAsset.fileUrl;
+  if (!fileAsset.fileKey?.trim()) return null;
+  try {
+    const signed = await storageService.createPresignedDownload(fileAsset.fileKey, {
+      fileName: fileAsset.originalName,
+      mimeType: fileAsset.mimeType,
+    });
+    return signed.url;
+  } catch {
+    try {
+      return storageService.getPublicUrlForKey(fileAsset.fileKey);
+    } catch {
+      return null;
+    }
+  }
 }
 
 function mapOrderToListDto(order: OrderListRecord) {
@@ -582,6 +623,7 @@ async function mapOrderToDetailDto(order: OrderDetailRecord) {
     ? await Promise.all(
         item.orderArtworks.map(async (a) => ({
           id: a.id,
+          artworkVersionId: a.pinnedVersion?.artworkVersion.id ?? null,
           requirementCode: a.fileRequirementCode,
           approvalStatus: a.approvalStatus,
           fileName: a.artworkFile.fileAsset.originalName,
@@ -590,6 +632,7 @@ async function mapOrderToDetailDto(order: OrderDetailRecord) {
             a.pinnedVersion?.artworkVersion,
             a.artworkFile.fileAsset,
           ),
+          fileUrl: await resolveArtworkFileUrl(a.artworkFile.fileAsset),
           validation: a.pinnedVersion?.artworkVersion.validation ?? null,
           coverage: a.pinnedVersion?.artworkVersion.coverageAnalyses ?? [],
           metadata: a.pinnedVersion?.artworkVersion.metadata ?? null,
