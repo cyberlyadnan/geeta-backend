@@ -11,6 +11,8 @@ import {
 } from '../../../services/storage/storage.utils.js';
 import type { ArtworkMetadataDto } from '../types/print-engine.types.js';
 import type { PrintColorMode } from '@prisma/client';
+import { renderPdfFirstPagePreview } from './pdf-preview.renderer.js';
+import { logger } from '../../../logs/logger.js';
 
 export interface ExtractedArtwork {
   metadata: ArtworkMetadataDto;
@@ -101,6 +103,25 @@ export class ArtworkMetadataExtractor {
     const widthMm = (width / 72) * 25.4;
     const heightMm = (height / 72) * 25.4;
 
+    let previewKey: string | undefined;
+    let previewUrl: string | undefined;
+
+    try {
+      const previewBuffer = await renderPdfFirstPagePreview(buffer);
+      previewKey = buildArtworkObjectKey(
+        params.userId,
+        params.versionId,
+        `preview-${params.fileName}`,
+        'image/webp',
+      ).replace(/\.[^.]+$/, '.webp');
+      previewUrl = await uploadPreview(previewKey, previewBuffer, 'image/webp');
+    } catch (error) {
+      logger.warn('PDF preview generation failed', {
+        fileName: params.fileName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     return {
       metadata: {
         fileFormat: 'PDF',
@@ -113,6 +134,8 @@ export class ArtworkMetadataExtractor {
         fileSizeBytes: params.fileSize,
         rawMetadata: { pdfPoints: { width, height } },
       },
+      previewKey,
+      previewUrl,
     };
   }
 

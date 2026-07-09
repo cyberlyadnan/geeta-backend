@@ -60,6 +60,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1056.0",
     "@aws-sdk/s3-request-presigner": "^3.1056.0",
+    "@napi-rs/canvas": "^1.0.2",
     "@prisma/client": "^6.8.2",
     "bcryptjs": "^3.0.2",
     "bullmq": "^5.53.2",
@@ -77,6 +78,7 @@
     "morgan": "^1.10.0",
     "multer": "^2.2.0",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.1.200",
     "razorpay": "^2.9.6",
     "sharp": "^0.35.2",
     "socket.io": "^4.8.1",

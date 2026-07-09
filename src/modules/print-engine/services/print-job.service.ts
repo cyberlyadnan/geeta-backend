@@ -9,6 +9,7 @@ import {
   assertValidArtworkUpload,
   buildArtworkObjectKey,
   buildPublicUrl,
+  isPreviewableArtwork,
   normalizeArtworkContentType,
 } from '../../../services/storage/storage.utils.js';
 import { productsService } from '../../products/products.service.js';
@@ -471,9 +472,12 @@ export class PrintJobService {
       id: detail.id,
       versionNumber: detail.versionNumber,
       processingStatus: detail.processingStatus,
-      previewUrl: detail.previewUrl ?? (detail.fileAsset.mimeType.toLowerCase().startsWith('image/')
-        ? detail.fileAsset.fileUrl
-        : null),
+      previewUrl:
+        detail.previewUrl ??
+        (isPreviewableArtwork(detail.fileAsset.extension) &&
+        detail.fileAsset.mimeType.toLowerCase().startsWith('image/')
+          ? detail.fileAsset.fileUrl
+          : null),
       metadata: detail.metadata,
       validation: detail.validation,
       coverageAnalyses: detail.coverageAnalyses?.map((c) => ({
@@ -487,6 +491,7 @@ export class PrintJobService {
         extension: detail.fileAsset.extension,
         fileSize: detail.fileAsset.fileSize,
         mimeType: detail.fileAsset.mimeType,
+        fileUrl: detail.fileAsset.fileUrl,
       },
       versions: detail.artworkFile.versions.map((v) => ({
         id: v.id,
