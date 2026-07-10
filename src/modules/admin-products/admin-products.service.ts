@@ -403,7 +403,6 @@ export class AdminProductsService {
     const slug = await uniqueSlug(newName, async (s) =>
       !!(await prisma.productOffering.findUnique({ where: { slug: s } })),
     );
-    const sku = await this.resolveCloneSku(source.sku);
 
     const cloned = await prisma.$transaction(async (tx) => {
       const offering = await tx.productOffering.create({
@@ -413,7 +412,7 @@ export class AdminProductsService {
           slug,
           description: source.description,
           shortDescription: source.shortDescription,
-          sku,
+          sku: null,
           visibility: source.visibility,
           status: ProductStatus.DRAFT,
           sortOrder: source.sortOrder,
@@ -576,22 +575,6 @@ export class AdminProductsService {
     };
   }
 
-  private async resolveCloneSku(sourceSku: string | null): Promise<string | null> {
-    const trimmed = sourceSku?.trim();
-    if (!trimmed) return null;
-
-    let candidate = `${trimmed}-copy`;
-    let suffix = 2;
-    while (
-      await prisma.productOffering.findFirst({
-        where: { sku: candidate, deletedAt: null },
-      })
-    ) {
-      candidate = `${trimmed}-copy-${suffix}`;
-      suffix += 1;
-    }
-    return candidate;
-  }
 }
 
 export const adminProductsService = new AdminProductsService();

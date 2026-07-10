@@ -1,2 +1,2 @@
-/** Service charge when vendor sends artwork via email instead of online upload */
-export const ARTWORK_EMAIL_SERVICE_CHARGE = 10;
+/** Email artwork is free — no surcharge when vendor sends files via email */
+export const ARTWORK_EMAIL_SERVICE_CHARGE = 0;
