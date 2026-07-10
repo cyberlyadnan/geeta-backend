@@ -13,6 +13,7 @@ import { artworkMultipartUpload } from './middleware/artwork-upload.middleware.j
 import {
   artworkApprovalSchema,
   artworkMultipartBodySchema,
+  orderArtworkIdParamSchema,
   artworkPresignSchema,
   artworkRegisterSchema,
   artworkVersionIdParamSchema,
@@ -146,8 +147,22 @@ productionRouter.get(
 
 productionRouter.patch(
   '/order-artwork/:id/approval',
+  validate(orderArtworkIdParamSchema, 'params'),
   validate(artworkApprovalSchema),
   productionArtworkController.updateApproval,
+);
+
+productionRouter.get(
+  '/order-artwork/:id/inspection',
+  validate(orderArtworkIdParamSchema, 'params'),
+  productionArtworkController.getOrderArtworkInspection,
+);
+
+productionRouter.post(
+  '/order-artwork/:id/replace',
+  validate(orderArtworkIdParamSchema, 'params'),
+  artworkMultipartUpload.single('file'),
+  productionArtworkController.replaceOrderArtwork,
 );
 
 productionRouter.get(

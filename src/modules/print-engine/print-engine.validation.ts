@@ -172,3 +172,7 @@ export const artworkApprovalSchema = z.object({
   status: z.enum(['APPROVED', 'REJECTED', 'REVISION_REQUESTED']),
   adminNotes: z.string().max(2000).optional(),
 });
+
+export const orderArtworkIdParamSchema = z.object({
+  id: z.string().min(1),
+});

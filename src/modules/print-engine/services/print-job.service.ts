@@ -335,6 +335,45 @@ export class PrintJobService {
       throw ApiError.notFound('Artwork not found');
     }
 
+    return this.buildArtworkStatusResponse(detail);
+  }
+
+  async getArtworkStatusUnscoped(artworkVersionId: string) {
+    const detail = await printEngineRepository.getArtworkVersionDetail(artworkVersionId);
+    if (!detail) throw ApiError.notFound('Artwork not found');
+    return this.buildArtworkStatusResponse(detail);
+  }
+
+  async enqueueArtworkProcessingForVersion(
+    artworkVersionId: string,
+    versionId: string,
+    userId: string,
+  ) {
+    const queued = await enqueueArtworkProcessing({ artworkVersionId, userId, versionId });
+
+    if (queued) {
+      logger.debug('Artwork queued for worker processing', { artworkVersionId });
+      return;
+    }
+
+    void artworkProcessingService.processArtworkVersion(artworkVersionId, versionId).catch((error) => {
+      logger.error('Artwork background processing failed after production replace', {
+        artworkVersionId,
+        versionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      void prisma.artworkVersion
+        .update({
+          where: { id: artworkVersionId },
+          data: { processingStatus: 'FAILED' },
+        })
+        .catch(() => undefined);
+    });
+  }
+
+  private async buildArtworkStatusResponse(
+    detail: NonNullable<Awaited<ReturnType<typeof printEngineRepository['getArtworkVersionDetail']>>>,
+  ) {
     const mapped = this.mapArtworkVersion(detail);
     const versionId = detail.artworkFile.versionId;
     let inspection = null;

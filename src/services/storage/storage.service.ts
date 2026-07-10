@@ -60,14 +60,15 @@ export class StorageService {
 
   async createPresignedDownload(
     key: string,
-    options?: { fileName?: string; mimeType?: string },
+    options?: { fileName?: string; mimeType?: string; disposition?: 'inline' | 'attachment' },
   ): Promise<PresignedDownloadResult> {
     if (!key?.trim()) {
       throw new Error('File key is required');
     }
     const config = assertR2Config();
     const fileName = options?.fileName?.trim() || 'document';
-    const disposition = `inline; filename="${fileName.replace(/"/g, '')}"`;
+    const mode = options?.disposition ?? 'inline';
+    const disposition = `${mode}; filename="${fileName.replace(/"/g, '')}"`;
 
     const command = new GetObjectCommand({
       Bucket: config.bucketName,

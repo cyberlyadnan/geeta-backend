@@ -5,6 +5,7 @@ import { adminPrintEngineService } from './services/admin-print-engine.service.j
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { storageService } from '../../services/storage/storage.service.js';
+import { productionArtworkService } from '../production/artwork/production-artwork.service.js';
 
 export const printJobController = {
   getContext: asyncHandler(async (req: Request, res: Response) => {
@@ -173,6 +174,8 @@ export const productionArtworkController = {
 
   downloadOriginal: asyncHandler(async (req: Request, res: Response) => {
     const { artworkVersionId } = req.validatedParams as { artworkVersionId: string };
+    await productionArtworkService.assertArtworkVersionAccessible(artworkVersionId);
+
     const version = await prisma.artworkVersion.findUnique({
       where: { id: artworkVersionId },
       include: { fileAsset: true },
@@ -182,7 +185,39 @@ export const productionArtworkController = {
     const download = await storageService.createPresignedDownload(version.fileAsset.fileKey, {
       fileName: version.fileAsset.originalName,
       mimeType: version.fileAsset.mimeType,
+      disposition: 'attachment',
     });
-    res.json({ success: true, data: download });
+    res.json({
+      success: true,
+      data: { ...download, fileName: version.fileAsset.originalName },
+    });
+  }),
+
+  getOrderArtworkInspection: asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const data = await productionArtworkService.getOrderArtworkInspection(id);
+    res.json({ success: true, data });
+  }),
+
+  replaceOrderArtwork: asyncHandler(async (req: Request, res: Response) => {
+    const file = req.file;
+    if (!file) throw ApiError.badRequest('Artwork file is required');
+
+    const { id } = req.validatedParams as { id: string };
+    const notes = typeof req.body?.notes === 'string' ? req.body.notes : undefined;
+
+    try {
+      const data = await productionArtworkService.replaceOrderArtwork(id, req.user!.id, {
+        filePath: file.path,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        notes,
+      });
+      res.status(201).json({ success: true, data });
+    } finally {
+      const { unlink } = await import('node:fs/promises');
+      await unlink(file.path).catch(() => undefined);
+    }
   }),
 };
