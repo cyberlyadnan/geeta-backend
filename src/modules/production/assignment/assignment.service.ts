@@ -1,11 +1,11 @@
 import {
   ActivityAction,
+  RoleName,
   WorkflowHistoryAction,
   WorkflowTaskAssignmentHistoryAction,
   WorkflowTaskAssignmentStatus,
   WorkflowTaskStatus,
   type Prisma,
-  type RoleName,
 } from '@prisma/client';
 import { prisma } from '../../../config/database.js';
 import { ApiError } from '../../../common/errors/ApiError.js';
@@ -23,8 +23,10 @@ import {
   mapOperatorToDto,
 } from './assignment.dto.js';
 import { assignmentRepository } from './assignment.repository.js';
+import { assignmentStrategyService } from './assignment.strategy.js';
 import { machineService } from '../machines/machine.service.js';
 import { ASSIGNABLE_MACHINE_STATUSES } from '../machines/machine.constants.js';
+import { logger } from '../../../logs/logger.js';
 import type {
   AssignTaskBody,
   MyTasksQuery,
@@ -37,6 +39,10 @@ const ASSIGNABLE_TASK_STATUSES: WorkflowTaskStatus[] = [
   WorkflowTaskStatus.READY,
   WorkflowTaskStatus.ASSIGNED,
 ];
+
+const AUTO_ASSIGN_ENABLED = process.env['PRODUCTION_AUTO_ASSIGN'] !== 'false';
+
+let cachedSystemAssignerId: string | null = null;
 
 export class AssignmentService {
   async assign(
@@ -498,6 +504,208 @@ export class AssignmentService {
       items: result.items.map(mapMyAssignedTask),
       meta: { nextCursor: result.nextCursor, hasMore: result.hasMore, limit: result.limit },
     };
+  }
+
+  /**
+   * Auto-assign when a task becomes READY (invoked from TASK_READY listener).
+   * Uses round-robin per department — strategy extensible later.
+   */
+  async tryAutoAssignReadyTask(taskId: string): Promise<void> {
+    if (!AUTO_ASSIGN_ENABLED) return;
+
+    const task = await assignmentRepository.findTaskForAssignment(taskId);
+    if (!task) return;
+    if (task.status !== WorkflowTaskStatus.READY) return;
+    if (isTaskTerminal(task.status)) return;
+
+    const existing = await assignmentRepository.findActiveAssignment(taskId);
+    if (existing) return;
+
+    const operatorId = await assignmentStrategyService.pickOperator(task.departmentId);
+    if (!operatorId) {
+      logger.warn('Auto-assign skipped: no eligible operators', {
+        taskId,
+        departmentId: task.departmentId,
+      });
+      return;
+    }
+
+    const actorId = await this.resolveSystemAssignerId();
+    await this.validateAssignmentTarget(taskId, operatorId);
+
+    try {
+      await this.persistAssignment({
+        taskId,
+        operatorId,
+        actorId,
+        remarks: 'Auto-assigned on task ready',
+      });
+      logger.info('Task auto-assigned', { taskId, operatorId, departmentId: task.departmentId });
+    } catch (error) {
+      logger.error('Auto-assign failed', {
+        taskId,
+        operatorId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async resolveSystemAssignerId(): Promise<string> {
+    if (process.env['SYSTEM_ASSIGNER_USER_ID']) {
+      return process.env['SYSTEM_ASSIGNER_USER_ID'];
+    }
+    if (cachedSystemAssignerId) return cachedSystemAssignerId;
+
+    const admin = await prisma.user.findFirst({
+      where: { status: 'ACTIVE', role: { name: RoleName.SUPER_ADMIN } },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (admin) {
+      cachedSystemAssignerId = admin.id;
+      return admin.id;
+    }
+
+    const manager = await prisma.user.findFirst({
+      where: { status: 'ACTIVE', role: { name: RoleName.MANAGER } },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (manager) {
+      cachedSystemAssignerId = manager.id;
+      return manager.id;
+    }
+
+    throw ApiError.internal('No system assigner user configured for auto-assignment');
+  }
+
+  private async persistAssignment(input: {
+    taskId: string;
+    operatorId: string;
+    actorId: string;
+    machineId?: string;
+    priority?: string;
+    dueAt?: Date | null;
+    remarks?: string | null;
+  }) {
+    const task = await assignmentRepository.findTaskForAssignment(input.taskId);
+    if (!task) throw ApiError.notFound('Workflow task not found');
+    if (!ASSIGNABLE_TASK_STATUSES.includes(task.status)) {
+      throw ApiError.conflict(`Task must be READY or ASSIGNED to assign (current: ${task.status})`);
+    }
+
+    const existing = await assignmentRepository.findActiveAssignment(input.taskId);
+    if (existing) {
+      throw ApiError.conflict('Task already has an active assignment');
+    }
+
+    const priority = (input.priority as typeof task.priority) ?? task.priority;
+    const dueAt = input.dueAt !== undefined ? input.dueAt : task.dueAt;
+    const now = new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+      if (task.status === WorkflowTaskStatus.READY) {
+        assertTaskTransition(task.status, WorkflowTaskStatus.ASSIGNED);
+      }
+
+      const assignment = await tx.workflowTaskAssignment.create({
+        data: {
+          workflowTaskId: input.taskId,
+          operatorId: input.operatorId,
+          departmentId: task.departmentId,
+          machineId: input.machineId ?? null,
+          assignedById: input.actorId,
+          assignedAt: now,
+          priority,
+          dueAt,
+          estimatedMinutes: task.estimatedMinutes,
+          remarks: input.remarks ?? task.remarks,
+          status: WorkflowTaskAssignmentStatus.ACTIVE,
+        },
+        select: { id: true },
+      });
+
+      await tx.workflowTask.update({
+        where: { id: input.taskId },
+        data: {
+          assignedToId: input.operatorId,
+          assignedDepartmentId: task.departmentId,
+          assignedMachineId: input.machineId ?? null,
+          assignedAt: now,
+          priority,
+          dueAt,
+          remarks: input.remarks ?? task.remarks,
+          status: WorkflowTaskStatus.ASSIGNED,
+        },
+      });
+
+      await tx.workflowTaskHistory.create({
+        data: {
+          taskId: input.taskId,
+          action: WorkflowHistoryAction.ASSIGNED,
+          remarks: input.remarks,
+          performedById: input.actorId,
+        },
+      });
+
+      await tx.workflowTaskAssignmentHistory.create({
+        data: {
+          assignmentId: assignment.id,
+          workflowTaskId: input.taskId,
+          action: WorkflowTaskAssignmentHistoryAction.ASSIGNED,
+          operatorId: input.operatorId,
+          priority,
+          dueAt,
+          remarks: input.remarks ?? null,
+          machineId: input.machineId ?? null,
+          performedById: input.actorId,
+        },
+      });
+
+      await workflowTimelineService.recordEvents(
+        [
+          {
+            workflowInstanceId: task.workflowInstanceId,
+            entityType: 'WORKFLOW_TASK',
+            entityId: input.taskId,
+            eventType: ASSIGNMENT_TIMELINE_EVENTS.TASK_ASSIGNED,
+            title: 'Task assigned',
+            description: `Assigned to operator for ${task.workflowStep.stepName}`,
+            metadata: {
+              assignmentId: assignment.id,
+              operatorId: input.operatorId,
+              machineId: input.machineId ?? null,
+              autoAssigned: input.remarks?.includes('Auto-assigned') ?? false,
+            },
+            actorId: input.actorId,
+          },
+        ],
+        tx,
+      );
+
+      return { assignmentId: assignment.id };
+    });
+
+    const assignment = await assignmentRepository.findActiveAssignmentById(result.assignmentId);
+    if (!assignment) throw ApiError.internal('Assignment creation failed');
+
+    this.afterAssignmentMutation(ActivityAction.TASK_ASSIGNED, APP_EVENTS.TASK_ASSIGNED, {
+      assignmentId: assignment.id,
+      taskId: input.taskId,
+      operatorId: input.operatorId,
+      actorId: input.actorId,
+    });
+
+    if (input.machineId) {
+      void machineService.onMachineAssigned(
+        input.machineId,
+        input.taskId,
+        assignment.id,
+        input.actorId,
+      );
+    }
+
+    return assignment;
   }
 
   private async validateAssignmentTarget(

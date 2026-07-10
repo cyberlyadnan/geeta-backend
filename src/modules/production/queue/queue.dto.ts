@@ -254,14 +254,38 @@ export function mapQueueTaskDetail(record: QueueTaskDetailRecord): QueueTaskDeta
     configuration: item.configurationSnapshot,
     sizeSnapshot: item.sizeSnapshot,
     productSnapshot: item.productSnapshot,
-    artworkFiles: item.orderArtworks.map((art) => ({
-      id: art.id,
-      fileRequirementCode: art.fileRequirementCode,
-      fileRequirementLabel: art.fileRequirementCode,
-      fileUrl: art.artworkFile?.fileAsset?.fileUrl ?? null,
-      originalName: art.artworkFile?.fileAsset?.originalName ?? null,
-      approvalStatus: art.approvalStatus,
-    })),
+    artworkFiles: item.orderArtworks.map((art) => {
+      const pinned = art.pinnedVersion?.artworkVersion;
+      const fileAsset = pinned?.fileAsset ?? art.artworkFile?.fileAsset;
+      const mimeType = fileAsset?.mimeType ?? '';
+      const extension =
+        fileAsset?.originalName?.split('.').pop()?.toLowerCase() ??
+        (mimeType.includes('pdf') ? 'pdf' : mimeType.includes('png') ? 'png' : '');
+
+      return {
+        id: art.id,
+        fileRequirementCode: art.fileRequirementCode,
+        fileRequirementLabel: art.fileRequirementCode,
+        fileUrl: fileAsset?.fileUrl ?? null,
+        previewUrl: pinned?.previewUrl ?? null,
+        originalName: fileAsset?.originalName ?? null,
+        approvalStatus: art.approvalStatus,
+        artworkVersionId: pinned?.id ?? null,
+        versionNumber: pinned?.versionNumber ?? null,
+        extension,
+        versions: (art.artworkFile?.versions ?? []).map((v) => ({
+          id: v.id,
+          versionNumber: v.versionNumber,
+          previewUrl: v.previewUrl,
+          fileUrl: v.fileAsset.fileUrl,
+          originalName: v.fileAsset.originalName,
+          extension:
+            v.fileAsset.originalName?.split('.').pop()?.toLowerCase() ??
+            v.fileAsset.mimeType?.split('/').pop() ??
+            '',
+        })),
+      };
+    }),
     attachments: item.files.map((file) => ({
       id: file.id,
       fileRequirementCode: file.fileRequirementCode,

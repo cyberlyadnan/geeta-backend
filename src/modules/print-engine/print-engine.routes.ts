@@ -135,7 +135,9 @@ adminRouter.post(
 
 const productionRouter = Router();
 productionRouter.use(authenticate);
-productionRouter.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
+productionRouter.use(
+  authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER, RoleName.STAFF),
+);
 
 productionRouter.get(
   '/order-items/:orderItemId/artwork',

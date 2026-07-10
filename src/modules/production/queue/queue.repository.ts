@@ -135,7 +135,33 @@ export const QUEUE_TASK_DETAIL_SELECT = {
               artworkFile: {
                 select: {
                   fileAsset: {
-                    select: { fileUrl: true, originalName: true },
+                    select: { fileUrl: true, originalName: true, mimeType: true },
+                  },
+                  versions: {
+                    orderBy: { versionNumber: 'desc' as const },
+                    take: 5,
+                    select: {
+                      id: true,
+                      versionNumber: true,
+                      previewUrl: true,
+                      fileAsset: {
+                        select: { fileUrl: true, originalName: true, mimeType: true },
+                      },
+                    },
+                  },
+                },
+              },
+              pinnedVersion: {
+                select: {
+                  artworkVersion: {
+                    select: {
+                      id: true,
+                      versionNumber: true,
+                      previewUrl: true,
+                      fileAsset: {
+                        select: { fileUrl: true, originalName: true, mimeType: true },
+                      },
+                    },
                   },
                 },
               },

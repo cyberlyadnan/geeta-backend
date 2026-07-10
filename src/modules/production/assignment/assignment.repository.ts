@@ -174,6 +174,35 @@ export class AssignmentRepository {
     });
   }
 
+  /** Active operators in a department — used for auto-assignment round-robin. */
+  listEligibleOperators(departmentId: string) {
+    return prisma.user.findMany({
+      where: {
+        status: UserStatus.ACTIVE,
+        departmentAssignments: {
+          some: {
+            departmentId,
+            isActive: true,
+            roleCode: 'OPERATOR',
+            OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }],
+          },
+        },
+      },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { id: 'asc' }],
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+  }
+
+  /** Last operator assigned any task in this department — round-robin cursor. */
+  async getLastAssignmentOperatorInDepartment(departmentId: string): Promise<string | null> {
+    const last = await prisma.workflowTaskAssignment.findFirst({
+      where: { departmentId },
+      orderBy: { assignedAt: 'desc' },
+      select: { operatorId: true },
+    });
+    return last?.operatorId ?? null;
+  }
+
   searchOperators(query: OperatorSearchQuery) {
     const where: Prisma.UserWhereInput = {
       status: UserStatus.ACTIVE,
