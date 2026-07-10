@@ -10,6 +10,7 @@ import {
   productionArtworkController,
 } from './print-engine.controller.js';
 import { artworkMultipartUpload } from './middleware/artwork-upload.middleware.js';
+import { withArtworkUpload } from './middleware/artwork-upload.wrapper.js';
 import {
   artworkApprovalSchema,
   artworkMultipartBodySchema,
@@ -58,7 +59,7 @@ vendorRouter.post(
 
 vendorRouter.post(
   '/artwork/upload',
-  artworkMultipartUpload.single('file'),
+  withArtworkUpload(artworkMultipartUpload.single('file')),
   validate(artworkMultipartBodySchema),
   printJobController.uploadArtworkMultipart,
 );
@@ -161,7 +162,7 @@ productionRouter.get(
 productionRouter.post(
   '/order-artwork/:id/replace',
   validate(orderArtworkIdParamSchema, 'params'),
-  artworkMultipartUpload.single('file'),
+  withArtworkUpload(artworkMultipartUpload.single('file')),
   productionArtworkController.replaceOrderArtwork,
 );
 

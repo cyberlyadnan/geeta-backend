@@ -2,8 +2,10 @@ import type { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
 import { ZodError } from 'zod';
+import multer from 'multer';
 import { ApiError } from '../common/errors/ApiError.js';
 import { env } from '../config/env.js';
+import { MAX_ARTWORK_UPLOAD_BYTES } from '../services/storage/storage.types.js';
 import { errorTracker } from '../observability/error-tracker.service.js';
 import { logger } from '../logs/logger.js';
 
@@ -30,6 +32,23 @@ export function errorHandler(
       ...(err.details && { details: err.details }),
       ...(err.errors && { errors: err.errors }),
     });
+    return;
+  }
+
+  if (err instanceof multer.MulterError) {
+    const message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? `Artwork file is too large (max ${Math.round(MAX_ARTWORK_UPLOAD_BYTES / (1024 * 1024))} MB).`
+        : err.code === 'LIMIT_UNEXPECTED_FILE'
+          ? 'Unexpected file field in upload request'
+          : `Upload failed: ${err.message}`;
+
+    res
+      .status(err.code === 'LIMIT_FILE_SIZE' ? StatusCodes.REQUEST_TOO_LONG : StatusCodes.BAD_REQUEST)
+      .json({
+        success: false,
+        message,
+      });
     return;
   }
 

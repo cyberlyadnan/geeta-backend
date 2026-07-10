@@ -50,6 +50,22 @@ export function normalizeArtworkContentType(contentType: string, fileName: strin
   if (lower === 'image/jpg' || lower === 'image/pjpeg') return 'image/jpeg';
   if (lower === 'application/pdf') return 'application/pdf';
   const ext = path.extname(fileName).replace('.', '').toLowerCase();
+
+  const isGenericBinary =
+    !lower ||
+    lower === 'application/octet-stream' ||
+    lower === 'binary/octet-stream' ||
+    lower === 'application/x-msdownload';
+
+  if (isGenericBinary && ext) {
+    if (ext === 'pdf') return 'application/pdf';
+    if (ext === 'png') return 'image/png';
+    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+    if (ext === 'webp') return 'image/webp';
+    if (ext === 'cdr') return 'application/vnd.corel-draw';
+    if (ext === 'ai') return 'application/illustrator';
+  }
+
   if (ext === 'cdr' && (lower === 'application/octet-stream' || !lower)) {
     return 'application/vnd.corel-draw';
   }
