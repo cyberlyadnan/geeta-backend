@@ -121,6 +121,36 @@ export class StorageService {
     );
   }
 
+  async uploadImageFromFile(input: {
+    folder: typeof STORAGE_FOLDERS.PRODUCTS | typeof STORAGE_FOLDERS.CATEGORIES;
+    filePath: string;
+    originalName: string;
+    mimeType: string;
+    fileSize: number;
+  }): Promise<PresignedUploadResult> {
+    const contentType = normalizeImageContentType(input.mimeType);
+    assertValidImageUpload(contentType, input.fileSize);
+    const config = assertR2Config();
+    const key = buildObjectKey(input.folder, input.originalName, contentType);
+    const publicUrl = buildPublicUrl(config.publicUrl, key);
+
+    await this.putArtworkObjectFromFile({
+      key,
+      filePath: input.filePath,
+      contentType,
+      fileSize: input.fileSize,
+    });
+
+    return {
+      uploadUrl: publicUrl,
+      key,
+      publicUrl,
+      contentType,
+      uploadHeaders: { 'Content-Type': contentType },
+      expiresIn: 0,
+    };
+  }
+
   createPresignedVendorComplianceUpload(
     vendorProfileId: string,
     fileName: string,

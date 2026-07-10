@@ -27,3 +27,9 @@ export const presignedUploadSchema = z.object({
 });
 
 export type PresignedUploadInput = z.infer<typeof presignedUploadSchema>;
+
+export const imageMultipartBodySchema = z.object({
+  folder: z.enum([STORAGE_FOLDERS.PRODUCTS, STORAGE_FOLDERS.CATEGORIES]),
+});
+
+export type ImageMultipartBodyInput = z.infer<typeof imageMultipartBodySchema>;

@@ -57,6 +57,7 @@ export const compressionMiddleware = compression({
   filter: (req, res) => {
     if (req.path.includes('/payments') && req.method === 'POST') return false;
     if (req.path.includes('/artwork/upload') || req.path.includes('/replace')) return false;
+    if (req.path.includes('/admin/storage/upload')) return false;
     const type = res.getHeader('Content-Type');
     if (typeof type === 'string' && /image|video|audio|zip|gzip/.test(type)) return false;
     return compression.filter(req, res);
@@ -68,6 +69,7 @@ function isArtworkUploadRequest(req: Request): boolean {
   return (
     req.method === 'POST' &&
     (path.includes('/artwork/upload') ||
+      path.includes('/admin/storage/upload') ||
       (path.includes('/order-artwork/') && path.includes('/replace')))
   );
 }
