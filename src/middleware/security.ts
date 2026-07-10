@@ -24,7 +24,10 @@ export const compressionMiddleware = compression({
 
 export const rateLimiter = rateLimit({
   windowMs: env.RATE_LIMIT_WINDOW_MS,
-  max: env.RATE_LIMIT_MAX,
+  max: (req) => {
+    const hasBearer = Boolean(req.headers.authorization?.startsWith('Bearer '));
+    return hasBearer ? env.RATE_LIMIT_AUTH_MAX : env.RATE_LIMIT_MAX;
+  },
   standardHeaders: true,
   legacyHeaders: false,
   message: {

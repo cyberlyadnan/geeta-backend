@@ -51,6 +51,8 @@ const envSchema = z.object({
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  /** Higher ceiling for Bearer-authenticated API traffic (production portal polling). */
+  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(2_000),
 
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('debug'),
   LOG_DIR: z.string().default('logs'),
