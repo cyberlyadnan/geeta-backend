@@ -283,6 +283,16 @@ export class AdminProductsService {
     });
     if (!existing) throw ApiError.notFound('Product not found');
 
+    if (input.seriesId != null && input.seriesId !== existing.seriesId) {
+      const series = await prisma.productSeries.findFirst({
+        where: { id: input.seriesId, deletedAt: null, isActive: true },
+        include: { family: { select: { id: true, deletedAt: true } } },
+      });
+      if (!series || series.family.deletedAt) {
+        throw ApiError.badRequest('Series not found. Select a valid Family and Series.');
+      }
+    }
+
     const nextStatus = input.status ?? existing.status;
     const statusChanged = input.status != null && input.status !== existing.status;
 
@@ -402,8 +412,11 @@ export class AdminProductsService {
           slug,
           description: source.description,
           shortDescription: source.shortDescription,
+          sku: source.sku,
           visibility: source.visibility,
           status: ProductStatus.DRAFT,
+          sortOrder: source.sortOrder,
+          isFeatured: source.isFeatured,
           thumbnailUrl: source.thumbnailUrl,
           thumbnailKey: source.thumbnailKey,
         },
@@ -477,6 +490,19 @@ export class AdminProductsService {
         });
       }
 
+      for (const img of source.images) {
+        await tx.productImage.create({
+          data: {
+            productOfferingId: offering.id,
+            imageUrl: img.imageUrl,
+            imageKey: img.imageKey,
+            altText: img.altText,
+            sortOrder: img.sortOrder,
+            isThumbnail: img.isThumbnail,
+          },
+        });
+      }
+
       return offering;
     });
 
@@ -484,7 +510,10 @@ export class AdminProductsService {
       action: ActivityAction.PRODUCT_CREATED,
       productId: cloned.id,
       actorId,
-      metadata: { clonedFrom: id },
+      metadata: {
+        clonedFrom: id,
+        seriesId: source.seriesId,
+      },
     });
 
     return this.getById(cloned.id);
