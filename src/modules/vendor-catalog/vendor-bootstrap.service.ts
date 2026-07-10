@@ -25,8 +25,13 @@ export class VendorBootstrapService {
       this.loadProducts(),
     ]);
 
+    const staticBootstrap = { categories };
+    const catalogBranch = { families, series, products };
+
     return {
       ...version,
+      static: staticBootstrap,
+      catalog: catalogBranch,
       categories,
       families,
       series,

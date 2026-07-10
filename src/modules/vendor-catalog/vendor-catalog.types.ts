@@ -1,6 +1,30 @@
+export interface CatalogVersionGroupsDto {
+  category: string;
+  family: string;
+  series: string;
+  product: string;
+  productVersion: string;
+  pricing: string;
+  configuration: string;
+  workflow: string;
+  artwork: string;
+}
+
 export interface CatalogVersionDto {
   catalogVersion: string;
   catalogUpdatedAt: string;
+  versionGroups: CatalogVersionGroupsDto;
+  etag?: string;
+}
+
+export interface StaticBootstrapDto {
+  categories: unknown[];
+}
+
+export interface CatalogBranchBootstrapDto {
+  families: VendorBootstrapFamilyDto[];
+  series: VendorBootstrapSeriesDto[];
+  products: VendorBootstrapProductDto[];
 }
 
 export interface VendorBootstrapFamilyDto {
@@ -37,6 +61,7 @@ export interface VendorBootstrapProductDto {
   displayName: string | null;
   shortDescription: string | null;
   description: string | null;
+  /** Thumbnail URL only — never original image bytes. */
   thumbnailUrl: string | null;
   status: string;
   category: {
@@ -47,6 +72,10 @@ export interface VendorBootstrapProductDto {
 }
 
 export interface VendorBootstrapDto extends CatalogVersionDto {
+  /** Structured bootstrap — static masters vs catalog branch (lazy-load ready). */
+  static: StaticBootstrapDto;
+  catalog: CatalogBranchBootstrapDto;
+  /** Flat fields — backward compatible with MVP clients. */
   categories: unknown[];
   families: VendorBootstrapFamilyDto[];
   series: VendorBootstrapSeriesDto[];
