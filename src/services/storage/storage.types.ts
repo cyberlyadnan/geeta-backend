@@ -16,6 +16,7 @@ export const STORAGE_FOLDERS = {
 } as const;
 
 export type CatalogImageUploadFolder =
+  | typeof STORAGE_FOLDERS.SLIDERS
   | typeof STORAGE_FOLDERS.PRODUCTS
   | typeof STORAGE_FOLDERS.CATEGORIES
   | typeof STORAGE_FOLDERS.FAMILIES
@@ -24,6 +25,7 @@ export type CatalogImageUploadFolder =
 export type StorageFolder = (typeof STORAGE_FOLDERS)[keyof typeof STORAGE_FOLDERS];
 
 export const CATALOG_IMAGE_UPLOAD_FOLDERS = [
+  STORAGE_FOLDERS.SLIDERS,
   STORAGE_FOLDERS.PRODUCTS,
   STORAGE_FOLDERS.CATEGORIES,
   STORAGE_FOLDERS.FAMILIES,
