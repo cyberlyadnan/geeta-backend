@@ -47,6 +47,9 @@ export const corsMiddleware = cors({
     callback(null, false);
   },
   credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Request-ID', 'X-Requested-With'],
+  exposedHeaders: ['X-Request-ID'],
   optionsSuccessStatus: 204,
   maxAge: 86_400,
 });
