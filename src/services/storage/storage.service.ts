@@ -12,6 +12,7 @@ import {
   normalizeVendorDocumentContentType,
 } from './storage.utils.js';
 import type {
+  CatalogImageUploadFolder,
   PresignedUploadRequest,
   PresignedUploadResult,
   VendorCompliancePresignResult,
@@ -121,8 +122,42 @@ export class StorageService {
     );
   }
 
+  async uploadImageFromBuffer(input: {
+    folder: CatalogImageUploadFolder;
+    buffer: Buffer;
+    originalName: string;
+    mimeType: string;
+    fileSize: number;
+  }): Promise<PresignedUploadResult> {
+    const contentType = normalizeImageContentType(input.mimeType);
+    assertValidImageUpload(contentType, input.fileSize);
+    const config = assertR2Config();
+    const key = buildObjectKey(input.folder, input.originalName, contentType);
+    const publicUrl = buildPublicUrl(config.publicUrl, key);
+    const client = getS3Client();
+
+    await client.send(
+      new PutObjectCommand({
+        Bucket: config.bucketName,
+        Key: key,
+        Body: input.buffer,
+        ContentType: contentType,
+        ContentLength: input.fileSize,
+      }),
+    );
+
+    return {
+      uploadUrl: publicUrl,
+      key,
+      publicUrl,
+      contentType,
+      uploadHeaders: { 'Content-Type': contentType },
+      expiresIn: 0,
+    };
+  }
+
   async uploadImageFromFile(input: {
-    folder: typeof STORAGE_FOLDERS.PRODUCTS | typeof STORAGE_FOLDERS.CATEGORIES;
+    folder: CatalogImageUploadFolder;
     filePath: string;
     originalName: string;
     mimeType: string;

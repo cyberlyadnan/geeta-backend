@@ -2,6 +2,8 @@ export const STORAGE_FOLDERS = {
   SLIDERS: 'sliders',
   PRODUCTS: 'products',
   CATEGORIES: 'categories',
+  FAMILIES: 'families',
+  SERIES: 'series',
   VENDORS: 'vendors',
   USERS: 'users',
   DOCUMENTS: 'documents',
@@ -13,7 +15,20 @@ export const STORAGE_FOLDERS = {
   PRODUCTION: 'production',
 } as const;
 
+export type CatalogImageUploadFolder =
+  | typeof STORAGE_FOLDERS.PRODUCTS
+  | typeof STORAGE_FOLDERS.CATEGORIES
+  | typeof STORAGE_FOLDERS.FAMILIES
+  | typeof STORAGE_FOLDERS.SERIES;
+
 export type StorageFolder = (typeof STORAGE_FOLDERS)[keyof typeof STORAGE_FOLDERS];
+
+export const CATALOG_IMAGE_UPLOAD_FOLDERS = [
+  STORAGE_FOLDERS.PRODUCTS,
+  STORAGE_FOLDERS.CATEGORIES,
+  STORAGE_FOLDERS.FAMILIES,
+  STORAGE_FOLDERS.SERIES,
+] as const satisfies readonly CatalogImageUploadFolder[];
 
 export const ALLOWED_IMAGE_MIME_TYPES = [
   'image/jpeg',
@@ -21,7 +36,6 @@ export const ALLOWED_IMAGE_MIME_TYPES = [
   'image/png',
   'image/webp',
 ] as const;
-
 export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];
 
 export const MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB

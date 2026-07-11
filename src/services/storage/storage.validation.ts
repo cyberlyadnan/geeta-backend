@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_UPLOAD_BYTES, STORAGE_FOLDERS } from './storage.types.js';
+import {
+  ALLOWED_IMAGE_MIME_TYPES,
+  CATALOG_IMAGE_UPLOAD_FOLDERS,
+  MAX_IMAGE_UPLOAD_BYTES,
+  STORAGE_FOLDERS,
+} from './storage.types.js';
 import { normalizeImageContentType } from './storage.utils.js';
 
 export const presignedUploadSchema = z.object({
@@ -7,6 +12,8 @@ export const presignedUploadSchema = z.object({
     STORAGE_FOLDERS.SLIDERS,
     STORAGE_FOLDERS.PRODUCTS,
     STORAGE_FOLDERS.CATEGORIES,
+    STORAGE_FOLDERS.FAMILIES,
+    STORAGE_FOLDERS.SERIES,
     STORAGE_FOLDERS.VENDORS,
     STORAGE_FOLDERS.USERS,
     STORAGE_FOLDERS.DOCUMENTS,
@@ -29,7 +36,7 @@ export const presignedUploadSchema = z.object({
 export type PresignedUploadInput = z.infer<typeof presignedUploadSchema>;
 
 export const imageMultipartBodySchema = z.object({
-  folder: z.enum([STORAGE_FOLDERS.PRODUCTS, STORAGE_FOLDERS.CATEGORIES]),
+  folder: z.enum(CATALOG_IMAGE_UPLOAD_FOLDERS),
 });
 
 export type ImageMultipartBodyInput = z.infer<typeof imageMultipartBodySchema>;
