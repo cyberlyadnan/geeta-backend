@@ -15,7 +15,12 @@ import { parseDurationToMs } from '../../utils/time.js';
 import { jwtConfig } from '../../config/jwt.js';
 import { userRepository } from '../../repositories/user.repository.js';
 import { roleRepository } from '../../repositories/role.repository.js';
-import type { LoginInput, RegisterInput, VendorRegisterInput } from './auth.validation.js';
+import type {
+  ChangePasswordInput,
+  LoginInput,
+  RegisterInput,
+  VendorRegisterInput,
+} from './auth.validation.js';
 import type {
   AuthTokens,
   LoginResponse,
@@ -302,6 +307,41 @@ export class AuthService {
       where: { token: refreshToken, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  async changePassword(userId: string, input: ChangePasswordInput): Promise<{ success: true }> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (!user) {
+      throw ApiError.notFound('User not found');
+    }
+
+    const valid = await passwordService.compare(input.currentPassword, user.passwordHash);
+    if (!valid) {
+      throw ApiError.unauthorized('Current password is incorrect');
+    }
+
+    if (input.newPassword === input.currentPassword) {
+      throw ApiError.badRequest('New password must be different from the current password');
+    }
+
+    const passwordHash = await passwordService.hash(input.newPassword);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash },
+      }),
+      prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+
+    return { success: true };
   }
 
   async getMe(userId: string) {

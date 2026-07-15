@@ -40,6 +40,11 @@ export class AuthController {
     const user = await authService.getMe(req.user!.id);
     return ApiResponse.success(res, { user });
   });
+
+  changePassword = asyncHandler(async (req: Request, res: Response) => {
+    const result = await authService.changePassword(req.user!.id, req.body);
+    return ApiResponse.success(res, result, 'Password changed successfully');
+  });
 }
 
 export const authController = new AuthController();

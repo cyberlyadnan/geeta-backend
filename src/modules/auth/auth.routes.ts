@@ -11,6 +11,7 @@ import { authController } from './auth.controller.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import { validate } from '../../validators/validate.js';
 import {
+  changePasswordSchema,
   loginSchema,
   registerSchema,
   refreshTokenSchema,
@@ -25,5 +26,11 @@ router.post('/login', validate(loginSchema), authController.login);
 router.post('/refresh', validate(refreshTokenSchema), authController.refresh);
 router.post('/logout', validate(refreshTokenSchema), authController.logout);
 router.get('/me', authenticate, authController.me);
+router.post(
+  '/change-password',
+  authenticate,
+  validate(changePasswordSchema),
+  authController.changePassword,
+);
 
 export { router as authRoutes };
