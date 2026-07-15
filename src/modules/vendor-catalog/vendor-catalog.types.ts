@@ -64,11 +64,33 @@ export interface VendorBootstrapProductDto {
   /** Thumbnail URL only — never original image bytes. */
   thumbnailUrl: string | null;
   status: string;
+  sortOrder: number;
   category: {
     id: string;
     name: string;
     slug: string;
   };
+}
+
+/** Lightweight DTO for vendor product selection (Series is resolved server-side). */
+export interface VendorFamilyProductDto {
+  id: string;
+  name: string;
+  displayName: string | null;
+  shortDescription: string | null;
+  thumbnailUrl: string | null;
+  status: string;
+  sortOrder: number;
+  category: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  defaultVersion: {
+    id: string;
+    versionNumber: number;
+    status: string;
+  } | null;
 }
 
 export interface VendorBootstrapDto extends CatalogVersionDto {

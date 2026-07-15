@@ -131,6 +131,7 @@ export class VendorBootstrapService {
       description: product.description,
       thumbnailUrl: product.thumbnailUrl ?? product.images[0]?.imageUrl ?? null,
       status: product.status,
+      sortOrder: product.sortOrder,
       category: mapCategoryRef(product.series.family.category),
     }));
   }

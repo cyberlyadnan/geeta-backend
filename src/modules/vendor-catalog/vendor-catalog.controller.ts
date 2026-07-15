@@ -1,9 +1,11 @@
 import type { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
+import { ApiError } from '../../common/errors/ApiError.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { catalogVersionService } from './catalog-version.service.js';
 import { vendorBootstrapService } from './vendor-bootstrap.service.js';
+import { vendorFamilyProductsService } from './vendor-family-products.service.js';
 
 export class VendorCatalogController {
   bootstrap = asyncHandler(async (_req: Request, res: Response) => {
@@ -25,6 +27,14 @@ export class VendorCatalogController {
     }
 
     return ApiResponse.success(res, { ...version, etag });
+  });
+
+  /** Family → merged products (Series hidden). Prefer vendor bootstrap cache on the client. */
+  familyProducts = asyncHandler(async (req: Request, res: Response) => {
+    const familyId = typeof req.params['familyId'] === 'string' ? req.params['familyId'] : undefined;
+    if (!familyId) throw ApiError.badRequest('familyId is required');
+    const items = await vendorFamilyProductsService.getProductsForFamily(familyId);
+    return ApiResponse.success(res, { items });
   });
 }
 
