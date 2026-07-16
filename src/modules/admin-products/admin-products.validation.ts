@@ -80,11 +80,39 @@ export const updateProductSchema = createProductSchema.partial().extend({
   sortOrder: z.number().int().optional(),
 });
 
+const pricingContextSchema = z.object({
+  selectedSize: z.object({
+    sizeCode: z.string().optional(),
+    width: z.number().optional(),
+    height: z.number().optional(),
+    unit: z.enum(['MM', 'CM', 'INCH', 'FT']).optional(),
+  }).optional(),
+  areaSqCm: z.number().optional(),
+  sheetCount: z.number().optional(),
+  sheetSize: z.string().optional().nullable(),
+  paperMaterial: z.string().optional().nullable(),
+  printProcess: z.string().optional().nullable(),
+  lamination: z.string().optional().nullable(),
+  uv: z.string().optional().nullable(),
+  foil: z.string().optional().nullable(),
+  embossing: z.string().optional().nullable(),
+  eyelets: z.string().optional().nullable(),
+  dispatchOption: z.string().optional().nullable(),
+  customerType: z.string().optional().nullable(),
+  productionPriority: z.string().optional().nullable(),
+  facility: z.string().optional().nullable(),
+  machine: z.string().optional().nullable(),
+  pieceCount: z.number().optional(),
+  boxCount: z.number().optional(),
+  runtimeValues: z.record(z.unknown()).optional(),
+}).passthrough();
+
 export const calculatePriceSchema = z.object({
   productId: z.string().optional(),
   versionId: z.string().optional(),
   quantity: z.number().int().positive(),
   selections: z.record(z.string()).default({}),
+  context: pricingContextSchema.optional(),
 }).refine((d) => d.productId || d.versionId, {
   message: 'productId or versionId is required',
 });

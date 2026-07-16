@@ -443,18 +443,44 @@ export class PrintJobService {
   }
 
   async calculateLivePricing(userId: string, input: LivePricingInput) {
-    const [priceResult, checkout, resolved] = await Promise.all([
-      productsService.calculatePrice({
-        productId: input.productId,
-        versionId: input.versionId,
-        quantity: input.quantity,
-        selections: input.selections,
-      }),
+    const [checkout, resolved] = await Promise.all([
       contextRepository.getVendorCheckoutContext(userId),
       printContextResolver.resolveForVersion(input.versionId),
     ]);
 
     if (!resolved) throw ApiError.notFound('Product version not found');
+
+    const priceResult = await productsService.calculatePrice({
+      productId: input.productId,
+      versionId: input.versionId,
+      quantity: input.quantity,
+      selections: input.selections,
+      context: {
+        selectedSize: input.size
+          ? {
+              sizeCode: input.size.sizeCode,
+              width: input.size.width,
+              height: input.size.height,
+              unit: input.size.unit,
+            }
+          : undefined,
+        printProcess: resolved.context.printProcess?.code ?? null,
+        lamination: input.selections['lamination'] ?? null,
+        uv: input.selections['uv'] ?? null,
+        foil: input.selections['foil'] ?? null,
+        embossing: input.selections['embossing'] ?? null,
+        eyelets: input.selections['eyelets'] ?? null,
+        dispatchOption:
+          input.orderDeliveryChoice == null
+            ? null
+            : input.orderDeliveryChoice
+              ? 'DELIVERY'
+              : 'SELF_PICKUP',
+        runtimeValues: input.coverageResults?.length
+          ? { coverageResults: input.coverageResults }
+          : undefined,
+      },
+    });
 
     return this.buildLivePricingTotals(input, { priceResult, checkout, resolved });
   }

@@ -266,12 +266,14 @@ export class ProductsService {
         versionId: input.versionId,
         quantity: input.quantity,
         selections: input.selections,
+        context: input.context,
       });
     } else {
       result = await pricingEngineService.calculateForProduct(
         input.productId!,
         input.quantity,
         input.selections,
+        input.context,
       );
     }
 

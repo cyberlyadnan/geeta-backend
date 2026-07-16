@@ -25,6 +25,7 @@ export class PricingEngineService {
     productId: string,
     quantity: number,
     selections: PriceCalculationInput['selections'],
+    context?: PriceCalculationInput['context'],
   ): Promise<PriceCalculationResult> {
     const offering = await prisma.productOffering.findFirst({
       where: { id: productId, deletedAt: null, isActive: true },
@@ -45,6 +46,7 @@ export class PricingEngineService {
       versionId: offering.versions[0].id,
       quantity,
       selections,
+      context,
     });
   }
 

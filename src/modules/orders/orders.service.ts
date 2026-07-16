@@ -36,6 +36,42 @@ import { ARTWORK_EMAIL_SERVICE_CHARGE } from './orders.constants.js';
 
 const ESTIMATED_DAYS_DEFAULT = 3;
 
+function buildOrderPricingInputContext(
+  input: CreateProductionOrderInput | OrderPreviewInput,
+  resolved: NonNullable<Awaited<ReturnType<typeof printContextResolver.resolveForVersion>>>,
+) {
+  const size = input.size
+    ? {
+        sizeCode: input.size.sizeCode,
+        width: input.size.width,
+        height: input.size.height,
+        unit: input.size.unit,
+      }
+    : undefined;
+
+  const runtimeValues: Record<string, unknown> = {};
+  if (input.coverageResults?.length) {
+    runtimeValues['coverageResults'] = input.coverageResults;
+  }
+
+  return {
+    selectedSize: size,
+    printProcess: resolved.context.printProcess?.code ?? null,
+    lamination: input.selections['lamination'] ?? null,
+    uv: input.selections['uv'] ?? null,
+    foil: input.selections['foil'] ?? null,
+    embossing: input.selections['embossing'] ?? null,
+    eyelets: input.selections['eyelets'] ?? null,
+    dispatchOption:
+      input.orderDeliveryChoice == null
+        ? null
+        : input.orderDeliveryChoice
+          ? 'DELIVERY'
+          : 'SELF_PICKUP',
+    runtimeValues,
+  };
+}
+
 export class OrdersService {
   async findAll(userId: string, query: ListOrdersQuery) {
     const { page, limit, search, status, fromDate, toDate } = query;
@@ -377,20 +413,23 @@ export class OrdersService {
     const versionId = input.versionId;
     if (!versionId) throw ApiError.badRequest('Product version is required');
 
-    const [checkout, priceResult, printContextResolved] = await Promise.all([
+    const [checkout, printContextResolved] = await Promise.all([
       contextRepository.getVendorCheckoutContext(userId),
-      productsService.calculatePrice({
-        productId: input.productId,
-        versionId,
-        quantity: input.quantity,
-        selections: input.selections,
-      }),
       printContextResolver.resolveForVersion(versionId),
     ]);
 
     if (!printContextResolved) {
       throw ApiError.notFound('Product version not found');
     }
+
+    const pricingContext = buildOrderPricingInputContext(input, printContextResolved);
+    const priceResult = await productsService.calculatePrice({
+      productId: input.productId,
+      versionId,
+      quantity: input.quantity,
+      selections: input.selections,
+      context: pricingContext,
+    });
 
     const livePricing = printJobService.buildLivePricingTotals(
       {

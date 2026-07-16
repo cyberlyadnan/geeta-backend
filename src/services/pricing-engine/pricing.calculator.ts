@@ -2,12 +2,12 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { decimalToNumber } from '../../utils/money.js';
 import { applyAdjustment, evaluateCondition } from './pricing.rules.js';
+import { buildPricingContext } from './pricing-context.builder.js';
 import {
   resolveOptionPriceAmount,
   type OptionPricingRecord,
 } from './option-pricing.resolver.js';
 import type {
-  OptionPricingContext,
   PriceBreakdownLine,
   PriceCalculationInput,
   PriceCalculationResult,
@@ -108,20 +108,6 @@ function findSelectedOptions(
   return matched;
 }
 
-function buildOptionContext(
-  input: PriceCalculationInput,
-  runningTotal: number,
-): OptionPricingContext {
-  return {
-    quantity: input.quantity,
-    runningTotal,
-    areaSqCm: input.context?.areaSqCm,
-    sheetCount: input.context?.sheetCount,
-    pieceCount: input.context?.pieceCount,
-    boxCount: input.context?.boxCount,
-  };
-}
-
 export function calculatePriceFromBundle(
   bundle: VersionPricingBundle,
   input: PriceCalculationInput,
@@ -146,7 +132,7 @@ export function calculatePriceFromBundle(
   let adjustmentTotal = 0;
 
   for (const sel of selectedOptions) {
-    const optionContext = buildOptionContext(input, runningTotal);
+    const optionContext = buildPricingContext(input, runningTotal);
     const adj = resolveOptionPriceAmount(sel.pricing, optionContext);
     adjustmentTotal = round2(adjustmentTotal + adj);
     runningTotal = round2(runningTotal + adj);
