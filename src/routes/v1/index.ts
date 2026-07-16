@@ -50,6 +50,7 @@ import { productionOrderRoutes } from '../../modules/production/orders/index.js'
 import { systemAdminRoutes } from '../../modules/system-admin/index.js';
 import { adminWorkflowRoutes } from '../../modules/admin-workflow/index.js';
 import { vendorCatalogRoutes } from '../../modules/vendor-catalog/index.js';
+import { orderCancellationRoutes } from '../../modules/order-cancellation/index.js';
 
 const v1Router = Router();
 
@@ -59,6 +60,7 @@ v1Router.use('/public', publicCatalogRoutes);
 v1Router.use('/products', productsRoutes);
 v1Router.use('/categories', categoriesRoutes);
 v1Router.use('/orders', ordersRoutes);
+v1Router.use('/order-cancellation', orderCancellationRoutes);
 v1Router.use('/wallet', walletRoutes);
 v1Router.use('/payments', paymentsRoutes);
 v1Router.use('/workflow', workflowRoutes);

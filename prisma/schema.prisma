@@ -384,7 +384,27 @@ enum ProductionOrderStatus {
   COMPLETED
   DISPATCHED
   DELIVERED
+  CANCELLATION_REQUESTED
   CANCELLED
+}
+
+enum CancellationStageKey {
+  VERIFICATION
+  ARTWORK_APPROVED
+  PRODUCTION
+  DISPATCH
+  COMPLETED
+}
+
+enum OrderCancellationRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OrderCancellationRequestType {
+  DIRECT_CANCEL
+  CANCELLATION_REQUEST
 }
 
 enum WorkflowInstanceStatus {
@@ -624,6 +644,8 @@ model User {
   contactInquiryActivities ContactInquiryActivity[]
   uploadedFileAssets       FileAsset[]
   productionOrders         ProductionOrder[]
+  cancellationRequestsSubmitted OrderCancellationRequest[] @relation("CancellationRequester")
+  cancellationRequestsDecided   OrderCancellationRequest[] @relation("CancellationDecider")
   vendorOrderDrafts        VendorOrderDraft[]
   userNotifications        UserNotification[]
   productionOrderEvents    ProductionOrderEvent[]    @relation("ProductionOrderEventActor")
@@ -1607,6 +1629,7 @@ model ProductionOrder {
   jobCards          ProductionJobCard[]
   events            ProductionOrderEvent[]
   walletTransactions WalletTransaction[]  @relation("ProductionOrderWalletTx")
+  cancellationRequests OrderCancellationRequest[]
 
   @@index([customerId])
   @@index([customerId, createdAt(sort: Desc)])
@@ -1664,6 +1687,72 @@ model ProductionOrderEvent {
 
   @@index([orderId, createdAt])
   @@map("production_order_events")
+}
+
+/// Master cancellation reasons — admin managed.
+model CancellationReason {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  label       String
+  description String?  @db.Text
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  requests OrderCancellationRequest[]
+
+  @@index([isActive, sortOrder])
+  @@map("cancellation_reasons")
+}
+
+/// Configurable cancellation policy per production stage.
+model CancellationPolicyRule {
+  id                      String               @id @default(cuid())
+  stageKey                CancellationStageKey @unique @map("stage_key")
+  label                   String
+  vendorDirectCancel      Boolean              @default(false) @map("vendor_direct_cancel")
+  vendorRequestAllowed    Boolean              @default(false) @map("vendor_request_allowed")
+  managerApprovalRequired Boolean              @default(false) @map("manager_approval_required")
+  cancellationAllowed     Boolean              @default(true) @map("cancellation_allowed")
+  policyExplanation       String?              @map("policy_explanation") @db.Text
+  sortOrder               Int                  @default(0) @map("sort_order")
+  isActive                Boolean              @default(true) @map("is_active")
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @updatedAt @map("updated_at")
+
+  @@index([isActive, sortOrder])
+  @@map("cancellation_policy_rules")
+}
+
+/// Cancellation request / direct cancel audit record.
+model OrderCancellationRequest {
+  id                  String                         @id @default(cuid())
+  orderId             String                         @map("order_id")
+  requestedById       String                         @map("requested_by_id")
+  reasonId            String                         @map("reason_id")
+  remarks             String?                        @db.Text
+  status              OrderCancellationRequestStatus @default(PENDING)
+  requestType         OrderCancellationRequestType @map("request_type")
+  previousOrderStatus ProductionOrderStatus          @map("previous_order_status")
+  policyStageKey      CancellationStageKey           @map("policy_stage_key")
+  contextSnapshot     Json                           @default("{}") @map("context_snapshot")
+  decidedById         String?                        @map("decided_by_id")
+  decisionRemarks     String?                        @map("decision_remarks") @db.Text
+  decidedAt           DateTime?                      @map("decided_at")
+  /// Future refund integration hook — wallet / gateway / credit note reference.
+  refundMetadata      Json                           @default("{}") @map("refund_metadata")
+  createdAt           DateTime                       @default(now()) @map("created_at")
+  updatedAt           DateTime                       @updatedAt @map("updated_at")
+
+  order       ProductionOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  requestedBy User               @relation("CancellationRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reason      CancellationReason @relation(fields: [reasonId], references: [id], onDelete: Restrict)
+  decidedBy   User?              @relation("CancellationDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("order_cancellation_requests")
 }
 
 /// Vendor order wizard draft — auto-save and resume.

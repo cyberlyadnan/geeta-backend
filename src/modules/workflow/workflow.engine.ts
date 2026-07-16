@@ -1,6 +1,7 @@
 import {
   WorkflowHistoryAction,
   WorkflowInstanceStatus,
+  WorkflowTaskExecutionSessionStatus,
   WorkflowTaskStatus,
   ReworkStatus,
   type Prisma,
@@ -695,6 +696,119 @@ export class WorkflowEngine {
         targetTaskId: targetTask.id,
         reworkRequestId: reworkRequest.id,
       };
+    });
+  }
+
+  /**
+   * Bulk-cancel a workflow instance and all non-terminal tasks.
+   * Closes active execution sessions. Used by Order Cancellation Engine.
+   */
+  async cancelInstance(
+    input: {
+      workflowInstanceId: string;
+      actorId?: string;
+      reason?: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ workflowInstanceId: string; cancelledTaskIds: string[] }> {
+    const run = async (db: Prisma.TransactionClient) => {
+      const instance = await db.workflowInstance.findUnique({
+        where: { id: input.workflowInstanceId },
+        select: { id: true, status: true, orderId: true },
+      });
+
+      if (!instance) throw ApiError.notFound('Workflow instance not found');
+      if (isWorkflowTerminal(instance.status)) {
+        return { workflowInstanceId: instance.id, cancelledTaskIds: [] };
+      }
+
+      assertWorkflowInstanceTransition(instance.status, WorkflowInstanceStatus.CANCELLED);
+
+      const now = new Date();
+      const tasks = await db.workflowTask.findMany({
+        where: { workflowInstanceId: instance.id },
+        select: { id: true, status: true },
+      });
+
+      const cancellable = tasks.filter((t) => !isTaskTerminal(t.status));
+      const cancelledTaskIds: string[] = [];
+
+      for (const task of cancellable) {
+        assertTaskTransition(task.status, WorkflowTaskStatus.CANCELLED);
+        await db.workflowTask.update({
+          where: { id: task.id },
+          data: { status: WorkflowTaskStatus.CANCELLED, completedAt: now },
+        });
+        await db.workflowTaskHistory.create({
+          data: {
+            taskId: task.id,
+            action: WorkflowHistoryAction.CANCELLED,
+            remarks: input.reason,
+            performedById: input.actorId,
+          },
+        });
+        cancelledTaskIds.push(task.id);
+      }
+
+      if (cancelledTaskIds.length > 0) {
+        await db.workflowTaskExecutionSession.updateMany({
+          where: {
+            workflowTaskId: { in: cancelledTaskIds },
+            status: {
+              in: [
+                WorkflowTaskExecutionSessionStatus.IN_PROGRESS,
+                WorkflowTaskExecutionSessionStatus.PAUSED,
+                WorkflowTaskExecutionSessionStatus.ON_HOLD,
+              ],
+            },
+          },
+          data: {
+            status: WorkflowTaskExecutionSessionStatus.COMPLETED,
+            completedAt: now,
+          },
+        });
+      }
+
+      await db.workflowInstance.update({
+        where: { id: instance.id },
+        data: { status: WorkflowInstanceStatus.CANCELLED, completedAt: now },
+      });
+
+      await workflowTimelineService.recordEvents(
+        [
+          workflowTimelineService.workflowCancelled({
+            workflowInstanceId: instance.id,
+            reason: input.reason,
+            actorId: input.actorId,
+          }),
+          workflowTimelineService.statusChanged({
+            workflowInstanceId: instance.id,
+            from: instance.status,
+            to: WorkflowInstanceStatus.CANCELLED,
+            actorId: input.actorId,
+          }),
+        ],
+        db,
+      );
+
+      return { workflowInstanceId: instance.id, cancelledTaskIds };
+    };
+
+    if (tx) return run(tx);
+    return prisma.$transaction(run);
+  }
+
+  publishCancellationEvents(input: {
+    workflowInstanceId: string;
+    orderId: string;
+    cancelledTaskIds: string[];
+    actorId?: string;
+  }): void {
+    eventBus.emitEvent(APP_EVENTS.WORKFLOW_CANCELLED, {
+      workflowInstanceId: input.workflowInstanceId,
+      orderId: input.orderId,
+      cancelledTaskIds: input.cancelledTaskIds,
+      actorId: input.actorId,
     });
   }
 
