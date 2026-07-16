@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { decimalToNumber } from '../../utils/money.js';
+import { mapOptionPricingDto } from './option-pricing.mapper.js';
 
 type ProductListRow = Prisma.ProductOfferingGetPayload<{
   include: {
@@ -16,7 +17,7 @@ type ProductDetailRow = Prisma.ProductOfferingGetPayload<{
     versions: {
       include: {
         quantityPricing: true;
-        configurationFields: { include: { options: { include: { pricing: true } } } };
+        configurationFields: { include: { options: { include: { pricing: { include: { quantityTiers: true } } } } } };
         configurationRules: { include: { targetField: { select: { id: true; code: true; label: true } } } };
         pricingRules: true;
         fileRequirementsRel: { include: { allowedFileTypes: true } };
@@ -57,13 +58,8 @@ function mapCategory(cat: { id: string; name: string; slug: string; parent?: { i
   };
 }
 
-function mapOptionPricing(pricing: { adjustmentType: string; adjustmentValue: Prisma.Decimal; isActive: boolean } | null) {
-  if (!pricing) return null;
-  return {
-    adjustmentType: pricing.adjustmentType,
-    adjustmentValue: decimalToNumber(pricing.adjustmentValue),
-    isActive: pricing.isActive,
-  };
+function mapOptionPricing(pricing: Parameters<typeof mapOptionPricingDto>[0]) {
+  return mapOptionPricingDto(pricing);
 }
 
 export function mapProductListItemToDto(product: ProductListRow) {

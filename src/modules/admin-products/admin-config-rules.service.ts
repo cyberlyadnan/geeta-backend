@@ -3,6 +3,7 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import type { CreateConfigRuleInput, UpdateConfigRuleInput } from './admin-products.validation.js';
 import { resolveOrderQuestions, type OrderConfigRule } from './order-configuration.evaluator.js';
+import { mapOptionPricingDto } from './option-pricing.mapper.js';
 
 function mapRule(row: {
   id: string;
@@ -110,7 +111,7 @@ export class AdminConfigRulesService {
             options: {
               where: { isActive: true },
               orderBy: { sortOrder: 'asc' },
-              include: { pricing: true },
+              include: { pricing: { include: { quantityTiers: { orderBy: { quantity: 'asc' } } } } },
             },
           },
         },
@@ -175,12 +176,7 @@ export class AdminConfigRulesService {
         label: o.label,
         value: o.value,
         isDefault: o.isDefault,
-        pricing: o.pricing
-          ? {
-              adjustmentType: o.pricing.adjustmentType,
-              adjustmentValue: Number(o.pricing.adjustmentValue),
-            }
-          : null,
+        pricing: mapOptionPricingDto(o.pricing),
       })),
     }));
 

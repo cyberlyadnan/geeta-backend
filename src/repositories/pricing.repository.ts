@@ -15,7 +15,13 @@ export const VERSION_PRICING_INCLUDE = {
       options: {
         where: { isActive: true },
         orderBy: { sortOrder: 'asc' },
-        include: { pricing: true },
+        include: {
+          pricing: {
+            include: {
+              quantityTiers: { where: { isActive: true }, orderBy: { quantity: 'asc' } },
+            },
+          },
+        },
       },
     },
   },

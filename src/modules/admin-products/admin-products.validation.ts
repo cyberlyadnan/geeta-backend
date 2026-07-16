@@ -6,6 +6,7 @@ import {
   ConfigurationFieldType,
   ConfigurationRuleType,
   PricingRuleStatus,
+  OptionPricingStrategy,
 } from '@prisma/client';
 
 export const listProductsQuerySchema = z.object({
@@ -24,11 +25,22 @@ export const listProductsQuerySchema = z.object({
 export const productIdParamSchema = z.object({ id: z.string().min(1) });
 
 const attributeValueSchema = z.object({
+  id: z.string().min(1).optional(),
   label: z.string().min(1),
   value: z.string().min(1),
   sortOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
+  pricingStrategy: z.nativeEnum(OptionPricingStrategy).optional(),
   adjustmentType: z.nativeEnum(PricingAdjustmentType).optional(),
   adjustmentValue: z.number().optional(),
+  strategyConfig: z.record(z.unknown()).optional(),
+  quantityTiers: z.array(z.object({
+    id: z.string().min(1).optional(),
+    quantity: z.number().int().positive(),
+    price: z.number().min(0),
+    isActive: z.boolean().optional(),
+  })).optional(),
 });
 
 const attributeSchema = z.object({

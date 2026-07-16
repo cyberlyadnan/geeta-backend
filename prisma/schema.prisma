@@ -288,6 +288,19 @@ enum PricingAdjustmentType {
   PERCENTAGE
 }
 
+/// How a configuration option contributes to price when selected.
+enum OptionPricingStrategy {
+  FIXED
+  QUANTITY_BASED
+  AREA_BASED
+  PER_SHEET
+  PERCENTAGE
+  FORMULA
+  PER_PIECE
+  PER_BOX
+  CUSTOM
+}
+
 enum PricingRuleStatus {
   ACTIVE
   INACTIVE
@@ -1185,16 +1198,37 @@ model QuantityPricing {
 model ConfigurationOptionPricing {
   id              String                @id @default(cuid())
   optionId        String                @unique @map("option_id")
+  pricingStrategy OptionPricingStrategy @default(FIXED) @map("pricing_strategy")
   adjustmentType  PricingAdjustmentType @map("adjustment_type")
   adjustmentValue Decimal               @map("adjustment_value") @db.Decimal(12, 2)
+  /// Strategy-specific parameters (ratePerSqCm, ratePerSheet, formula, boxSize, etc.)
+  strategyConfig  Json                  @default("{}") @map("strategy_config")
   isActive        Boolean               @default(true) @map("is_active")
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")
 
-  option ConfigurationOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  option         ConfigurationOption                  @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  quantityTiers  ConfigurationOptionQuantityPricing[]
 
   @@index([optionId])
   @@map("configuration_option_pricing")
+}
+
+/// Quantity-tiered prices for configuration options (e.g. Matt Lamination @ 100/500/1000 qty).
+model ConfigurationOptionQuantityPricing {
+  id              String   @id @default(cuid())
+  optionPricingId String   @map("option_pricing_id")
+  quantity        Int
+  price           Decimal  @db.Decimal(12, 2)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  optionPricing ConfigurationOptionPricing @relation(fields: [optionPricingId], references: [id], onDelete: Cascade)
+
+  @@unique([optionPricingId, quantity])
+  @@index([optionPricingId])
+  @@map("configuration_option_quantity_pricing")
 }
 
 model PricingRule {

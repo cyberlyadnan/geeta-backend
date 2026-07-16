@@ -2,7 +2,12 @@ import type { Prisma } from '@prisma/client';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { decimalToNumber } from '../../utils/money.js';
 import { applyAdjustment, evaluateCondition } from './pricing.rules.js';
+import {
+  resolveOptionPriceAmount,
+  type OptionPricingRecord,
+} from './option-pricing.resolver.js';
 import type {
+  OptionPricingContext,
   PriceBreakdownLine,
   PriceCalculationInput,
   PriceCalculationResult,
@@ -21,11 +26,7 @@ type VersionPricingBundle = {
       value: string;
       label: string;
       isActive: boolean;
-      pricing: {
-        adjustmentType: 'FIXED' | 'PERCENTAGE';
-        adjustmentValue: Prisma.Decimal;
-        isActive: boolean;
-      } | null;
+      pricing: (OptionPricingRecord & { id: string }) | null;
     }>;
   }>;
   pricingRules: Array<{
@@ -74,7 +75,7 @@ function findSelectedOptions(
   optionId: string;
   optionLabel: string;
   optionValue: string;
-  pricing: NonNullable<VersionPricingBundle['configurationFields'][0]['options'][0]['pricing']>;
+  pricing: OptionPricingRecord;
 }> {
   const matched: Array<{
     fieldCode: string;
@@ -82,7 +83,7 @@ function findSelectedOptions(
     optionId: string;
     optionLabel: string;
     optionValue: string;
-    pricing: NonNullable<VersionPricingBundle['configurationFields'][0]['options'][0]['pricing']>;
+    pricing: OptionPricingRecord;
   }> = [];
 
   for (const field of bundle.configurationFields) {
@@ -105,6 +106,20 @@ function findSelectedOptions(
   }
 
   return matched;
+}
+
+function buildOptionContext(
+  input: PriceCalculationInput,
+  runningTotal: number,
+): OptionPricingContext {
+  return {
+    quantity: input.quantity,
+    runningTotal,
+    areaSqCm: input.context?.areaSqCm,
+    sheetCount: input.context?.sheetCount,
+    pieceCount: input.context?.pieceCount,
+    boxCount: input.context?.boxCount,
+  };
 }
 
 export function calculatePriceFromBundle(
@@ -131,17 +146,15 @@ export function calculatePriceFromBundle(
   let adjustmentTotal = 0;
 
   for (const sel of selectedOptions) {
-    const adj = applyAdjustment(
-      runningTotal,
-      sel.pricing.adjustmentType,
-      decimalToNumber(sel.pricing.adjustmentValue),
-    );
+    const optionContext = buildOptionContext(input, runningTotal);
+    const adj = resolveOptionPriceAmount(sel.pricing, optionContext);
     adjustmentTotal = round2(adjustmentTotal + adj);
     runningTotal = round2(runningTotal + adj);
     lines.push({
       code: `option:${sel.fieldCode}`,
       label: `${sel.fieldLabel}: ${sel.optionLabel}`,
       type: 'option',
+      pricingStrategy: sel.pricing.pricingStrategy,
       adjustmentType: sel.pricing.adjustmentType,
       amount: adj,
     });

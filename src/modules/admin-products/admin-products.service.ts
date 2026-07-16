@@ -50,7 +50,7 @@ const PRODUCT_DETAIL_INCLUDE = {
         include: {
           options: {
             orderBy: { sortOrder: 'asc' },
-            include: { pricing: true },
+            include: { pricing: { include: { quantityTiers: { orderBy: { quantity: 'asc' } } } } },
           },
         },
       },
@@ -389,7 +389,12 @@ export class AdminProductsService {
           take: 1,
           include: {
             quantityPricing: true,
-            configurationFields: { include: { options: { include: { pricing: true } } } },
+            configurationFields: {
+              include: {
+                options: { include: { pricing: { include: { quantityTiers: { orderBy: { quantity: 'asc' } } } } },
+                },
+              },
+            },
             pricingRules: true,
           },
         },
@@ -464,13 +469,25 @@ export class AdminProductsService {
             },
           });
           if (opt.pricing) {
-            await tx.configurationOptionPricing.create({
+            const createdPricing = await tx.configurationOptionPricing.create({
               data: {
                 optionId: newOpt.id,
+                pricingStrategy: opt.pricing.pricingStrategy,
                 adjustmentType: opt.pricing.adjustmentType,
                 adjustmentValue: opt.pricing.adjustmentValue,
+                strategyConfig: opt.pricing.strategyConfig as Prisma.InputJsonValue,
               },
             });
+            if (opt.pricing.quantityTiers.length > 0) {
+              await tx.configurationOptionQuantityPricing.createMany({
+                data: opt.pricing.quantityTiers.map((tier) => ({
+                  optionPricingId: createdPricing.id,
+                  quantity: tier.quantity,
+                  price: tier.price,
+                  isActive: tier.isActive,
+                })),
+              });
+            }
           }
         }
       }
