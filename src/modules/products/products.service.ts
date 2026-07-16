@@ -41,7 +41,8 @@ const VENDOR_DETAIL_INCLUDE = {
           options: {
             where: { isActive: true },
             orderBy: { sortOrder: 'asc' },
-            include: { pricing: { include: { quantityTiers: { where: { isActive: true }, orderBy: { quantity: 'asc' } } } } },
+            // Vendor order UI only needs pricing presence — tiers are resolved by pricing engine at preview.
+            include: { pricing: true },
           },
         },
       },
@@ -75,10 +76,10 @@ const VENDOR_DETAIL_INCLUDE = {
           },
         },
       },
-      workflow: { include: { workflowTemplate: { select: { code: true, name: true } } } },
+      workflow: { include: { workflowTemplate: { select: { id: true, code: true, name: true } } } },
     },
   },
-  images: { orderBy: { sortOrder: 'asc' } },
+  images: { orderBy: { sortOrder: 'asc' }, take: 5 },
 } satisfies Prisma.ProductOfferingInclude;
 
 export class ProductsService {

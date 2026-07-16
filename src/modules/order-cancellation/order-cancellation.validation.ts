@@ -9,7 +9,8 @@ export const requestIdParamSchema = z.object({
 });
 
 export const vendorCancelSchema = z.object({
-  reasonId: z.string().cuid(),
+  // Seeded reason ids are stable codes (e.g. cr_customer_mind), not always cuid.
+  reasonId: z.string().min(1).max(64),
   remarks: z.string().max(2000).optional(),
 });
 

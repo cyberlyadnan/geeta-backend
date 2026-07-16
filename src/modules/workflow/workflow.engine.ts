@@ -701,7 +701,7 @@ export class WorkflowEngine {
 
   /**
    * Bulk-cancel a workflow instance and all non-terminal tasks.
-   * Closes active execution sessions. Used by Order Cancellation Engine.
+   * Uses updateMany (not per-task loops) to stay under transaction timeouts.
    */
   async cancelInstance(
     input: {
@@ -726,31 +726,36 @@ export class WorkflowEngine {
 
       const now = new Date();
       const tasks = await db.workflowTask.findMany({
-        where: { workflowInstanceId: instance.id },
-        select: { id: true, status: true },
+        where: {
+          workflowInstanceId: instance.id,
+          status: {
+            notIn: [
+              WorkflowTaskStatus.COMPLETED,
+              WorkflowTaskStatus.CANCELLED,
+              WorkflowTaskStatus.SKIPPED,
+            ],
+          },
+        },
+        select: { id: true },
       });
 
-      const cancellable = tasks.filter((t) => !isTaskTerminal(t.status));
-      const cancelledTaskIds: string[] = [];
+      const cancelledTaskIds = tasks.map((t) => t.id);
 
-      for (const task of cancellable) {
-        assertTaskTransition(task.status, WorkflowTaskStatus.CANCELLED);
-        await db.workflowTask.update({
-          where: { id: task.id },
+      if (cancelledTaskIds.length > 0) {
+        await db.workflowTask.updateMany({
+          where: { id: { in: cancelledTaskIds } },
           data: { status: WorkflowTaskStatus.CANCELLED, completedAt: now },
         });
-        await db.workflowTaskHistory.create({
-          data: {
-            taskId: task.id,
+
+        await db.workflowTaskHistory.createMany({
+          data: cancelledTaskIds.map((taskId) => ({
+            taskId,
             action: WorkflowHistoryAction.CANCELLED,
             remarks: input.reason,
             performedById: input.actorId,
-          },
+          })),
         });
-        cancelledTaskIds.push(task.id);
-      }
 
-      if (cancelledTaskIds.length > 0) {
         await db.workflowTaskExecutionSession.updateMany({
           where: {
             workflowTaskId: { in: cancelledTaskIds },
@@ -795,7 +800,7 @@ export class WorkflowEngine {
     };
 
     if (tx) return run(tx);
-    return prisma.$transaction(run);
+    return prisma.$transaction(run, { maxWait: 10_000, timeout: 30_000 });
   }
 
   publishCancellationEvents(input: {

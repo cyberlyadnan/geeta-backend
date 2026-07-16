@@ -17,7 +17,7 @@ type ProductDetailRow = Prisma.ProductOfferingGetPayload<{
     versions: {
       include: {
         quantityPricing: true;
-        configurationFields: { include: { options: { include: { pricing: { include: { quantityTiers: true } } } } } };
+        configurationFields: { include: { options: { include: { pricing: true } } } };
         configurationRules: { include: { targetField: { select: { id: true; code: true; label: true } } } };
         pricingRules: true;
         fileRequirementsRel: { include: { allowedFileTypes: true } };
@@ -263,7 +263,22 @@ export function mapVendorProductDetail(product: ProductDetailRow) {
           ...base.currentVersion,
           attributes: base.currentVersion.attributes.map((attr) => ({
             ...attr,
-            values: attr.values.filter((v) => v.isActive),
+            values: attr.values
+              .filter((v) => v.isActive)
+              .map((v) => ({
+                ...v,
+                // Slim option pricing for vendor order UX — money is computed by preview API.
+                pricing: v.pricing
+                  ? {
+                      pricingStrategy: v.pricing.pricingStrategy,
+                      adjustmentType: v.pricing.adjustmentType,
+                      adjustmentValue: v.pricing.adjustmentValue,
+                      strategyConfig: {},
+                      isActive: v.pricing.isActive,
+                      quantityTiers: [],
+                    }
+                  : null,
+              })),
           })),
         }
       : null,

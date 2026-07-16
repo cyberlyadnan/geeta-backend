@@ -1,37 +1,60 @@
+import { WorkflowTaskAssignmentStatus } from '@prisma/client';
 import { prisma } from '../../config/database.js';
-import { productionOrderRepository } from '../production/orders/production-order.repository.js';
 
+/**
+ * Lightweight snapshot for cancellation review — avoids heavy production context map.
+ */
 export async function buildCancellationContextSnapshot(orderId: string) {
-  const [order, contextMap, orderEvents, artworks] = await Promise.all([
+  const [order, workflow, orderEvents, artworks] = await Promise.all([
     prisma.productionOrder.findUnique({
       where: { id: orderId },
       select: {
         id: true,
         orderNumber: true,
         status: true,
-        subtotal: true,
-        totalAmount: true,
         items: {
           take: 1,
           select: {
-            id: true,
             quantity: true,
             productSnapshot: true,
-            orderArtworks: {
+          },
+        },
+      },
+    }),
+    prisma.workflowInstance.findFirst({
+      where: { orderId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        status: true,
+        currentStepOrder: true,
+        tasks: {
+          orderBy: { stepOrder: 'asc' },
+          select: {
+            id: true,
+            status: true,
+            stepOrder: true,
+            department: { select: { id: true, code: true, name: true } },
+            workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
+            assignedMachine: {
+              select: { id: true, machineCode: true, machineName: true },
+            },
+            assignments: {
+              where: { status: WorkflowTaskAssignmentStatus.ACTIVE },
+              take: 1,
               select: {
-                approvalStatus: true,
-                fileRequirementCode: true,
+                operator: { select: { id: true, firstName: true, lastName: true } },
+                machine: { select: { id: true, machineCode: true, machineName: true } },
               },
             },
           },
         },
       },
     }),
-    productionOrderRepository.fetchOrderContextMap([orderId]),
     prisma.productionOrderEvent.findMany({
       where: { orderId },
       orderBy: { createdAt: 'desc' },
-      take: 10,
+      take: 8,
       select: {
         eventType: true,
         title: true,
@@ -47,34 +70,26 @@ export async function buildCancellationContextSnapshot(orderId: string) {
     }),
   ]);
 
-  const context = contextMap.get(orderId);
-  const currentTask = context?.currentTask;
+  const tasks = workflow?.tasks ?? [];
+  const activeStatuses = new Set(['READY', 'ASSIGNED', 'IN_PROGRESS', 'PAUSED', 'ON_HOLD', 'WAITING']);
+  const currentTask =
+    tasks.find((t) => activeStatuses.has(t.status)) ??
+    tasks.find((t) => !['COMPLETED', 'CANCELLED', 'SKIPPED'].includes(t.status)) ??
+    null;
+
   const operator = currentTask?.assignments?.[0]?.operator;
   const machine =
     currentTask?.assignments?.[0]?.machine ?? currentTask?.assignedMachine ?? null;
 
-  const workflowInstances = await prisma.workflowInstance.findMany({
-    where: { orderId },
-    select: {
-      id: true,
-      status: true,
-      tasks: {
-        select: { status: true },
-      },
-    },
-  });
-
-  const allTasks = workflowInstances.flatMap((w) => w.tasks);
-  const completedTasks = allTasks.filter((t) => t.status === 'COMPLETED').length;
-  const totalTasks = allTasks.length;
-
+  const completedTasks = tasks.filter((t) => t.status === 'COMPLETED').length;
+  const totalTasks = tasks.length;
   const item = order?.items[0];
   const productSnapshot = (item?.productSnapshot ?? {}) as Record<string, unknown>;
 
   return {
     capturedAt: new Date().toISOString(),
-    orderNumber: order?.orderNumber,
-    orderStatus: order?.status,
+    orderNumber: order?.orderNumber ?? null,
+    orderStatus: order?.status ?? null,
     currentWorkflowStep: currentTask
       ? {
           stepCode: currentTask.workflowStep.stepCode,
@@ -99,8 +114,8 @@ export async function buildCancellationContextSnapshot(orderId: string) {
     assignedMachine: machine
       ? {
           id: machine.id,
-          code: 'machineCode' in machine ? machine.machineCode : null,
-          name: 'machineName' in machine ? machine.machineName : null,
+          code: machine.machineCode,
+          name: machine.machineName,
         }
       : null,
     artworkStatus: artworks.map((a) => ({
@@ -108,12 +123,12 @@ export async function buildCancellationContextSnapshot(orderId: string) {
       approvalStatus: a.approvalStatus,
     })),
     productionProgress: {
-      workflowStatus: context?.workflowStatus ?? null,
+      workflowStatus: workflow?.status ?? null,
       completedTasks,
       totalTasks,
       percentComplete: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
-      reworkCount: context?.reworkCount ?? 0,
-      qcFailed: context?.qcFailed ?? false,
+      reworkCount: 0,
+      qcFailed: false,
     },
     timelineSummary: orderEvents.map((e) => ({
       eventType: e.eventType,
@@ -122,7 +137,10 @@ export async function buildCancellationContextSnapshot(orderId: string) {
     })),
     estimatedMaterialConsumption: {
       quantity: item?.quantity ?? null,
-      productName: (productSnapshot['name'] as string) ?? (productSnapshot['displayName'] as string) ?? null,
+      productName:
+        (productSnapshot['name'] as string) ??
+        (productSnapshot['displayName'] as string) ??
+        null,
       note: 'Material consumption estimate — integrate with inventory engine in future.',
     },
   };

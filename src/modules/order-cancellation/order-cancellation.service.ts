@@ -40,6 +40,9 @@ const MANAGER_ROLES: ReadonlySet<RoleName> = new Set([
   RoleName.MANAGER,
 ]);
 
+/** Slow DB + multi-step cancel must not hit Prisma's default 5s interactive timeout. */
+const CANCEL_TX_OPTIONS = { maxWait: 10_000, timeout: 45_000 } as const;
+
 function mapRequestToDto(
   request: Prisma.OrderCancellationRequestGetPayload<{
     include: {
@@ -188,7 +191,7 @@ export class OrderCancellationService {
           requestType: OrderCancellationRequestType.DIRECT_CANCEL,
           previousOrderStatus: order.status,
           policyStageKey: policy.stageKey,
-          contextSnapshot,
+          contextSnapshot: contextSnapshot as Prisma.InputJsonValue,
           decidedById: userId,
           decidedAt: new Date(),
         },
@@ -200,7 +203,7 @@ export class OrderCancellationService {
         data: { status: ProductionOrderStatus.CANCELLED },
       });
 
-      await this.cancelOrderWorkflows(orderId, userId, reason.label, tx);
+      const cancelledWorkflows = await this.cancelOrderWorkflows(orderId, userId, reason.label, tx);
 
       await recordOrderEvent(
         orderId,
@@ -218,8 +221,17 @@ export class OrderCancellationService {
         tx,
       );
 
-      return request;
-    });
+      return { request, cancelledWorkflows };
+    }, CANCEL_TX_OPTIONS);
+
+    for (const wf of result.cancelledWorkflows) {
+      workflowEngine.publishCancellationEvents({
+        workflowInstanceId: wf.workflowInstanceId,
+        orderId,
+        cancelledTaskIds: wf.cancelledTaskIds,
+        actorId: userId,
+      });
+    }
 
     this.publishPostCancelSideEffects({
       orderId,
@@ -239,12 +251,12 @@ export class OrderCancellationService {
       metadata: {
         from: order.status,
         to: ProductionOrderStatus.CANCELLED,
-        cancellationRequestId: result.id,
+        cancellationRequestId: result.request.id,
         type: OrderCancellationRequestType.DIRECT_CANCEL,
       },
     });
 
-    return mapRequestToDto(result);
+    return mapRequestToDto(result.request);
   }
 
   async vendorRequestCancellation(
@@ -289,7 +301,7 @@ export class OrderCancellationService {
           requestType: OrderCancellationRequestType.CANCELLATION_REQUEST,
           previousOrderStatus: order.status,
           policyStageKey: policy.stageKey,
-          contextSnapshot,
+          contextSnapshot: contextSnapshot as Prisma.InputJsonValue,
         },
         include: requestInclude,
       });
@@ -316,7 +328,7 @@ export class OrderCancellationService {
       );
 
       return request;
-    });
+    }, CANCEL_TX_OPTIONS);
 
     emitOrderStatusChanged(orderId, order.customerId, {
       status: ProductionOrderStatus.CANCELLATION_REQUESTED,
@@ -457,7 +469,7 @@ export class OrderCancellationService {
         data: { status: ProductionOrderStatus.CANCELLED },
       });
 
-      await this.cancelOrderWorkflows(
+      const cancelledWorkflows = await this.cancelOrderWorkflows(
         request.orderId,
         managerId,
         input.decisionRemarks ?? 'Cancellation approved',
@@ -476,8 +488,17 @@ export class OrderCancellationService {
         tx,
       );
 
-      return row;
-    });
+      return { row, cancelledWorkflows };
+    }, CANCEL_TX_OPTIONS);
+
+    for (const wf of updated.cancelledWorkflows) {
+      workflowEngine.publishCancellationEvents({
+        workflowInstanceId: wf.workflowInstanceId,
+        orderId: request.orderId,
+        cancelledTaskIds: wf.cancelledTaskIds,
+        actorId: managerId,
+      });
+    }
 
     this.publishPostCancelSideEffects({
       orderId: request.orderId,
@@ -503,7 +524,7 @@ export class OrderCancellationService {
       },
     });
 
-    return mapRequestToDto(updated);
+    return mapRequestToDto(updated.row);
   }
 
   async rejectRequest(
@@ -555,7 +576,7 @@ export class OrderCancellationService {
       );
 
       return row;
-    });
+    }, CANCEL_TX_OPTIONS);
 
     emitOrderStatusChanged(request.orderId, request.order.customerId, {
       status: request.previousOrderStatus,
@@ -642,7 +663,7 @@ export class OrderCancellationService {
           requestType: OrderCancellationRequestType.DIRECT_CANCEL,
           previousOrderStatus: order.status,
           policyStageKey: stageKey as never,
-          contextSnapshot,
+          contextSnapshot: contextSnapshot as Prisma.InputJsonValue,
           decidedById: adminId,
           decidedAt: new Date(),
         },
@@ -654,7 +675,7 @@ export class OrderCancellationService {
         data: { status: ProductionOrderStatus.CANCELLED },
       });
 
-      await this.cancelOrderWorkflows(orderId, adminId, reason.label, tx);
+      const cancelledWorkflows = await this.cancelOrderWorkflows(orderId, adminId, reason.label, tx);
 
       await recordOrderEvent(
         orderId,
@@ -668,8 +689,17 @@ export class OrderCancellationService {
         tx,
       );
 
-      return request;
-    });
+      return { request, cancelledWorkflows };
+    }, CANCEL_TX_OPTIONS);
+
+    for (const wf of result.cancelledWorkflows) {
+      workflowEngine.publishCancellationEvents({
+        workflowInstanceId: wf.workflowInstanceId,
+        orderId,
+        cancelledTaskIds: wf.cancelledTaskIds,
+        actorId: adminId,
+      });
+    }
 
     this.publishPostCancelSideEffects({
       orderId,
@@ -681,7 +711,7 @@ export class OrderCancellationService {
       notificationBody: `Order ${order.orderNumber} has been cancelled by administration.`,
     });
 
-    return mapRequestToDto(result);
+    return mapRequestToDto(result.request);
   }
 
   // --- Admin: reasons & policies ---
@@ -753,11 +783,13 @@ export class OrderCancellationService {
     actorId: string | undefined,
     reason: string,
     tx: Prisma.TransactionClient,
-  ) {
+  ): Promise<Array<{ workflowInstanceId: string; cancelledTaskIds: string[] }>> {
     const instances = await tx.workflowInstance.findMany({
       where: { orderId },
       select: { id: true },
     });
+
+    const cancelled: Array<{ workflowInstanceId: string; cancelledTaskIds: string[] }> = [];
 
     for (const instance of instances) {
       const result = await workflowEngine.cancelInstance(
@@ -784,13 +816,10 @@ export class OrderCancellationService {
         tx,
       );
 
-      workflowEngine.publishCancellationEvents({
-        workflowInstanceId: instance.id,
-        orderId,
-        cancelledTaskIds: result.cancelledTaskIds,
-        actorId,
-      });
+      cancelled.push(result);
     }
+
+    return cancelled;
   }
 
   private publishPostCancelSideEffects(input: {
