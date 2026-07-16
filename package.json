@@ -36,6 +36,7 @@
     "seed:pricing": "dotenv -e .env -e .env.local -- tsx prisma/seed/run.ts --only=pricing",
     "seed:orders": "dotenv -e .env -e .env.local -- tsx prisma/seed/run.ts --only=orders",
     "seed:client-catalog": "dotenv -e .env -e .env.local -- tsx scripts/import-first-client-catalog.ts",
+    "seed:enterprise-config": "dotenv -e .env -e .env.local -- tsx scripts/seed-enterprise-product-config.ts",
     "reset:production": "dotenv -e .env -e .env.local -- tsx scripts/reset-production-data.ts",
     "reset:database": "dotenv -e .env -e .env.local -- tsx scripts/reset-database-full.ts",
     "perf:api": "dotenv -e .env -e .env.local -- tsx scripts/perf/api-probe.ts",
