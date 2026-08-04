@@ -2,7 +2,14 @@ import { Prisma, ProductStatus, ProductVisibility } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { categoryRepository } from '../../repositories/category.repository.js';
 import { ApiError } from '../../common/errors/ApiError.js';
-import { pricingEngineService } from '../../services/pricing-engine/index.js';
+import {
+  priceResolverService,
+  toFeet,
+  buildQuantityBands,
+  resolveQuantityBand,
+  inferDimensionFields,
+} from '../../services/pricing-engine/index.js';
+import { pricingRepository, resolvePricingStrategyKey } from '../../repositories/pricing.repository.js';
 import {
   mapVendorProductDetail,
   mapVendorProductListItem,
@@ -260,33 +267,103 @@ export class ProductsService {
     };
   }
 
-  async calculatePrice(input: CalculatePriceInput) {
-    let result;
-    if (input.versionId) {
-      result = await pricingEngineService.calculate({
-        versionId: input.versionId,
-        quantity: input.quantity,
-        selections: input.selections,
-        context: input.context,
+  /** vendorId is omitted for anonymous/unauthenticated-shaped callers — no override lookup then. */
+  async calculatePrice(input: CalculatePriceInput, vendorId?: string) {
+    let versionId = input.versionId;
+    if (!versionId) {
+      const offering = await prisma.productOffering.findFirst({
+        where: { id: input.productId, deletedAt: null, isActive: true },
+        include: {
+          versions: { where: { isCurrent: true, deletedAt: null }, take: 1, select: { id: true } },
+        },
       });
-    } else {
-      result = await pricingEngineService.calculateForProduct(
-        input.productId!,
-        input.quantity,
-        input.selections,
-        input.context,
-      );
+      if (!offering?.versions[0]) {
+        throw ApiError.notFound('Product not found or has no published version');
+      }
+      versionId = offering.versions[0].id;
     }
 
+    const selectedSize = input.context?.selectedSize;
+    const uploadedDimensions =
+      selectedSize?.width != null && selectedSize?.height != null
+        ? {
+            widthFt: toFeet(selectedSize.width, selectedSize.unit),
+            heightFt: toFeet(selectedSize.height, selectedSize.unit),
+          }
+        : undefined;
+
+    const result = await priceResolverService.resolvePrice({
+      versionId,
+      vendorId,
+      quantity: input.quantity,
+      selections: input.selections,
+      uploadedDimensions,
+      context: input.context,
+    });
+
+    if (!result.valid) {
+      throw ApiError.badRequest(result.reason ?? 'This combination is not available');
+    }
+
+    const basePriceComponent = result.lines.find((l) => l.code === 'base')?.amount ?? result.finalPrice;
+
     return {
-      ...result,
+      versionId: result.versionId,
+      quantity: result.quantity,
+      subtotal: basePriceComponent,
+      adjustmentTotal: Math.round((result.finalPrice - basePriceComponent) * 100) / 100,
+      discountTotal: 0,
+      taxTotal: 0,
+      grandTotal: result.finalPrice,
+      listPrice: result.listPrice,
+      overrideApplied: result.overrideApplied,
+      unitPrice: result.unitPrice,
+      currency: result.currency,
+      lines: result.lines,
+      snapshotPayload: result.snapshotPayload,
       formattedTotal: new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(
-        result.grandTotal,
+        result.finalPrice,
       ),
       formattedUnitPrice: new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(
         result.unitPrice,
       ),
     };
+  }
+
+  /**
+   * Matrix-availability hint for the order wizard: which dimension-field combinations resolve to
+   * `available: false` for the given quantity band. Frontend uses this to grey out sheet-size /
+   * GSM options without re-deriving matrix rules itself — resolvePrice() at preview/placement
+   * remains the actual gate, this is a UX convenience only.
+   */
+  async getMatrixAvailability(versionId: string, quantity: number) {
+    const bundle = await pricingRepository.loadVersionBundle(versionId);
+    if (!bundle) throw ApiError.notFound('Product version not found');
+
+    if (resolvePricingStrategyKey(bundle) !== 'matrix') {
+      return { applicable: false as const, dimensionFields: [] as string[], combinations: [] };
+    }
+
+    const dimensionFields = inferDimensionFields(bundle.priceMatrixCells);
+    if (!dimensionFields) {
+      return { applicable: false as const, dimensionFields: [] as string[], combinations: [] };
+    }
+
+    const band = resolveQuantityBand(buildQuantityBands(bundle.quantityPricing), quantity);
+
+    const combinations = bundle.priceMatrixCells
+      .filter((c) => !band || (c.dimensionKey as Record<string, string>)['qtyBand'] === band.label)
+      .map((c) => {
+        const { qtyBand: _qtyBand, ...dimensionValues } = c.dimensionKey as Record<string, string>;
+        void _qtyBand;
+        return {
+          dimensionValues,
+          available: c.available,
+          unavailableReason: c.unavailableReason,
+        };
+      });
+
+    return { applicable: true as const, dimensionFields, combinations };
   }
 }
 

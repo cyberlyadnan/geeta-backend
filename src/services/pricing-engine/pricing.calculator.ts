@@ -108,28 +108,63 @@ function findSelectedOptions(
   return matched;
 }
 
+export interface CalculatorBaseOverride {
+  /** Base amount to seed the running total with, in place of the resolved quantity tier. */
+  amount: number;
+  label: string;
+  /** Quantity band / cell identity, etc. — surfaced in the snapshot payload for audit. */
+  tierQuantity: number | string;
+  /** Already-computed lines (e.g. PriceModifierRule surcharges) applied before options/rules. */
+  preAdjustmentLines?: PriceBreakdownLine[];
+}
+
+/**
+ * Base + option-pricing + rules pipeline. Quantity-tier products (the default/legacy strategy)
+ * resolve their own base here; matrix-strategy products pass `baseOverride` so the exact same
+ * option-pricing (lamination FIXED, cutting QUANTITY_BASED, ...) and PricingRule stacking still
+ * applies on top of a matrix cell price instead of a quantity-tier price — see
+ * price-resolver.service.ts, which is the single place besides here that prices a product.
+ */
 export function calculatePriceFromBundle(
   bundle: VersionPricingBundle,
   input: PriceCalculationInput,
+  baseOverride?: CalculatorBaseOverride,
 ): PriceCalculationResult {
   const { quantity, selections } = input;
   const lines: PriceBreakdownLine[] = [];
 
-  const tier = resolveQuantityTier(bundle.quantityPricing, quantity);
-  if (!tier) {
-    throw ApiError.badRequest('No quantity pricing configured for this product version');
+  let baseAmount: number;
+  let tierQuantity: number | string;
+
+  if (baseOverride) {
+    baseAmount = baseOverride.amount;
+    tierQuantity = baseOverride.tierQuantity;
+    lines.push({ code: 'base', label: baseOverride.label, type: 'base', amount: baseAmount });
+  } else {
+    const tier = resolveQuantityTier(bundle.quantityPricing, quantity);
+    if (!tier) {
+      throw ApiError.badRequest('No quantity pricing configured for this product version');
+    }
+    baseAmount = tier.basePrice;
+    tierQuantity = tier.quantity;
+    lines.push({
+      code: 'base',
+      label: `Base price (${tier.quantity} qty tier)`,
+      type: 'quantity_tier',
+      amount: baseAmount,
+    });
   }
 
-  let runningTotal = tier.basePrice;
-  lines.push({
-    code: 'base',
-    label: `Base price (${tier.quantity} qty tier)`,
-    type: 'quantity_tier',
-    amount: tier.basePrice,
-  });
+  let runningTotal = baseAmount;
+  let adjustmentTotal = 0;
+
+  for (const line of baseOverride?.preAdjustmentLines ?? []) {
+    lines.push(line);
+    adjustmentTotal = round2(adjustmentTotal + line.amount);
+    runningTotal = round2(runningTotal + line.amount);
+  }
 
   const selectedOptions = findSelectedOptions(bundle, selections);
-  let adjustmentTotal = 0;
 
   for (const sel of selectedOptions) {
     const optionContext = buildPricingContext(input, runningTotal);
@@ -174,7 +209,7 @@ export function calculatePriceFromBundle(
     });
   }
 
-  const subtotal = tier.basePrice;
+  const subtotal = baseAmount;
   const grandTotal = runningTotal;
   const unitPrice = quantity > 0 ? round2(grandTotal / quantity) : grandTotal;
 
@@ -190,7 +225,7 @@ export function calculatePriceFromBundle(
     currency: 'INR',
     lines,
     snapshotPayload: {
-      tierQuantity: tier.quantity,
+      tierQuantity,
       selections,
       lines,
     },

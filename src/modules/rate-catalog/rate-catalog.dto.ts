@@ -47,9 +47,15 @@ export interface RateMatrixColumnDto {
 
 export interface RateMatrixCellDto {
   columnKey: string;
+  available: boolean;
+  unavailableReason?: string;
   basePrice: number;
   adjustmentTotal: number;
+  /** Price before any vendor-specific override — same figure every vendor without one sees. */
+  listPrice: number;
+  /** Price this vendor actually pays — equals listPrice unless overrideApplied. */
   grandTotal: number;
+  overrideApplied: boolean;
   unitPrice: number;
   gstRate: number;
   gstAmount: number;

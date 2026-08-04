@@ -450,37 +450,40 @@ export class PrintJobService {
 
     if (!resolved) throw ApiError.notFound('Product version not found');
 
-    const priceResult = await productsService.calculatePrice({
-      productId: input.productId,
-      versionId: input.versionId,
-      quantity: input.quantity,
-      selections: input.selections,
-      context: {
-        selectedSize: input.size
-          ? {
-              sizeCode: input.size.sizeCode,
-              width: input.size.width,
-              height: input.size.height,
-              unit: input.size.unit,
-            }
-          : undefined,
-        printProcess: resolved.context.printProcess?.code ?? null,
-        lamination: input.selections['lamination'] ?? null,
-        uv: input.selections['uv'] ?? null,
-        foil: input.selections['foil'] ?? null,
-        embossing: input.selections['embossing'] ?? null,
-        eyelets: input.selections['eyelets'] ?? null,
-        dispatchOption:
-          input.orderDeliveryChoice == null
-            ? null
-            : input.orderDeliveryChoice
-              ? 'DELIVERY'
-              : 'SELF_PICKUP',
-        runtimeValues: input.coverageResults?.length
-          ? { coverageResults: input.coverageResults }
-          : undefined,
+    const priceResult = await productsService.calculatePrice(
+      {
+        productId: input.productId,
+        versionId: input.versionId,
+        quantity: input.quantity,
+        selections: input.selections,
+        context: {
+          selectedSize: input.size
+            ? {
+                sizeCode: input.size.sizeCode,
+                width: input.size.width,
+                height: input.size.height,
+                unit: input.size.unit,
+              }
+            : undefined,
+          printProcess: resolved.context.printProcess?.code ?? null,
+          lamination: input.selections['lamination'] ?? null,
+          uv: input.selections['uv'] ?? null,
+          foil: input.selections['foil'] ?? null,
+          embossing: input.selections['embossing'] ?? null,
+          eyelets: input.selections['eyelets'] ?? null,
+          dispatchOption:
+            input.orderDeliveryChoice == null
+              ? null
+              : input.orderDeliveryChoice
+                ? 'DELIVERY'
+                : 'SELF_PICKUP',
+          runtimeValues: input.coverageResults?.length
+            ? { coverageResults: input.coverageResults }
+            : undefined,
+        },
       },
-    });
+      userId,
+    );
 
     return this.buildLivePricingTotals(input, { priceResult, checkout, resolved });
   }
@@ -491,12 +494,18 @@ export class PrintJobService {
       priceResult: PriceCalculationResult;
       checkout: VendorCheckoutContext;
       resolved: NonNullable<Awaited<ReturnType<typeof printContextResolver.resolveForVersion>>>;
+      /**
+       * Set when priceResult already came from the "flex_area" resolver — resolveChargeableSize
+       * has already priced the whole design by area, so the legacy sizeEngine surcharge hook
+       * must not also apply on top (would double-count the size-driven price).
+       */
+      skipSizeAdjustment?: boolean;
     },
   ) {
-    const { priceResult, checkout, resolved } = deps;
+    const { priceResult, checkout, resolved, skipSizeAdjustment } = deps;
 
     let sizeAdjustment = 0;
-    if (resolved.sizeStrategy && sizeEngine.canResolve(resolved.sizeStrategy, input.size)) {
+    if (!skipSizeAdjustment && resolved.sizeStrategy && sizeEngine.canResolve(resolved.sizeStrategy, input.size)) {
       const resolvedSize = sizeEngine.resolve(resolved.sizeStrategy, input.size);
       sizeAdjustment = Number(resolvedSize.metadata?.['sizeSurcharge'] ?? 0);
     }

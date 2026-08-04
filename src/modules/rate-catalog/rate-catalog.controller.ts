@@ -38,6 +38,7 @@ export class RateCatalogController {
     const data = await rateCatalogService.getProductRates(
       req.params['id'] as string,
       req.validatedQuery as RateCatalogProductRatesQuery,
+      req.user!.id,
     );
     ApiResponse.success(res, data);
   });
@@ -46,6 +47,7 @@ export class RateCatalogController {
     const { buffer, filename, contentType } = await rateCatalogService.exportPdf(
       req.params['id'] as string,
       req.validatedQuery as RateCatalogExportQuery,
+      req.user!.id,
     );
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -56,6 +58,7 @@ export class RateCatalogController {
     const { buffer, filename, contentType } = await rateCatalogService.exportExcel(
       req.params['id'] as string,
       req.validatedQuery as RateCatalogExportQuery,
+      req.user!.id,
     );
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

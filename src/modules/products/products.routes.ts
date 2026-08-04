@@ -11,6 +11,7 @@ router.get('/', productsController.list);
 router.get('/families', productsController.listFamilies);
 router.get('/series', productsController.listSeries);
 router.post('/calculate-price', validate(calculatePriceSchema), productsController.calculatePrice);
+router.get('/matrix-availability', productsController.matrixAvailability);
 router.get('/:id', productsController.getById);
 
 export { router as productsRoutes };

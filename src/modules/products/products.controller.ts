@@ -39,7 +39,16 @@ export class ProductsController {
   });
 
   calculatePrice = asyncHandler(async (req: Request, res: Response) => {
-    const result = await productsService.calculatePrice(req.body as CalculatePriceInput);
+    const result = await productsService.calculatePrice(req.body as CalculatePriceInput, req.user!.id);
+    return ApiResponse.success(res, result);
+  });
+
+  matrixAvailability = asyncHandler(async (req: Request, res: Response) => {
+    const versionId = req.query['versionId'] as string | undefined;
+    const quantity = Number(req.query['quantity']);
+    if (!versionId) throw ApiError.badRequest('versionId is required');
+    if (!Number.isFinite(quantity) || quantity <= 0) throw ApiError.badRequest('quantity must be a positive number');
+    const result = await productsService.getMatrixAvailability(versionId, quantity);
     return ApiResponse.success(res, result);
   });
 }

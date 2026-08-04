@@ -89,6 +89,7 @@ export class RateCatalogService {
   async getProductRates(
     productId: string,
     query: RateCatalogProductRatesQuery,
+    vendorId: string,
   ): Promise<RateCatalogProductRatesDto> {
     const product = await rateCatalogRepository.findProductForRates(productId);
     if (!product?.versions[0]) throw ApiError.notFound('Product not found');
@@ -104,6 +105,7 @@ export class RateCatalogService {
     const cacheKey = rateCatalogCacheService.buildRatesCacheKey({
       productId,
       versionId: version.id,
+      vendorId,
       rowPage: query.rowPage,
       rowLimit: query.rowLimit,
       ...filters,
@@ -112,7 +114,7 @@ export class RateCatalogService {
     const redisKey = RateCatalogCacheKeys.productRates(productId, version.id, cacheKey);
 
     return rateCatalogCacheService.getProductRates(redisKey, () =>
-      this.buildProductRates(product, version, strategyKey, query, filters),
+      this.buildProductRates(product, version, strategyKey, query, filters, vendorId),
     );
   }
 
@@ -124,6 +126,7 @@ export class RateCatalogService {
     strategyKey: string,
     query: RateCatalogProductRatesQuery,
     filters: Record<string, string>,
+    vendorId: string,
   ): Promise<RateCatalogProductRatesDto> {
     const [bundle, settings, printContext] = await Promise.all([
       pricingRepository.loadVersionBundle(version.id),
@@ -154,13 +157,14 @@ export class RateCatalogService {
         ? Number(firstCoverageRule['minCharge'])
         : null;
 
-    const matrix = buildRateMatrix({
+    const matrix = await buildRateMatrix({
       bundle,
       pricingStrategyKey: strategyKey,
       gstRate,
       rowPage: query.rowPage,
       rowLimit: query.rowLimit,
       filters,
+      vendorId,
       sizePresets,
       coverageMinCharge,
     });
@@ -210,15 +214,15 @@ export class RateCatalogService {
     };
   }
 
-  async exportPdf(productId: string, query: RateCatalogExportQuery) {
-    const rates = await this.getProductRates(productId, { ...query, rowPage: 1, rowLimit: 100 });
+  async exportPdf(productId: string, query: RateCatalogExportQuery, vendorId: string) {
+    const rates = await this.getProductRates(productId, { ...query, rowPage: 1, rowLimit: 100 }, vendorId);
     const buffer = await generateRateCatalogPdf(rates);
     const filename = `rate-list-${rates.product.slug}-${Date.now()}.pdf`;
     return { buffer, filename, contentType: 'application/pdf' };
   }
 
-  async exportExcel(productId: string, query: RateCatalogExportQuery) {
-    const rates = await this.getProductRates(productId, { ...query, rowPage: 1, rowLimit: 100 });
+  async exportExcel(productId: string, query: RateCatalogExportQuery, vendorId: string) {
+    const rates = await this.getProductRates(productId, { ...query, rowPage: 1, rowLimit: 100 }, vendorId);
     const buffer = await generateRateCatalogExcel(rates);
     const filename = `rate-list-${rates.product.slug}-${Date.now()}.xlsx`;
     return {

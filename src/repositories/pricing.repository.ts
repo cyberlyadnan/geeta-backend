@@ -26,6 +26,12 @@ export const VERSION_PRICING_INCLUDE = {
     },
   },
   pricingRules: { orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] },
+  // Phase 0 pricing spine — same cached bundle, no extra round trips.
+  priceMatrixCells: true,
+  priceModifierRules: true,
+  rollWidthOptions: { where: { isActive: true }, orderBy: { widthFeet: 'asc' } },
+  productPrintConfig: { select: { pricingStrategyKey: true } },
+  printProcess: { select: { pricingStrategyKey: true } },
 } satisfies Prisma.ProductOfferingVersionInclude;
 
 const localVersionCaches = new Map<
@@ -49,6 +55,22 @@ async function fetchVersionBundle(versionId: string) {
     where: { id: versionId, deletedAt: null },
     include: VERSION_PRICING_INCLUDE,
   });
+}
+
+export type VersionPricingBundle = NonNullable<Awaited<ReturnType<typeof fetchVersionBundle>>>;
+
+/**
+ * Same fallback chain the rate catalogue has used for display since before this resolver
+ * existed — reused here (rather than a new field) so an already-configured product starts
+ * pricing through the matrix/flex engines the moment it's tagged, with no data migration.
+ */
+export function resolvePricingStrategyKey(bundle: VersionPricingBundle): string {
+  return (
+    bundle.productPrintConfig?.pricingStrategyKey ??
+    bundle.printProcess?.pricingStrategyKey ??
+    bundle.pricingProfileKey ??
+    'quantity_pricing'
+  );
 }
 
 export class PricingRepository {

@@ -306,6 +306,12 @@ enum PricingRuleStatus {
   INACTIVE
 }
 
+/// How a VendorPriceOverride's value combines with the list (default) price.
+enum VendorPriceOverrideType {
+  REPLACE
+  DELTA
+}
+
 enum FileRequirementType {
   REQUIRED
   OPTIONAL
@@ -607,84 +613,86 @@ model Role {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  passwordHash String     @map("password_hash")
-  firstName    String     @map("first_name")
-  lastName     String     @map("last_name")
-  phone        String?    @unique
-  avatarUrl    String?    @map("avatar_url")
-  status       UserStatus @default(PENDING_VERIFICATION)
-  roleId       String     @map("role_id")
-  lastLoginAt  DateTime?  @map("last_login_at")
-  emailVerifiedAt DateTime? @map("email_verified_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-  deletedAt    DateTime?  @map("deleted_at")
+  id              String     @id @default(cuid())
+  email           String     @unique
+  passwordHash    String     @map("password_hash")
+  firstName       String     @map("first_name")
+  lastName        String     @map("last_name")
+  phone           String?    @unique
+  avatarUrl       String?    @map("avatar_url")
+  status          UserStatus @default(PENDING_VERIFICATION)
+  roleId          String     @map("role_id")
+  lastLoginAt     DateTime?  @map("last_login_at")
+  emailVerifiedAt DateTime?  @map("email_verified_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  deletedAt       DateTime?  @map("deleted_at")
 
-  role               Role               @relation(fields: [roleId], references: [id])
-  refreshTokens      RefreshToken[]
-  orders             Order[]
-  wallet             Wallet?
-  walletTransactions WalletTransaction[]
-  payments           Payment[]
-  financialAuditsAsTarget FinancialAuditLog[] @relation("FinancialAuditTarget")
-  financialAuditsAsActor  FinancialAuditLog[] @relation("FinancialAuditActor")
-  walletTransactionsCreated WalletTransaction[] @relation("WalletTransactionCreatedBy")
-  vendorProfile      VendorProfile?
-  vendorsVerified    VendorProfile[]    @relation("VendorVerifiedBy")
-  vendorsRejected    VendorProfile[]    @relation("VendorRejectedBy")
-  adminNotes         AdminNote[]        @relation("AdminNoteAuthor")
-  activityLogs       ActivityLog[]      @relation("ActivityActor")
-  sliderSlidesCreated SliderSlide[]     @relation("SliderSlideCreatedBy")
-  sliderSlidesUpdated SliderSlide[]     @relation("SliderSlideUpdatedBy")
-  assignedContactInquiries ContactInquiry[] @relation("ContactInquiryAssignee")
-  resolvedContactInquiries ContactInquiry[] @relation("ContactInquiryResolver")
-  contactInquiryNotes      ContactInquiryNote[]
-  contactInquiryActivities ContactInquiryActivity[]
-  uploadedFileAssets       FileAsset[]
-  productionOrders         ProductionOrder[]
-  cancellationRequestsSubmitted OrderCancellationRequest[] @relation("CancellationRequester")
-  cancellationRequestsDecided   OrderCancellationRequest[] @relation("CancellationDecider")
-  vendorOrderDrafts        VendorOrderDraft[]
-  userNotifications        UserNotification[]
-  productionOrderEvents    ProductionOrderEvent[]    @relation("ProductionOrderEventActor")
-  assignedWorkflowTasks    WorkflowTask[]           @relation("WorkflowTaskAssignee")
-  workflowTaskHistory      WorkflowTaskHistory[]    @relation("WorkflowTaskHistoryPerformer")
-  reworkRequestsCreated    ReworkRequest[]          @relation("ReworkRequestCreator")
-  qualityInspections       QualityInspection[]      @relation("QualityInspector")
-  quotes                   Quote[]
-  auditLogs                AuditLog[]
-  vendorComplianceCreated  VendorComplianceRequest[] @relation("VendorComplianceCreatedBy")
-  vendorComplianceReviewed VendorComplianceRequest[] @relation("VendorComplianceReviewedBy")
-  vendorComplianceItemReviewed VendorComplianceResponse[] @relation("VendorComplianceResponseReviewedBy")
-  deliverySettingsUpdated      DeliverySettings[]          @relation("DeliverySettingsUpdatedBy")
-  artworkFiles                 ArtworkFile[]               @relation("ArtworkFileOwner")
-  artworkApprovals             OrderArtwork[]              @relation("OrderArtworkApprover")
-  sheetSizesCreated            SheetSize[]                 @relation("SheetSizeCreatedBy")
-  sizeTemplatesCreated         SizeTemplate[]              @relation("SizeTemplateCreatedBy")
-  printProcessesCreated        PrintProcess[]              @relation("PrintProcessCreatedBy")
-  printSpecTemplatesCreated    PrintSpecificationTemplate[] @relation("PrintSpecTemplateCreatedBy")
-  masterArtworkRulesCreated    MasterArtworkRule[]         @relation("MasterArtworkRuleCreatedBy")
-  masterValidationRulesCreated MasterValidationRule[]      @relation("MasterValidationRuleCreatedBy")
-  masterCoverageRulesCreated   MasterCoverageRule[]        @relation("MasterCoverageRuleCreatedBy")
-  fileUploadRulesCreated       FileUploadRuleTemplate[]    @relation("FileUploadRuleCreatedBy")
-  workflowInstancesCreated     WorkflowInstance[]          @relation("WorkflowInstanceCreator")
-  workflowTimelineEvents       WorkflowTimelineEvent[]     @relation("WorkflowTimelineActor")
-  departmentAssignments        UserDepartmentAssignment[]  @relation("UserDepartmentMember")
-  departmentAssignmentsCreated UserDepartmentAssignment[]  @relation("UserDepartmentAssignedBy")
-  taskAssignmentsAsOperator    WorkflowTaskAssignment[]      @relation("TaskAssignmentOperator")
-  taskAssignmentsCreated       WorkflowTaskAssignment[]      @relation("TaskAssignmentAssigner")
-  taskAssignmentHistoryPerformed WorkflowTaskAssignmentHistory[] @relation("TaskAssignmentHistoryPerformer")
+  role                            Role                            @relation(fields: [roleId], references: [id])
+  refreshTokens                   RefreshToken[]
+  orders                          Order[]
+  wallet                          Wallet?
+  walletTransactions              WalletTransaction[]
+  payments                        Payment[]
+  financialAuditsAsTarget         FinancialAuditLog[]             @relation("FinancialAuditTarget")
+  financialAuditsAsActor          FinancialAuditLog[]             @relation("FinancialAuditActor")
+  walletTransactionsCreated       WalletTransaction[]             @relation("WalletTransactionCreatedBy")
+  vendorProfile                   VendorProfile?
+  vendorsVerified                 VendorProfile[]                 @relation("VendorVerifiedBy")
+  vendorsRejected                 VendorProfile[]                 @relation("VendorRejectedBy")
+  adminNotes                      AdminNote[]                     @relation("AdminNoteAuthor")
+  activityLogs                    ActivityLog[]                   @relation("ActivityActor")
+  sliderSlidesCreated             SliderSlide[]                   @relation("SliderSlideCreatedBy")
+  sliderSlidesUpdated             SliderSlide[]                   @relation("SliderSlideUpdatedBy")
+  assignedContactInquiries        ContactInquiry[]                @relation("ContactInquiryAssignee")
+  resolvedContactInquiries        ContactInquiry[]                @relation("ContactInquiryResolver")
+  contactInquiryNotes             ContactInquiryNote[]
+  contactInquiryActivities        ContactInquiryActivity[]
+  uploadedFileAssets              FileAsset[]
+  productionOrders                ProductionOrder[]
+  cancellationRequestsSubmitted   OrderCancellationRequest[]      @relation("CancellationRequester")
+  cancellationRequestsDecided     OrderCancellationRequest[]      @relation("CancellationDecider")
+  vendorOrderDrafts               VendorOrderDraft[]
+  userNotifications               UserNotification[]
+  productionOrderEvents           ProductionOrderEvent[]          @relation("ProductionOrderEventActor")
+  assignedWorkflowTasks           WorkflowTask[]                  @relation("WorkflowTaskAssignee")
+  workflowTaskHistory             WorkflowTaskHistory[]           @relation("WorkflowTaskHistoryPerformer")
+  reworkRequestsCreated           ReworkRequest[]                 @relation("ReworkRequestCreator")
+  qualityInspections              QualityInspection[]             @relation("QualityInspector")
+  quotes                          Quote[]
+  auditLogs                       AuditLog[]
+  vendorComplianceCreated         VendorComplianceRequest[]       @relation("VendorComplianceCreatedBy")
+  vendorComplianceReviewed        VendorComplianceRequest[]       @relation("VendorComplianceReviewedBy")
+  vendorComplianceItemReviewed    VendorComplianceResponse[]      @relation("VendorComplianceResponseReviewedBy")
+  deliverySettingsUpdated         DeliverySettings[]              @relation("DeliverySettingsUpdatedBy")
+  artworkFiles                    ArtworkFile[]                   @relation("ArtworkFileOwner")
+  artworkApprovals                OrderArtwork[]                  @relation("OrderArtworkApprover")
+  sheetSizesCreated               SheetSize[]                     @relation("SheetSizeCreatedBy")
+  sizeTemplatesCreated            SizeTemplate[]                  @relation("SizeTemplateCreatedBy")
+  printProcessesCreated           PrintProcess[]                  @relation("PrintProcessCreatedBy")
+  printSpecTemplatesCreated       PrintSpecificationTemplate[]    @relation("PrintSpecTemplateCreatedBy")
+  masterArtworkRulesCreated       MasterArtworkRule[]             @relation("MasterArtworkRuleCreatedBy")
+  masterValidationRulesCreated    MasterValidationRule[]          @relation("MasterValidationRuleCreatedBy")
+  masterCoverageRulesCreated      MasterCoverageRule[]            @relation("MasterCoverageRuleCreatedBy")
+  fileUploadRulesCreated          FileUploadRuleTemplate[]        @relation("FileUploadRuleCreatedBy")
+  workflowInstancesCreated        WorkflowInstance[]              @relation("WorkflowInstanceCreator")
+  workflowTimelineEvents          WorkflowTimelineEvent[]         @relation("WorkflowTimelineActor")
+  departmentAssignments           UserDepartmentAssignment[]      @relation("UserDepartmentMember")
+  departmentAssignmentsCreated    UserDepartmentAssignment[]      @relation("UserDepartmentAssignedBy")
+  taskAssignmentsAsOperator       WorkflowTaskAssignment[]        @relation("TaskAssignmentOperator")
+  taskAssignmentsCreated          WorkflowTaskAssignment[]        @relation("TaskAssignmentAssigner")
+  taskAssignmentHistoryPerformed  WorkflowTaskAssignmentHistory[] @relation("TaskAssignmentHistoryPerformer")
   taskAssignmentHistoryAsOperator WorkflowTaskAssignmentHistory[] @relation("TaskAssignmentHistoryOperator")
-  executionSessionsAsOperator    WorkflowTaskExecutionSession[] @relation("ExecutionSessionOperator")
-  executionHoldsCreated          WorkflowTaskHold[]             @relation("ExecutionHoldCreator")
-  productionNotesAuthored        WorkflowTaskProductionNote[]   @relation("ProductionNoteAuthor")
-  taskAttachmentsUploaded        WorkflowTaskAttachment[]       @relation("TaskAttachmentUploader")
-  executionAlertsCreated         WorkflowTaskExecutionAlert[]   @relation("ExecutionAlertCreator")
-  qcAttachmentsUploaded          QualityInspectionAttachment[] @relation("QcAttachmentUploader")
-  machineStatusChanges           MachineStatusHistory[]        @relation("MachineStatusChanger")
-  machineMaintenancePerformed    MachineMaintenanceRecord[]    @relation("MachineMaintenancePerformer")
+  executionSessionsAsOperator     WorkflowTaskExecutionSession[]  @relation("ExecutionSessionOperator")
+  executionHoldsCreated           WorkflowTaskHold[]              @relation("ExecutionHoldCreator")
+  productionNotesAuthored         WorkflowTaskProductionNote[]    @relation("ProductionNoteAuthor")
+  taskAttachmentsUploaded         WorkflowTaskAttachment[]        @relation("TaskAttachmentUploader")
+  executionAlertsCreated          WorkflowTaskExecutionAlert[]    @relation("ExecutionAlertCreator")
+  qcAttachmentsUploaded           QualityInspectionAttachment[]   @relation("QcAttachmentUploader")
+  machineStatusChanges            MachineStatusHistory[]          @relation("MachineStatusChanger")
+  machineMaintenancePerformed     MachineMaintenanceRecord[]      @relation("MachineMaintenancePerformer")
+  vendorPriceOverridesReceived    VendorPriceOverride[]           @relation("VendorPriceOverrideVendor")
+  vendorPriceOverridesSet         VendorPriceOverride[]           @relation("VendorPriceOverrideSetBy")
 
   @@index([roleId])
   @@index([status])
@@ -736,12 +744,12 @@ model VendorProfile {
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @updatedAt @map("updated_at")
 
-  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  verifiedBy User? @relation("VendorVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
-  rejectedBy User? @relation("VendorRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
-  adminNotes         AdminNote[]
-  activities         ActivityLog[]              @relation("VendorActivity")
-  complianceRequests VendorComplianceRequest[]
+  user                User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifiedBy          User?                      @relation("VendorVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  rejectedBy          User?                      @relation("VendorRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
+  adminNotes          AdminNote[]
+  activities          ActivityLog[]              @relation("VendorActivity")
+  complianceRequests  VendorComplianceRequest[]
   complianceResponses VendorComplianceResponse[]
 
   @@index([accountStatus])
@@ -804,18 +812,18 @@ model VendorComplianceRequest {
 }
 
 model VendorComplianceRequestItem {
-  id                 String                 @id @default(cuid())
-  requestId          String                 @map("request_id")
-  itemType           VendorComplianceItemType @map("item_type")
-  code               String?
-  label              String
-  description        String?                @db.Text
-  isRequired         Boolean                @default(true) @map("is_required")
-  sortOrder          Int                    @default(0) @map("sort_order")
-  maxFileSizeMb      Int?                   @map("max_file_size_mb")
-  acceptedFileTypes  Json                   @default("[]") @map("accepted_file_types")
-  createdAt          DateTime               @default(now()) @map("created_at")
-  updatedAt          DateTime               @updatedAt @map("updated_at")
+  id                String                   @id @default(cuid())
+  requestId         String                   @map("request_id")
+  itemType          VendorComplianceItemType @map("item_type")
+  code              String?
+  label             String
+  description       String?                  @db.Text
+  isRequired        Boolean                  @default(true) @map("is_required")
+  sortOrder         Int                      @default(0) @map("sort_order")
+  maxFileSizeMb     Int?                     @map("max_file_size_mb")
+  acceptedFileTypes Json                     @default("[]") @map("accepted_file_types")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
 
   request   VendorComplianceRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
   responses VendorComplianceResponse[]
@@ -894,12 +902,12 @@ model ActivityLog {
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String   @map("user_id")
-  expiresAt DateTime @map("expires_at")
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String    @map("user_id")
+  expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -999,24 +1007,24 @@ model ProductSeries {
 /// Sellable finish combination — e.g. "800 GSM + Matt + UV + Foil + Die Cut".
 /// Identity and merchandising only; all definition lives on ProductOfferingVersion.
 model ProductOffering {
-  id               String             @id @default(cuid())
-  seriesId         String             @map("series_id")
+  id               String            @id @default(cuid())
+  seriesId         String            @map("series_id")
   name             String
-  slug             String             @unique
-  shortDescription String?            @map("short_description")
-  description      String?            @db.Text
-  sku              String?            @unique
-  displayName      String?            @map("display_name")
-  thumbnailUrl     String?            @map("thumbnail_url")
-  thumbnailKey     String?            @map("thumbnail_key")
-  visibility       ProductVisibility  @default(VENDOR_ONLY)
-  sortOrder        Int                @default(0) @map("sort_order")
-  status           ProductStatus      @default(DRAFT)
-  isFeatured       Boolean            @default(false) @map("is_featured")
-  isActive         Boolean            @default(true) @map("is_active")
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
-  deletedAt        DateTime?          @map("deleted_at")
+  slug             String            @unique
+  shortDescription String?           @map("short_description")
+  description      String?           @db.Text
+  sku              String?           @unique
+  displayName      String?           @map("display_name")
+  thumbnailUrl     String?           @map("thumbnail_url")
+  thumbnailKey     String?           @map("thumbnail_key")
+  visibility       ProductVisibility @default(VENDOR_ONLY)
+  sortOrder        Int               @default(0) @map("sort_order")
+  status           ProductStatus     @default(DRAFT)
+  isFeatured       Boolean           @default(false) @map("is_featured")
+  isActive         Boolean           @default(true) @map("is_active")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  deletedAt        DateTime?         @map("deleted_at")
 
   series   ProductSeries            @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   versions ProductOfferingVersion[]
@@ -1051,52 +1059,58 @@ model ProductImage {
 /// Immutable versioned snapshot — source of truth for config, pricing, files, workflow, BOM.
 /// Quotes, orders, and production jobs must pin a specific version at creation time.
 model ProductOfferingVersion {
-  id                  String                       @id @default(cuid())
-  productOfferingId   String                       @map("product_offering_id")
-  versionNumber       Int                          @map("version_number")
-  versionLabel        String                       @map("version_label")
-  status              ProductOfferingVersionStatus @default(DRAFT)
-  effectiveFrom       DateTime                     @default(now()) @map("effective_from")
-  effectiveTo         DateTime?                    @map("effective_to")
-  isCurrent           Boolean                      @default(false) @map("is_current")
-  changelog           String?                      @db.Text
-  pricingProfileKey   String?                      @map("pricing_profile_key")
-  workflowKey         String?                      @map("workflow_key")
-  printProcessId              String? @map("print_process_id")
-  sizeTemplateId              String? @map("size_template_id")
-  printSpecificationTemplateId String? @map("print_specification_template_id")
+  id                           String                       @id @default(cuid())
+  productOfferingId            String                       @map("product_offering_id")
+  versionNumber                Int                          @map("version_number")
+  versionLabel                 String                       @map("version_label")
+  status                       ProductOfferingVersionStatus @default(DRAFT)
+  effectiveFrom                DateTime                     @default(now()) @map("effective_from")
+  effectiveTo                  DateTime?                    @map("effective_to")
+  isCurrent                    Boolean                      @default(false) @map("is_current")
+  changelog                    String?                      @db.Text
+  pricingProfileKey            String?                      @map("pricing_profile_key")
+  /// Rate for the "flex_area" pricing strategy — price = chargedArea (sq ft) x ratePerSqFt.
+  ratePerSqFt                  Decimal?                     @map("rate_per_sq_ft") @db.Decimal(12, 2)
+  workflowKey                  String?                      @map("workflow_key")
+  printProcessId               String?                      @map("print_process_id")
+  sizeTemplateId               String?                      @map("size_template_id")
+  printSpecificationTemplateId String?                      @map("print_specification_template_id")
   /// Denormalized publish cache — relational models are authoritative.
-  configurationSchema Json                         @default("{}") @map("configuration_schema")
-  fileRequirements    Json                         @default("{}") @map("file_requirements")
-  metadata            Json                         @default("{}")
-  publishedAt         DateTime?                    @map("published_at")
-  createdAt           DateTime                     @default(now()) @map("created_at")
-  updatedAt           DateTime                     @updatedAt @map("updated_at")
-  deletedAt           DateTime?                    @map("deleted_at")
+  configurationSchema          Json                         @default("{}") @map("configuration_schema")
+  fileRequirements             Json                         @default("{}") @map("file_requirements")
+  metadata                     Json                         @default("{}")
+  publishedAt                  DateTime?                    @map("published_at")
+  createdAt                    DateTime                     @default(now()) @map("created_at")
+  updatedAt                    DateTime                     @updatedAt @map("updated_at")
+  deletedAt                    DateTime?                    @map("deleted_at")
 
-  productOffering       ProductOffering         @relation(fields: [productOfferingId], references: [id], onDelete: Restrict)
-  configurationGroups   ConfigurationGroup[]
-  configurationFields   ConfigurationField[]
-  configurationRules    ConfigurationRule[]
-  quantityPricing       QuantityPricing[]
-  pricingRules          PricingRule[]
-  fileRequirementsRel   FileRequirement[]
-  printSpecification    PrintSpecification?
-  printSizeStrategy     PrintSizeStrategy?
-  artworkRules          ArtworkRule[]
-  coveragePricingRules  CoveragePricingRule[]
-  printLayers           PrintLayer[]
-  artworkFiles          ArtworkFile[]
-  printProcess              PrintProcess?              @relation(fields: [printProcessId], references: [id], onDelete: SetNull)
-  sizeTemplate              SizeTemplate?              @relation(fields: [sizeTemplateId], references: [id], onDelete: SetNull)
+  productOffering            ProductOffering             @relation(fields: [productOfferingId], references: [id], onDelete: Restrict)
+  configurationGroups        ConfigurationGroup[]
+  configurationFields        ConfigurationField[]
+  configurationRules         ConfigurationRule[]
+  quantityPricing            QuantityPricing[]
+  pricingRules               PricingRule[]
+  priceMatrixCells           PriceMatrixCell[]
+  priceModifierRules         PriceModifierRule[]
+  rollWidthOptions           RollWidthOption[]
+  vendorPriceOverrides       VendorPriceOverride[]
+  fileRequirementsRel        FileRequirement[]
+  printSpecification         PrintSpecification?
+  printSizeStrategy          PrintSizeStrategy?
+  artworkRules               ArtworkRule[]
+  coveragePricingRules       CoveragePricingRule[]
+  printLayers                PrintLayer[]
+  artworkFiles               ArtworkFile[]
+  printProcess               PrintProcess?               @relation(fields: [printProcessId], references: [id], onDelete: SetNull)
+  sizeTemplate               SizeTemplate?               @relation(fields: [sizeTemplateId], references: [id], onDelete: SetNull)
   printSpecificationTemplate PrintSpecificationTemplate? @relation(fields: [printSpecificationTemplateId], references: [id], onDelete: SetNull)
-  productPrintConfig        ProductPrintConfig?
-  workflow              ProductOfferingWorkflow?
-  bomTemplate           BomTemplate?
-  orderItems            OrderItem[]
-  productionOrderItems  ProductionOrderItem[]
-  quoteItems            QuoteItem[]
-  qualityChecklistTemplates QualityChecklistTemplate[]
+  productPrintConfig         ProductPrintConfig?
+  workflow                   ProductOfferingWorkflow?
+  bomTemplate                BomTemplate?
+  orderItems                 OrderItem[]
+  productionOrderItems       ProductionOrderItem[]
+  quoteItems                 QuoteItem[]
+  qualityChecklistTemplates  QualityChecklistTemplate[]
 
   @@unique([productOfferingId, versionNumber])
   @@index([productOfferingId, status, deletedAt])
@@ -1167,7 +1181,7 @@ model ConfigurationOption {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  field        ConfigurationField           @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  field        ConfigurationField          @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   pricing      ConfigurationOptionPricing?
   pricingRules PricingRule[]
 
@@ -1229,8 +1243,8 @@ model ConfigurationOptionPricing {
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")
 
-  option         ConfigurationOption                  @relation(fields: [optionId], references: [id], onDelete: Cascade)
-  quantityTiers  ConfigurationOptionQuantityPricing[]
+  option        ConfigurationOption                  @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  quantityTiers ConfigurationOptionQuantityPricing[]
 
   @@index([optionId])
   @@map("configuration_option_pricing")
@@ -1280,14 +1294,107 @@ model PricingRule {
   @@map("pricing_rules")
 }
 
+// =====================================================
+// PRODUCT ENGINE — PHASE 0 PRICING SPINE (Matrix + Roll/Flex + Vendor Overrides)
+// One resolver (services/pricing-engine/price-resolver.service.ts) fronts all of this —
+// see docs/features/02-phase0-pricing-spine.md.
+// =====================================================
+
+/// N-dimensional price cell (e.g. { gsm, sheetSize, qtyBand }) for "matrix" strategy products.
+/// dimensionKey is stored as-is for readability/admin display; dimensionKeyHash is the
+/// canonical, sorted, stringified form uniqueness and lookups key off — Postgres has no default
+/// btree operator class for jsonb, so the raw Json column cannot carry a unique constraint.
+model PriceMatrixCell {
+  id                       String   @id @default(cuid())
+  productOfferingVersionId String   @map("product_offering_version_id")
+  dimensionKey             Json     @map("dimension_key")
+  dimensionKeyHash         String   @map("dimension_key_hash")
+  price                    Decimal? @db.Decimal(12, 2)
+  available                Boolean  @default(true)
+  unavailableReason        String?  @map("unavailable_reason")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  vendorPriceOverrides   VendorPriceOverride[]
+
+  @@unique([productOfferingVersionId, dimensionKeyHash])
+  @@index([productOfferingVersionId])
+  @@map("price_matrix_cells")
+}
+
+/// Conditional surcharge on top of a matrix (or quantity-tier) base price — e.g. B/S surcharge
+/// whose amount depends on which GSM is selected. amountTable keys are stringified amountKey values.
+model PriceModifierRule {
+  id                       String   @id @default(cuid())
+  productOfferingVersionId String   @map("product_offering_version_id")
+  name                     String
+  triggerField             String   @map("trigger_field")
+  triggerValue             String   @map("trigger_value")
+  amountKey                String   @map("amount_key")
+  amountTable              Json     @map("amount_table")
+  appliesAfter             String   @default("base") @map("applies_after")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+
+  @@index([productOfferingVersionId])
+  @@map("price_modifier_rules")
+}
+
+/// Fixed set of roll widths (feet) a "flex_area" strategy product can be charged against.
+model RollWidthOption {
+  id                       String   @id @default(cuid())
+  productOfferingVersionId String   @map("product_offering_version_id")
+  widthFeet                Decimal  @map("width_feet") @db.Decimal(6, 2)
+  isActive                 Boolean  @default(true) @map("is_active")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([productOfferingVersionId, widthFeet])
+  @@index([productOfferingVersionId])
+  @@map("roll_width_options")
+}
+
+/// Sparse, vendor-specific negotiated price — only the cells/products that actually differ from
+/// default get a row here. matrixCellId null = whole-product override (e.g. a flex ratePerSqFt
+/// override, or a default-strategy product's base price); set = one specific matrix cell.
+/// Uniqueness (one row per vendor+product+cell, and at most one whole-product row per
+/// vendor+product) is enforced by partial unique indexes added in the migration SQL, since a
+/// plain compound unique constraint does not collapse NULLs in Postgres.
+model VendorPriceOverride {
+  id                       String                  @id @default(cuid())
+  vendorId                 String                  @map("vendor_id")
+  productOfferingVersionId String                  @map("product_offering_version_id")
+  matrixCellId             String?                 @map("matrix_cell_id")
+  overrideType             VendorPriceOverrideType @map("override_type")
+  value                    Decimal                 @db.Decimal(12, 2)
+  setByUserId              String                  @map("set_by_user_id")
+  createdAt                DateTime                @default(now()) @map("created_at")
+  updatedAt                DateTime                @updatedAt @map("updated_at")
+
+  vendor                 User                   @relation("VendorPriceOverrideVendor", fields: [vendorId], references: [id], onDelete: Cascade)
+  productOfferingVersion ProductOfferingVersion @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  matrixCell             PriceMatrixCell?       @relation(fields: [matrixCellId], references: [id], onDelete: Cascade)
+  setByUser              User                   @relation("VendorPriceOverrideSetBy", fields: [setByUserId], references: [id], onDelete: Restrict)
+
+  @@index([vendorId, productOfferingVersionId])
+  @@index([productOfferingVersionId])
+  @@index([matrixCellId])
+  @@map("vendor_price_overrides")
+}
+
 /// Immutable breakdown stored when an order/quote is priced — protects historical totals.
 model PriceSnapshot {
   id              String   @id @default(cuid())
   subtotal        Decimal  @db.Decimal(12, 2)
-  adjustmentTotal Decimal @map("adjustment_total") @db.Decimal(12, 2)
-  discountTotal   Decimal @map("discount_total") @db.Decimal(12, 2)
-  taxTotal        Decimal @map("tax_total") @db.Decimal(12, 2)
-  grandTotal      Decimal @map("grand_total") @db.Decimal(12, 2)
+  adjustmentTotal Decimal  @map("adjustment_total") @db.Decimal(12, 2)
+  discountTotal   Decimal  @map("discount_total") @db.Decimal(12, 2)
+  taxTotal        Decimal  @map("tax_total") @db.Decimal(12, 2)
+  grandTotal      Decimal  @map("grand_total") @db.Decimal(12, 2)
   calculation     Json
   createdAt       DateTime @default(now()) @map("created_at")
 
@@ -1352,15 +1459,15 @@ model FileAsset {
   uploadedById String?  @map("uploaded_by_id")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  uploadedBy          User?                        @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
-  orderItemFiles      OrderItemFile[]
-  complianceResponses VendorComplianceResponse[]
-  artworkFile         ArtworkFile?
-  artworkVersions     ArtworkVersion[]
-  taskAttachments     WorkflowTaskAttachment[]
-  productionNoteFiles WorkflowTaskProductionNote[]
+  uploadedBy              User?                         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  orderItemFiles          OrderItemFile[]
+  complianceResponses     VendorComplianceResponse[]
+  artworkFile             ArtworkFile?
+  artworkVersions         ArtworkVersion[]
+  taskAttachments         WorkflowTaskAttachment[]
+  productionNoteFiles     WorkflowTaskProductionNote[]
   qcInspectionAttachments QualityInspectionAttachment[]
-  qcDefectAttachments   QualityInspectionDefect[]
+  qcDefectAttachments     QualityInspectionDefect[]
 
   @@index([uploadedById])
   @@index([createdAt])
@@ -1401,10 +1508,10 @@ model Department {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  facility              Facility               @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  facility              Facility                       @relation(fields: [facilityId], references: [id], onDelete: Restrict)
   workflowSteps         WorkflowTemplateStep[]
-  workflowTasks         WorkflowTask[]         @relation("WorkflowTaskStepDepartment")
-  assignedWorkflowTasks WorkflowTask[]         @relation("WorkflowTaskAssignedDepartment")
+  workflowTasks         WorkflowTask[]                 @relation("WorkflowTaskStepDepartment")
+  assignedWorkflowTasks WorkflowTask[]                 @relation("WorkflowTaskAssignedDepartment")
   staffAssignments      UserDepartmentAssignment[]
   taskAssignments       WorkflowTaskAssignment[]
   executionSessions     WorkflowTaskExecutionSession[]
@@ -1426,10 +1533,10 @@ model WorkflowTemplate {
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  facility                  Facility                  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
-  steps                     WorkflowTemplateStep[]
-  productOfferingWorkflows  ProductOfferingWorkflow[]
-  workflowInstances         WorkflowInstance[]
+  facility                 Facility                  @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  steps                    WorkflowTemplateStep[]
+  productOfferingWorkflows ProductOfferingWorkflow[]
+  workflowInstances        WorkflowInstance[]
 
   @@index([facilityId])
   @@map("workflow_templates")
@@ -1450,15 +1557,15 @@ model WorkflowTemplateStep {
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
-  workflowTemplate WorkflowTemplate   @relation(fields: [workflowTemplateId], references: [id], onDelete: Cascade)
-  department       Department         @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  slaPolicy        WorkflowSlaPolicy?
-  workflowTasks    WorkflowTask[]
-  instructions     String?                        @db.Text
-  metadata         Json                           @default("{}")
+  workflowTemplate   WorkflowTemplate                 @relation(fields: [workflowTemplateId], references: [id], onDelete: Cascade)
+  department         Department                       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  slaPolicy          WorkflowSlaPolicy?
+  workflowTasks      WorkflowTask[]
+  instructions       String?                          @db.Text
+  metadata           Json                             @default("{}")
   checklistTemplates QualityChecklistTemplate[]
-  dependencies     WorkflowTemplateStepDependency[] @relation("StepDependsOn")
-  dependents       WorkflowTemplateStepDependency[] @relation("StepRequiredBy")
+  dependencies       WorkflowTemplateStepDependency[] @relation("StepDependsOn")
+  dependents         WorkflowTemplateStepDependency[] @relation("StepRequiredBy")
 
   @@unique([workflowTemplateId, stepOrder])
   @@index([workflowTemplateId])
@@ -1497,41 +1604,41 @@ model ProductOfferingWorkflow {
 }
 
 model Machine {
-  id                   String                   @id @default(cuid())
-  facilityId           String                   @map("facility_id")
-  departmentId         String                   @map("department_id")
-  machineCode          String                   @unique @map("machine_code")
-  machineName          String                   @map("machine_name")
-  machineType          String?                  @map("machine_type")
-  manufacturer         String?
-  model                String?
-  capabilities         Json                     @default("[]")
-  supportedProcesses   Json                     @default("[]") @map("supported_processes")
-  minSheetWidthMm      Decimal?                 @map("min_sheet_width_mm") @db.Decimal(10, 2)
-  minSheetHeightMm     Decimal?                 @map("min_sheet_height_mm") @db.Decimal(10, 2)
-  maxSheetWidthMm      Decimal?                 @map("max_sheet_width_mm") @db.Decimal(10, 2)
-  maxSheetHeightMm     Decimal?                 @map("max_sheet_height_mm") @db.Decimal(10, 2)
-  maxPrintWidthMm      Decimal?                 @map("max_print_width_mm") @db.Decimal(10, 2)
-  maxPrintHeightMm     Decimal?                 @map("max_print_height_mm") @db.Decimal(10, 2)
-  speedRating          String?                  @map("speed_rating")
-  capacityPerHour      Int?                     @map("capacity_per_hour")
-  workingHours         Json                     @default("{}") @map("working_hours")
-  averageRuntimeMinutes Int?                    @map("average_runtime_minutes")
-  supportedProductIds  Json                     @default("[]") @map("supported_product_ids")
-  operationalStatus    MachineOperationalStatus @default(AVAILABLE) @map("operational_status")
-  isActive             Boolean                  @default(true) @map("is_active")
-  notes                String?                  @db.Text
-  status               MachineStatus            @default(ACTIVE)
-  metadata             Json                     @default("{}")
-  createdAt            DateTime                 @default(now()) @map("created_at")
-  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  id                    String                   @id @default(cuid())
+  facilityId            String                   @map("facility_id")
+  departmentId          String                   @map("department_id")
+  machineCode           String                   @unique @map("machine_code")
+  machineName           String                   @map("machine_name")
+  machineType           String?                  @map("machine_type")
+  manufacturer          String?
+  model                 String?
+  capabilities          Json                     @default("[]")
+  supportedProcesses    Json                     @default("[]") @map("supported_processes")
+  minSheetWidthMm       Decimal?                 @map("min_sheet_width_mm") @db.Decimal(10, 2)
+  minSheetHeightMm      Decimal?                 @map("min_sheet_height_mm") @db.Decimal(10, 2)
+  maxSheetWidthMm       Decimal?                 @map("max_sheet_width_mm") @db.Decimal(10, 2)
+  maxSheetHeightMm      Decimal?                 @map("max_sheet_height_mm") @db.Decimal(10, 2)
+  maxPrintWidthMm       Decimal?                 @map("max_print_width_mm") @db.Decimal(10, 2)
+  maxPrintHeightMm      Decimal?                 @map("max_print_height_mm") @db.Decimal(10, 2)
+  speedRating           String?                  @map("speed_rating")
+  capacityPerHour       Int?                     @map("capacity_per_hour")
+  workingHours          Json                     @default("{}") @map("working_hours")
+  averageRuntimeMinutes Int?                     @map("average_runtime_minutes")
+  supportedProductIds   Json                     @default("[]") @map("supported_product_ids")
+  operationalStatus     MachineOperationalStatus @default(AVAILABLE) @map("operational_status")
+  isActive              Boolean                  @default(true) @map("is_active")
+  notes                 String?                  @db.Text
+  status                MachineStatus            @default(ACTIVE)
+  metadata              Json                     @default("{}")
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  updatedAt             DateTime                 @updatedAt @map("updated_at")
 
-  facility            Facility                   @relation(fields: [facilityId], references: [id], onDelete: Restrict)
-  department          Department                 @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  assignedTasks       WorkflowTask[]
-  taskAssignments     WorkflowTaskAssignment[]
-  statusHistory       MachineStatusHistory[]
-  maintenanceRecords  MachineMaintenanceRecord[]
+  facility           Facility                   @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  department         Department                 @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assignedTasks      WorkflowTask[]
+  taskAssignments    WorkflowTaskAssignment[]
+  statusHistory      MachineStatusHistory[]
+  maintenanceRecords MachineMaintenanceRecord[]
 
   @@index([facilityId])
   @@index([departmentId])
@@ -1601,34 +1708,34 @@ model WorkflowSlaPolicy {
 // =====================================================
 
 model ProductionOrder {
-  id          String                @id @default(cuid())
-  orderNumber String                @unique @map("order_number")
-  customerId  String                @map("customer_id")
-  orderName   String?               @map("order_name")
-  status      ProductionOrderStatus @default(CONFIRMED)
-  subtotal        Decimal               @db.Decimal(12, 2)
-  deliveryCharge  Decimal               @default(0) @map("delivery_charge") @db.Decimal(12, 2)
-  taxAmount       Decimal               @map("tax_amount") @db.Decimal(12, 2)
-  totalAmount     Decimal               @map("total_amount") @db.Decimal(12, 2)
-  deliveryRequired Boolean              @default(false) @map("delivery_required")
-  deliveryType    DeliveryType?         @map("delivery_type")
-  deliveryAddress String?               @map("delivery_address") @db.Text
-  deliveryStatus  DeliveryStatus?       @map("delivery_status")
-  notes           String?               @db.Text
-  quoteId         String?               @map("quote_id")
-  walletDeducted  Boolean               @default(false) @map("wallet_deducted")
-  estimatedCompletionAt DateTime?       @map("estimated_completion_at")
-  sourceDraftId   String?               @map("source_draft_id")
-  createdAt       DateTime              @default(now()) @map("created_at")
-  updatedAt       DateTime              @updatedAt @map("updated_at")
+  id                    String                @id @default(cuid())
+  orderNumber           String                @unique @map("order_number")
+  customerId            String                @map("customer_id")
+  orderName             String?               @map("order_name")
+  status                ProductionOrderStatus @default(CONFIRMED)
+  subtotal              Decimal               @db.Decimal(12, 2)
+  deliveryCharge        Decimal               @default(0) @map("delivery_charge") @db.Decimal(12, 2)
+  taxAmount             Decimal               @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount           Decimal               @map("total_amount") @db.Decimal(12, 2)
+  deliveryRequired      Boolean               @default(false) @map("delivery_required")
+  deliveryType          DeliveryType?         @map("delivery_type")
+  deliveryAddress       String?               @map("delivery_address") @db.Text
+  deliveryStatus        DeliveryStatus?       @map("delivery_status")
+  notes                 String?               @db.Text
+  quoteId               String?               @map("quote_id")
+  walletDeducted        Boolean               @default(false) @map("wallet_deducted")
+  estimatedCompletionAt DateTime?             @map("estimated_completion_at")
+  sourceDraftId         String?               @map("source_draft_id")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
 
-  customer          User                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  quote             Quote?                @relation(fields: [quoteId], references: [id], onDelete: SetNull)
-  items             ProductionOrderItem[]
-  workflowInstances WorkflowInstance[]
-  jobCards          ProductionJobCard[]
-  events            ProductionOrderEvent[]
-  walletTransactions WalletTransaction[]  @relation("ProductionOrderWalletTx")
+  customer             User                       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  quote                Quote?                     @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  items                ProductionOrderItem[]
+  workflowInstances    WorkflowInstance[]
+  jobCards             ProductionJobCard[]
+  events               ProductionOrderEvent[]
+  walletTransactions   WalletTransaction[]        @relation("ProductionOrderWalletTx")
   cancellationRequests OrderCancellationRequest[]
 
   @@index([customerId])
@@ -1733,7 +1840,7 @@ model OrderCancellationRequest {
   reasonId            String                         @map("reason_id")
   remarks             String?                        @db.Text
   status              OrderCancellationRequestStatus @default(PENDING)
-  requestType         OrderCancellationRequestType @map("request_type")
+  requestType         OrderCancellationRequestType   @map("request_type")
   previousOrderStatus ProductionOrderStatus          @map("previous_order_status")
   policyStageKey      CancellationStageKey           @map("policy_stage_key")
   contextSnapshot     Json                           @default("{}") @map("context_snapshot")
@@ -1757,14 +1864,14 @@ model OrderCancellationRequest {
 
 /// Vendor order wizard draft — auto-save and resume.
 model VendorOrderDraft {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
   label     String?
-  payload   Json     @default("{}")
-  step      Int      @default(1)
+  payload   Json      @default("{}")
+  step      Int       @default(1)
   expiresAt DateTime? @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1774,16 +1881,16 @@ model VendorOrderDraft {
 
 /// In-app notifications (email/SMS/WhatsApp ready via metadata).
 model UserNotification {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  type      String
-  title     String
-  body      String?  @db.Text
-  entityType String? @map("entity_type")
-  entityId  String?  @map("entity_id")
-  isRead    Boolean  @default(false) @map("is_read")
-  metadata  Json     @default("{}")
-  createdAt DateTime @default(now()) @map("created_at")
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  type       String
+  title      String
+  body       String?  @db.Text
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  isRead     Boolean  @default(false) @map("is_read")
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1827,24 +1934,24 @@ model OrderItemFile {
 }
 
 model WorkflowInstance {
-  id                      String                 @id @default(cuid())
-  orderId                 String                 @map("order_id")
-  productionOrderItemId   String                 @unique @map("production_order_item_id")
-  workflowTemplateId      String                 @map("workflow_template_id")
-  templateVersion         Int                    @default(1) @map("template_version")
-  status                  WorkflowInstanceStatus @default(INITIALIZED)
-  currentStepOrder        Int                    @default(1) @map("current_step_order")
-  startedAt               DateTime?              @map("started_at")
-  completedAt             DateTime?              @map("completed_at")
-  createdById             String?                @map("created_by_id")
-  metadata                Json                   @default("{}")
-  createdAt               DateTime               @default(now()) @map("created_at")
-  updatedAt               DateTime               @updatedAt @map("updated_at")
+  id                    String                 @id @default(cuid())
+  orderId               String                 @map("order_id")
+  productionOrderItemId String                 @unique @map("production_order_item_id")
+  workflowTemplateId    String                 @map("workflow_template_id")
+  templateVersion       Int                    @default(1) @map("template_version")
+  status                WorkflowInstanceStatus @default(INITIALIZED)
+  currentStepOrder      Int                    @default(1) @map("current_step_order")
+  startedAt             DateTime?              @map("started_at")
+  completedAt           DateTime?              @map("completed_at")
+  createdById           String?                @map("created_by_id")
+  metadata              Json                   @default("{}")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
 
-  order               ProductionOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productionOrderItem ProductionOrderItem    @relation(fields: [productionOrderItemId], references: [id], onDelete: Cascade)
-  workflowTemplate    WorkflowTemplate       @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
-  createdBy           User?                  @relation("WorkflowInstanceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  order               ProductionOrder         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productionOrderItem ProductionOrderItem     @relation(fields: [productionOrderItemId], references: [id], onDelete: Cascade)
+  workflowTemplate    WorkflowTemplate        @relation(fields: [workflowTemplateId], references: [id], onDelete: Restrict)
+  createdBy           User?                   @relation("WorkflowInstanceCreator", fields: [createdById], references: [id], onDelete: SetNull)
   tasks               WorkflowTask[]
   jobCards            ProductionJobCard[]
   timelineEvents      WorkflowTimelineEvent[]
@@ -1880,17 +1987,17 @@ model WorkflowTask {
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @updatedAt @map("updated_at")
 
-  workflowInstance   WorkflowInstance     @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
-  workflowStep       WorkflowTemplateStep @relation(fields: [workflowTemplateStepId], references: [id], onDelete: Restrict)
-  department         Department           @relation("WorkflowTaskStepDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
-  assignedTo         User?                @relation("WorkflowTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  assignedDepartment Department?          @relation("WorkflowTaskAssignedDepartment", fields: [assignedDepartmentId], references: [id], onDelete: SetNull)
-  assignedMachine    Machine?             @relation(fields: [assignedMachineId], references: [id], onDelete: SetNull)
+  workflowInstance   WorkflowInstance                @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  workflowStep       WorkflowTemplateStep            @relation(fields: [workflowTemplateStepId], references: [id], onDelete: Restrict)
+  department         Department                      @relation("WorkflowTaskStepDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
+  assignedTo         User?                           @relation("WorkflowTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedDepartment Department?                     @relation("WorkflowTaskAssignedDepartment", fields: [assignedDepartmentId], references: [id], onDelete: SetNull)
+  assignedMachine    Machine?                        @relation(fields: [assignedMachineId], references: [id], onDelete: SetNull)
   history            WorkflowTaskHistory[]
   reworks            ReworkRequest[]
   slaBreaches        WorkflowSlaBreach[]
-  dependencies       WorkflowTaskDependency[] @relation("TaskDependsOn")
-  dependents         WorkflowTaskDependency[] @relation("TaskRequiredBy")
+  dependencies       WorkflowTaskDependency[]        @relation("TaskDependsOn")
+  dependents         WorkflowTaskDependency[]        @relation("TaskRequiredBy")
   assignments        WorkflowTaskAssignment[]
   assignmentHistory  WorkflowTaskAssignmentHistory[]
   executionSessions  WorkflowTaskExecutionSession[]
@@ -1899,7 +2006,7 @@ model WorkflowTask {
   executionAlerts    WorkflowTaskExecutionAlert[]
   holds              WorkflowTaskHold[]
   qualityInspections QualityInspection[]
-  reworkTargets      ReworkRequest[]        @relation("ReworkTargetTask")
+  reworkTargets      ReworkRequest[]                 @relation("ReworkTargetTask")
 
   @@unique([workflowInstanceId, workflowTemplateStepId])
   @@index([workflowInstanceId])
@@ -1955,12 +2062,12 @@ model WorkflowTaskAssignment {
   createdAt        DateTime                     @default(now()) @map("created_at")
   updatedAt        DateTime                     @updatedAt @map("updated_at")
 
-  workflowTask WorkflowTask @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
-  operator     User         @relation("TaskAssignmentOperator", fields: [operatorId], references: [id], onDelete: Restrict)
-  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  machine      Machine?     @relation(fields: [machineId], references: [id], onDelete: SetNull)
-  assignedBy   User         @relation("TaskAssignmentAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
-  history      WorkflowTaskAssignmentHistory[]
+  workflowTask      WorkflowTask                    @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  operator          User                            @relation("TaskAssignmentOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+  department        Department                      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  machine           Machine?                        @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  assignedBy        User                            @relation("TaskAssignmentAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+  history           WorkflowTaskAssignmentHistory[]
   executionSessions WorkflowTaskExecutionSession[]
 
   @@index([workflowTaskId, status])
@@ -2020,10 +2127,10 @@ model WorkflowTaskExecutionSession {
   createdAt               DateTime                           @default(now()) @map("created_at")
   updatedAt               DateTime                           @updatedAt @map("updated_at")
 
-  workflowTask WorkflowTask                   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
-  assignment   WorkflowTaskAssignment?          @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
-  operator     User                           @relation("ExecutionSessionOperator", fields: [operatorId], references: [id], onDelete: Restrict)
-  department   Department                     @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  workflowTask WorkflowTask                    @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  assignment   WorkflowTaskAssignment?         @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  operator     User                            @relation("ExecutionSessionOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+  department   Department                      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   intervals    WorkflowTaskExecutionInterval[]
   holds        WorkflowTaskHold[]
   notes        WorkflowTaskProductionNote[]
@@ -2114,14 +2221,14 @@ model WorkflowTaskAttachment {
 }
 
 model WorkflowTaskExecutionAlert {
-  id             String                     @id @default(cuid())
-  workflowTaskId String                     @map("workflow_task_id")
-  sessionId      String?                    @map("session_id")
-  operatorId     String                     @map("operator_id")
+  id             String                       @id @default(cuid())
+  workflowTaskId String                       @map("workflow_task_id")
+  sessionId      String?                      @map("session_id")
+  operatorId     String                       @map("operator_id")
   alertType      ProductionExecutionAlertType @map("alert_type")
-  notes          String?                    @db.Text
-  metadata       Json                       @default("{}")
-  createdAt      DateTime                   @default(now()) @map("created_at")
+  notes          String?                      @db.Text
+  metadata       Json                         @default("{}")
+  createdAt      DateTime                     @default(now()) @map("created_at")
 
   workflowTask WorkflowTask                  @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
   session      WorkflowTaskExecutionSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
@@ -2185,21 +2292,21 @@ model WorkflowTaskHistory {
 }
 
 model ReworkRequest {
-  id              String       @id @default(cuid())
-  taskId          String       @map("task_id")
-  targetTaskId    String?      @map("target_task_id")
-  qcInspectionId  String?      @map("qc_inspection_id")
-  status          ReworkStatus @default(OPEN)
-  reason          String       @db.Text
-  notes           String?      @db.Text
-  reworkCycle     Int          @default(1) @map("rework_cycle")
-  createdById     String?      @map("created_by_id")
-  createdAt       DateTime     @default(now()) @map("created_at")
+  id             String       @id @default(cuid())
+  taskId         String       @map("task_id")
+  targetTaskId   String?      @map("target_task_id")
+  qcInspectionId String?      @map("qc_inspection_id")
+  status         ReworkStatus @default(OPEN)
+  reason         String       @db.Text
+  notes          String?      @db.Text
+  reworkCycle    Int          @default(1) @map("rework_cycle")
+  createdById    String?      @map("created_by_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
 
-  task          WorkflowTask        @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  targetTask    WorkflowTask?       @relation("ReworkTargetTask", fields: [targetTaskId], references: [id], onDelete: SetNull)
-  qcInspection  QualityInspection?  @relation(fields: [qcInspectionId], references: [id], onDelete: SetNull)
-  createdBy     User?               @relation("ReworkRequestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  task         WorkflowTask       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  targetTask   WorkflowTask?      @relation("ReworkTargetTask", fields: [targetTaskId], references: [id], onDelete: SetNull)
+  qcInspection QualityInspection? @relation(fields: [qcInspectionId], references: [id], onDelete: SetNull)
+  createdBy    User?              @relation("ReworkRequestCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([taskId])
   @@index([targetTaskId])
@@ -2220,8 +2327,8 @@ model QualityChecklistTemplate {
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
-  workflowTemplateStep   WorkflowTemplateStep?   @relation(fields: [workflowTemplateStepId], references: [id], onDelete: SetNull)
-  productOfferingVersion ProductOfferingVersion? @relation(fields: [productOfferingVersionId], references: [id], onDelete: SetNull)
+  workflowTemplateStep   WorkflowTemplateStep?          @relation(fields: [workflowTemplateStepId], references: [id], onDelete: SetNull)
+  productOfferingVersion ProductOfferingVersion?        @relation(fields: [productOfferingVersionId], references: [id], onDelete: SetNull)
   items                  QualityChecklistTemplateItem[]
   inspections            QualityInspection[]
 
@@ -2231,13 +2338,13 @@ model QualityChecklistTemplate {
 }
 
 model QualityChecklistTemplateItem {
-  id          String  @id @default(cuid())
-  templateId  String  @map("template_id")
-  itemCode    String  @map("item_code")
+  id          String   @id @default(cuid())
+  templateId  String   @map("template_id")
+  itemCode    String   @map("item_code")
   label       String
-  description String? @db.Text
-  sortOrder   Int     @default(0) @map("sort_order")
-  isRequired  Boolean @default(true) @map("is_required")
+  description String?  @db.Text
+  sortOrder   Int      @default(0) @map("sort_order")
+  isRequired  Boolean  @default(true) @map("is_required")
   createdAt   DateTime @default(now()) @map("created_at")
 
   template QualityChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
@@ -2248,29 +2355,29 @@ model QualityChecklistTemplateItem {
 }
 
 model QualityInspection {
-  id                 String                    @id @default(cuid())
-  workflowTaskId     String                    @map("workflow_task_id")
-  workflowInstanceId String                    @map("workflow_instance_id")
-  inspectorId        String                    @map("inspector_id")
+  id                  String                   @id @default(cuid())
+  workflowTaskId      String                   @map("workflow_task_id")
+  workflowInstanceId  String                   @map("workflow_instance_id")
+  inspectorId         String                   @map("inspector_id")
   checklistTemplateId String?                  @map("checklist_template_id")
-  status             QualityInspectionStatus   @default(DRAFT)
-  result             QualityInspectionResult?
-  remarks            String?                   @db.Text
-  reworkCycle        Int                       @default(0) @map("rework_cycle")
-  startedAt          DateTime?                 @map("started_at")
-  completedAt        DateTime?                 @map("completed_at")
-  durationSeconds    Int                       @default(0) @map("duration_seconds")
-  createdAt          DateTime                  @default(now()) @map("created_at")
-  updatedAt          DateTime                  @updatedAt @map("updated_at")
+  status              QualityInspectionStatus  @default(DRAFT)
+  result              QualityInspectionResult?
+  remarks             String?                  @db.Text
+  reworkCycle         Int                      @default(0) @map("rework_cycle")
+  startedAt           DateTime?                @map("started_at")
+  completedAt         DateTime?                @map("completed_at")
+  durationSeconds     Int                      @default(0) @map("duration_seconds")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
 
-  workflowTask       WorkflowTask              @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
-  workflowInstance   WorkflowInstance          @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
-  inspector          User                      @relation("QualityInspector", fields: [inspectorId], references: [id], onDelete: Restrict)
-  checklistTemplate  QualityChecklistTemplate? @relation(fields: [checklistTemplateId], references: [id], onDelete: SetNull)
-  items              QualityInspectionItem[]
-  defects            QualityInspectionDefect[]
-  attachments        QualityInspectionAttachment[]
-  reworkRequests     ReworkRequest[]
+  workflowTask      WorkflowTask                  @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  workflowInstance  WorkflowInstance              @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  inspector         User                          @relation("QualityInspector", fields: [inspectorId], references: [id], onDelete: Restrict)
+  checklistTemplate QualityChecklistTemplate?     @relation(fields: [checklistTemplateId], references: [id], onDelete: SetNull)
+  items             QualityInspectionItem[]
+  defects           QualityInspectionDefect[]
+  attachments       QualityInspectionAttachment[]
+  reworkRequests    ReworkRequest[]
 
   @@index([workflowTaskId, status])
   @@index([workflowInstanceId])
@@ -2281,14 +2388,14 @@ model QualityInspection {
 }
 
 model QualityInspectionItem {
-  id               String   @id @default(cuid())
-  inspectionId     String   @map("inspection_id")
-  templateItemId   String?  @map("template_item_id")
-  itemCode         String   @map("item_code")
-  label            String
-  passed           Boolean?
-  remarks          String?  @db.Text
-  createdAt        DateTime @default(now()) @map("created_at")
+  id             String   @id @default(cuid())
+  inspectionId   String   @map("inspection_id")
+  templateItemId String?  @map("template_item_id")
+  itemCode       String   @map("item_code")
+  label          String
+  passed         Boolean?
+  remarks        String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
 
   inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
 
@@ -2307,7 +2414,7 @@ model QualityInspectionDefect {
   createdAt    DateTime              @default(now()) @map("created_at")
 
   inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  fileAsset  FileAsset?          @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
+  fileAsset  FileAsset?        @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
 
   @@index([inspectionId])
   @@map("quality_inspection_defects")
@@ -2323,8 +2430,8 @@ model QualityInspectionAttachment {
   createdAt    DateTime             @default(now()) @map("created_at")
 
   inspection QualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  fileAsset  FileAsset           @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
-  uploadedBy User                @relation("QcAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  fileAsset  FileAsset         @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  uploadedBy User              @relation("QcAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
 
   @@index([inspectionId, createdAt(sort: Desc)])
   @@map("quality_inspection_attachments")
@@ -2399,18 +2506,18 @@ model QuoteItem {
 // =====================================================
 
 model ProductionJobCard {
-  id                     String                  @id @default(cuid())
-  jobCardNumber          String                  @unique @map("job_card_number")
-  productionOrderId      String                  @map("production_order_id")
-  productionOrderItemId  String                  @map("production_order_item_id")
-  workflowInstanceId     String                  @map("workflow_instance_id")
-  currentStep            Int                     @default(1) @map("current_step")
-  status                 ProductionJobCardStatus @default(PENDING)
-  qrCode                 String                  @unique @map("qr_code")
-  remarks                String?                 @db.Text
-  snapshot               Json                    @default("{}")
-  createdAt              DateTime                @default(now()) @map("created_at")
-  updatedAt              DateTime                @updatedAt @map("updated_at")
+  id                    String                  @id @default(cuid())
+  jobCardNumber         String                  @unique @map("job_card_number")
+  productionOrderId     String                  @map("production_order_id")
+  productionOrderItemId String                  @map("production_order_item_id")
+  workflowInstanceId    String                  @map("workflow_instance_id")
+  currentStep           Int                     @default(1) @map("current_step")
+  status                ProductionJobCardStatus @default(PENDING)
+  qrCode                String                  @unique @map("qr_code")
+  remarks               String?                 @db.Text
+  snapshot              Json                    @default("{}")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
 
   productionOrder     ProductionOrder     @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
   productionOrderItem ProductionOrderItem @relation(fields: [productionOrderItemId], references: [id], onDelete: Cascade)
@@ -2445,17 +2552,17 @@ model MaterialCategory {
 }
 
 model Material {
-  id          String         @id @default(cuid())
-  categoryId  String         @map("category_id")
-  code        String         @unique
-  name        String
-  unit        String
-  status      MaterialStatus @default(ACTIVE)
-  metadata    Json           @default("{}")
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
+  id         String         @id @default(cuid())
+  categoryId String         @map("category_id")
+  code       String         @unique
+  name       String
+  unit       String
+  status     MaterialStatus @default(ACTIVE)
+  metadata   Json           @default("{}")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
 
-  category       MaterialCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  category         MaterialCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   bomTemplateItems BomTemplateItem[]
 
   @@index([categoryId])
@@ -2536,25 +2643,25 @@ model AuditLog {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Order {
-  id            String      @id @default(cuid())
-  orderNumber   String      @unique @map("order_number")
-  userId        String      @map("user_id")
-  status        OrderStatus @default(PENDING)
-  subtotal      Decimal     @db.Decimal(12, 2)
-  taxAmount     Decimal     @default(0) @map("tax_amount") @db.Decimal(12, 2)
-  discountAmount Decimal    @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  totalAmount   Decimal     @map("total_amount") @db.Decimal(12, 2)
-  currency      String      @default("INR")
-  notes         String?
-  metadata      Json        @default("{}")
-  placedAt      DateTime?   @map("placed_at")
-  completedAt   DateTime?   @map("completed_at")
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-  deletedAt     DateTime?   @map("deleted_at")
+  id             String      @id @default(cuid())
+  orderNumber    String      @unique @map("order_number")
+  userId         String      @map("user_id")
+  status         OrderStatus @default(PENDING)
+  subtotal       Decimal     @db.Decimal(12, 2)
+  taxAmount      Decimal     @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount Decimal     @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  totalAmount    Decimal     @map("total_amount") @db.Decimal(12, 2)
+  currency       String      @default("INR")
+  notes          String?
+  metadata       Json        @default("{}")
+  placedAt       DateTime?   @map("placed_at")
+  completedAt    DateTime?   @map("completed_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  deletedAt      DateTime?   @map("deleted_at")
 
-  user       User        @relation(fields: [userId], references: [id])
-  items      OrderItem[]
+  user               User                @relation(fields: [userId], references: [id])
+  items              OrderItem[]
   walletTransactions WalletTransaction[]
 
   @@index([userId])
@@ -2567,16 +2674,16 @@ model Order {
 }
 
 model OrderItem {
-  id                        String  @id @default(cuid())
-  orderId                   String  @map("order_id")
+  id                       String  @id @default(cuid())
+  orderId                  String  @map("order_id")
   /// Legacy checkout line item — prefer ProductionOrderItem for ERP operations.
-  productOfferingVersionId  String? @map("product_offering_version_id")
+  productOfferingVersionId String? @map("product_offering_version_id")
   /// Immutable pricing breakdown at order time
-  priceSnapshotId           String? @map("price_snapshot_id")
-  quantity                  Int
-  unitPrice                 Decimal @map("unit_price") @db.Decimal(12, 2)
-  totalPrice                Decimal @map("total_price") @db.Decimal(12, 2)
-  metadata                  Json    @default("{}")
+  priceSnapshotId          String? @map("price_snapshot_id")
+  quantity                 Int
+  unitPrice                Decimal @map("unit_price") @db.Decimal(12, 2)
+  totalPrice               Decimal @map("total_price") @db.Decimal(12, 2)
+  metadata                 Json    @default("{}")
 
   order                  Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productOfferingVersion ProductOfferingVersion? @relation(fields: [productOfferingVersionId], references: [id], onDelete: Restrict)
@@ -2605,7 +2712,7 @@ model Wallet {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions WalletTransaction[]
   payments     Payment[]
   snapshots    WalletBalanceSnapshot[]
@@ -2614,32 +2721,32 @@ model Wallet {
 }
 
 model WalletTransaction {
-  id              String                  @id @default(cuid())
-  walletId        String                  @map("wallet_id")
-  userId          String                  @map("user_id")
-  orderId         String?                 @map("order_id")
-  productionOrderId String?               @map("production_order_id")
-  paymentId       String?                 @unique @map("payment_id")
-  type            WalletTransactionType
-  status          WalletTransactionStatus @default(PENDING)
-  amount          Decimal                 @db.Decimal(14, 2)
-  balanceBefore   Decimal                 @map("balance_before") @db.Decimal(14, 2)
-  balanceAfter    Decimal                 @map("balance_after") @db.Decimal(14, 2)
-  referenceNumber String?                 @unique @map("reference_number")
-  reference       String?
-  remarks         String?                 @db.Text
-  description     String?
-  paymentMethod   PaymentMethod?          @map("payment_method")
-  metadata        Json                    @default("{}")
-  createdById     String?                 @map("created_by_id")
-  createdAt       DateTime                @default(now()) @map("created_at")
+  id                String                  @id @default(cuid())
+  walletId          String                  @map("wallet_id")
+  userId            String                  @map("user_id")
+  orderId           String?                 @map("order_id")
+  productionOrderId String?                 @map("production_order_id")
+  paymentId         String?                 @unique @map("payment_id")
+  type              WalletTransactionType
+  status            WalletTransactionStatus @default(PENDING)
+  amount            Decimal                 @db.Decimal(14, 2)
+  balanceBefore     Decimal                 @map("balance_before") @db.Decimal(14, 2)
+  balanceAfter      Decimal                 @map("balance_after") @db.Decimal(14, 2)
+  referenceNumber   String?                 @unique @map("reference_number")
+  reference         String?
+  remarks           String?                 @db.Text
+  description       String?
+  paymentMethod     PaymentMethod?          @map("payment_method")
+  metadata          Json                    @default("{}")
+  createdById       String?                 @map("created_by_id")
+  createdAt         DateTime                @default(now()) @map("created_at")
 
-  wallet    Wallet   @relation(fields: [walletId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
-  order     Order?   @relation(fields: [orderId], references: [id])
+  wallet          Wallet           @relation(fields: [walletId], references: [id])
+  user            User             @relation(fields: [userId], references: [id])
+  order           Order?           @relation(fields: [orderId], references: [id])
   productionOrder ProductionOrder? @relation("ProductionOrderWalletTx", fields: [productionOrderId], references: [id], onDelete: SetNull)
-  payment   Payment? @relation(fields: [paymentId], references: [id])
-  createdBy User?    @relation("WalletTransactionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  payment         Payment?         @relation(fields: [paymentId], references: [id])
+  createdBy       User?            @relation("WalletTransactionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([walletId])
   @@index([userId])
@@ -2652,26 +2759,26 @@ model WalletTransaction {
 }
 
 model Payment {
-  id                    String         @id @default(cuid())
-  userId                String         @map("user_id")
-  walletId              String?        @map("wallet_id")
-  amount                Decimal        @db.Decimal(14, 2)
-  currency              String         @default("INR")
-  status                PaymentStatus  @default(PENDING)
-  paymentMethod         PaymentMethod  @default(UPI_QR) @map("payment_method")
-  razorpayPaymentId     String?        @unique @map("razorpay_payment_id")
-  razorpayOrderId       String?        @unique @map("razorpay_order_id")
-  razorpayPaymentLinkId String?        @unique @map("razorpay_payment_link_id")
-  razorpayQrId          String?        @unique @map("razorpay_qr_id")
-  qrImageUrl            String?        @map("qr_image_url") @db.Text
-  qrReference           String?        @map("qr_reference")
-  idempotencyKey        String         @unique @map("idempotency_key")
-  webhookVerified       Boolean        @default(false) @map("webhook_verified")
-  expiresAt             DateTime?      @map("expires_at")
-  paidAt                DateTime?      @map("paid_at")
-  metadata              Json           @default("{}")
-  createdAt             DateTime       @default(now()) @map("created_at")
-  updatedAt             DateTime       @updatedAt @map("updated_at")
+  id                    String        @id @default(cuid())
+  userId                String        @map("user_id")
+  walletId              String?       @map("wallet_id")
+  amount                Decimal       @db.Decimal(14, 2)
+  currency              String        @default("INR")
+  status                PaymentStatus @default(PENDING)
+  paymentMethod         PaymentMethod @default(UPI_QR) @map("payment_method")
+  razorpayPaymentId     String?       @unique @map("razorpay_payment_id")
+  razorpayOrderId       String?       @unique @map("razorpay_order_id")
+  razorpayPaymentLinkId String?       @unique @map("razorpay_payment_link_id")
+  razorpayQrId          String?       @unique @map("razorpay_qr_id")
+  qrImageUrl            String?       @map("qr_image_url") @db.Text
+  qrReference           String?       @map("qr_reference")
+  idempotencyKey        String        @unique @map("idempotency_key")
+  webhookVerified       Boolean       @default(false) @map("webhook_verified")
+  expiresAt             DateTime?     @map("expires_at")
+  paidAt                DateTime?     @map("paid_at")
+  metadata              Json          @default("{}")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
 
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   wallet       Wallet?             @relation(fields: [walletId], references: [id], onDelete: SetNull)
@@ -2747,27 +2854,27 @@ model WalletBalanceSnapshot {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model ContactInquiry {
-  id            String                   @id @default(cuid())
-  referenceCode String                   @unique @map("reference_code")
+  id            String                 @id @default(cuid())
+  referenceCode String                 @unique @map("reference_code")
   name          String
   email         String
   phone         String
   company       String?
   subject       ContactSubject
-  message       String                   @db.Text
-  status        ContactInquiryStatus     @default(NEW)
-  priority      ContactInquiryPriority   @default(NORMAL)
-  assignedToId  String?                  @map("assigned_to_id")
-  resolvedAt    DateTime?                @map("resolved_at")
-  resolvedById  String?                  @map("resolved_by_id")
-  ipAddress     String?                  @map("ip_address")
-  userAgent     String?                  @map("user_agent") @db.Text
-  readAt        DateTime?                @map("read_at")
-  createdAt     DateTime                 @default(now()) @map("created_at")
-  updatedAt     DateTime                 @updatedAt @map("updated_at")
+  message       String                 @db.Text
+  status        ContactInquiryStatus   @default(NEW)
+  priority      ContactInquiryPriority @default(NORMAL)
+  assignedToId  String?                @map("assigned_to_id")
+  resolvedAt    DateTime?              @map("resolved_at")
+  resolvedById  String?                @map("resolved_by_id")
+  ipAddress     String?                @map("ip_address")
+  userAgent     String?                @map("user_agent") @db.Text
+  readAt        DateTime?              @map("read_at")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
 
-  assignedTo User?                  @relation("ContactInquiryAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  resolvedBy User?                  @relation("ContactInquiryResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  assignedTo User?                    @relation("ContactInquiryAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  resolvedBy User?                    @relation("ContactInquiryResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
   notes      ContactInquiryNote[]
   activities ContactInquiryActivity[]
 
@@ -2932,16 +3039,16 @@ enum SheetType {
 // =====================================================
 
 model MeasurementUnit {
-  id          String             @id @default(cuid())
-  code        String             @unique
-  name        String
-  symbol      String
-  toMmFactor  Decimal            @map("to_mm_factor") @db.Decimal(16, 8)
-  status      MasterConfigStatus @default(ACTIVE)
-  sortOrder   Int                @default(0) @map("sort_order")
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
-  deletedAt   DateTime?          @map("deleted_at")
+  id         String             @id @default(cuid())
+  code       String             @unique
+  name       String
+  symbol     String
+  toMmFactor Decimal            @map("to_mm_factor") @db.Decimal(16, 8)
+  status     MasterConfigStatus @default(ACTIVE)
+  sortOrder  Int                @default(0) @map("sort_order")
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+  deletedAt  DateTime?          @map("deleted_at")
 
   sheetSizes SheetSize[]
 
@@ -2950,24 +3057,24 @@ model MeasurementUnit {
 }
 
 model SheetSize {
-  id                 String             @id @default(cuid())
-  code               String             @unique
-  name               String
-  width              Decimal            @db.Decimal(10, 2)
-  height             Decimal            @db.Decimal(10, 2)
-  measurementUnitId  String             @map("measurement_unit_id")
-  aspectRatio        Decimal?           @map("aspect_ratio") @db.Decimal(10, 4)
-  sheetType          SheetType          @default(PAPER) @map("sheet_type")
-  description        String?            @db.Text
-  sortOrder          Int                @default(0) @map("sort_order")
-  status             MasterConfigStatus @default(ACTIVE)
-  createdById        String?            @map("created_by_id")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
-  deletedAt          DateTime?          @map("deleted_at")
+  id                String             @id @default(cuid())
+  code              String             @unique
+  name              String
+  width             Decimal            @db.Decimal(10, 2)
+  height            Decimal            @db.Decimal(10, 2)
+  measurementUnitId String             @map("measurement_unit_id")
+  aspectRatio       Decimal?           @map("aspect_ratio") @db.Decimal(10, 4)
+  sheetType         SheetType          @default(PAPER) @map("sheet_type")
+  description       String?            @db.Text
+  sortOrder         Int                @default(0) @map("sort_order")
+  status            MasterConfigStatus @default(ACTIVE)
+  createdById       String?            @map("created_by_id")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
 
-  measurementUnit MeasurementUnit   @relation(fields: [measurementUnitId], references: [id], onDelete: Restrict)
-  createdBy       User?             @relation("SheetSizeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  measurementUnit MeasurementUnit    @relation(fields: [measurementUnitId], references: [id], onDelete: Restrict)
+  createdBy       User?              @relation("SheetSizeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   templateItems   SizeTemplateItem[]
 
   @@index([status, deletedAt])
@@ -2990,11 +3097,11 @@ model SizeTemplate {
   updatedAt    DateTime              @updatedAt @map("updated_at")
   deletedAt    DateTime?             @map("deleted_at")
 
-  createdBy        User?                  @relation("SizeTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  items            SizeTemplateItem[]
-  productVersions  ProductOfferingVersion[]
-  productConfigs   ProductPrintConfig[]
-  printProcesses   PrintProcess[]
+  createdBy       User?                    @relation("SizeTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  items           SizeTemplateItem[]
+  productVersions ProductOfferingVersion[]
+  productConfigs  ProductPrintConfig[]
+  printProcesses  PrintProcess[]
 
   @@index([strategyType])
   @@index([status, deletedAt])
@@ -3022,21 +3129,21 @@ model SizeTemplateItem {
 }
 
 model PrintProcess {
-  id                      String             @id @default(cuid())
-  code                    String             @unique
-  name                    String
-  description             String?            @db.Text
-  supportedFileTypes      Json               @default("[]") @map("supported_file_types")
-  supportedSizeStrategies Json               @default("[]") @map("supported_size_strategies")
-  supportedValidationTypes Json              @default("[]") @map("supported_validation_types")
-  pricingStrategyKey      String?            @map("pricing_strategy_key")
-  defaultSizeTemplateId   String?            @map("default_size_template_id")
-  sortOrder               Int                @default(0) @map("sort_order")
-  status                  MasterConfigStatus @default(ACTIVE)
-  createdById             String?            @map("created_by_id")
-  createdAt               DateTime           @default(now()) @map("created_at")
-  updatedAt               DateTime           @updatedAt @map("updated_at")
-  deletedAt               DateTime?          @map("deleted_at")
+  id                       String             @id @default(cuid())
+  code                     String             @unique
+  name                     String
+  description              String?            @db.Text
+  supportedFileTypes       Json               @default("[]") @map("supported_file_types")
+  supportedSizeStrategies  Json               @default("[]") @map("supported_size_strategies")
+  supportedValidationTypes Json               @default("[]") @map("supported_validation_types")
+  pricingStrategyKey       String?            @map("pricing_strategy_key")
+  defaultSizeTemplateId    String?            @map("default_size_template_id")
+  sortOrder                Int                @default(0) @map("sort_order")
+  status                   MasterConfigStatus @default(ACTIVE)
+  createdById              String?            @map("created_by_id")
+  createdAt                DateTime           @default(now()) @map("created_at")
+  updatedAt                DateTime           @updatedAt @map("updated_at")
+  deletedAt                DateTime?          @map("deleted_at")
 
   defaultSizeTemplate SizeTemplate?            @relation(fields: [defaultSizeTemplateId], references: [id], onDelete: SetNull)
   createdBy           User?                    @relation("PrintProcessCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -3048,33 +3155,33 @@ model PrintProcess {
 }
 
 model PrintSpecificationTemplate {
-  id                   String             @id @default(cuid())
-  code                 String             @unique
-  name                 String
-  description          String?            @db.Text
-  allowedFormats       Json               @default("[]") @map("allowed_formats")
-  requiredPages        Int?               @map("required_pages")
-  pageNames            Json               @default("[]") @map("page_names")
-  finishedWidthMm      Decimal?           @map("finished_width_mm") @db.Decimal(10, 2)
-  finishedHeightMm     Decimal?           @map("finished_height_mm") @db.Decimal(10, 2)
-  artworkWidthMm       Decimal?           @map("artwork_width_mm") @db.Decimal(10, 2)
-  artworkHeightMm      Decimal?           @map("artwork_height_mm") @db.Decimal(10, 2)
-  bleedMm              Decimal?           @map("bleed_mm") @db.Decimal(10, 2)
-  safeAreaMm           Decimal?           @map("safe_area_mm") @db.Decimal(10, 2)
-  minDpi               Int?               @map("min_dpi")
-  maxFileSizeMb        Int?               @map("max_file_size_mb")
-  colorMode            PrintColorMode     @default(ANY) @map("color_mode")
-  previewEnabled       Boolean            @default(true) @map("preview_enabled")
-  validationEnabled    Boolean            @default(true) @map("validation_enabled")
-  autoArtworkAnalysis  Boolean            @default(true) @map("auto_artwork_analysis")
-  coverageAnalysisEnabled Boolean         @default(false) @map("coverage_analysis_enabled")
-  metadata             Json               @default("{}")
-  sortOrder            Int                @default(0) @map("sort_order")
-  status               MasterConfigStatus @default(ACTIVE)
-  createdById          String?            @map("created_by_id")
-  createdAt            DateTime           @default(now()) @map("created_at")
-  updatedAt            DateTime           @updatedAt @map("updated_at")
-  deletedAt            DateTime?          @map("deleted_at")
+  id                      String             @id @default(cuid())
+  code                    String             @unique
+  name                    String
+  description             String?            @db.Text
+  allowedFormats          Json               @default("[]") @map("allowed_formats")
+  requiredPages           Int?               @map("required_pages")
+  pageNames               Json               @default("[]") @map("page_names")
+  finishedWidthMm         Decimal?           @map("finished_width_mm") @db.Decimal(10, 2)
+  finishedHeightMm        Decimal?           @map("finished_height_mm") @db.Decimal(10, 2)
+  artworkWidthMm          Decimal?           @map("artwork_width_mm") @db.Decimal(10, 2)
+  artworkHeightMm         Decimal?           @map("artwork_height_mm") @db.Decimal(10, 2)
+  bleedMm                 Decimal?           @map("bleed_mm") @db.Decimal(10, 2)
+  safeAreaMm              Decimal?           @map("safe_area_mm") @db.Decimal(10, 2)
+  minDpi                  Int?               @map("min_dpi")
+  maxFileSizeMb           Int?               @map("max_file_size_mb")
+  colorMode               PrintColorMode     @default(ANY) @map("color_mode")
+  previewEnabled          Boolean            @default(true) @map("preview_enabled")
+  validationEnabled       Boolean            @default(true) @map("validation_enabled")
+  autoArtworkAnalysis     Boolean            @default(true) @map("auto_artwork_analysis")
+  coverageAnalysisEnabled Boolean            @default(false) @map("coverage_analysis_enabled")
+  metadata                Json               @default("{}")
+  sortOrder               Int                @default(0) @map("sort_order")
+  status                  MasterConfigStatus @default(ACTIVE)
+  createdById             String?            @map("created_by_id")
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+  deletedAt               DateTime?          @map("deleted_at")
 
   createdBy       User?                    @relation("PrintSpecTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   productVersions ProductOfferingVersion[]
@@ -3106,20 +3213,20 @@ model MasterArtworkRule {
 }
 
 model MasterValidationRule {
-  id              String             @id @default(cuid())
-  code            String             @unique
-  name            String
-  ruleType        String             @map("rule_type")
-  config          Json               @default("{}")
-  failLevel       ValidationLevel    @default(ERROR) @map("fail_level")
-  warningThreshold Decimal?          @map("warning_threshold") @db.Decimal(10, 4)
-  errorThreshold   Decimal?          @map("error_threshold") @db.Decimal(10, 4)
-  sortOrder       Int                @default(0) @map("sort_order")
-  status          MasterConfigStatus @default(ACTIVE)
-  createdById     String?            @map("created_by_id")
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
-  deletedAt       DateTime?          @map("deleted_at")
+  id               String             @id @default(cuid())
+  code             String             @unique
+  name             String
+  ruleType         String             @map("rule_type")
+  config           Json               @default("{}")
+  failLevel        ValidationLevel    @default(ERROR) @map("fail_level")
+  warningThreshold Decimal?           @map("warning_threshold") @db.Decimal(10, 4)
+  errorThreshold   Decimal?           @map("error_threshold") @db.Decimal(10, 4)
+  sortOrder        Int                @default(0) @map("sort_order")
+  status           MasterConfigStatus @default(ACTIVE)
+  createdById      String?            @map("created_by_id")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  deletedAt        DateTime?          @map("deleted_at")
 
   createdBy User? @relation("MasterValidationRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -3151,20 +3258,20 @@ model MasterCoverageRule {
 }
 
 model FileUploadRuleTemplate {
-  id               String             @id @default(cuid())
-  code             String             @unique
+  id               String              @id @default(cuid())
+  code             String              @unique
   name             String
   requirementType  FileRequirementType @map("requirement_type")
-  maxFileSizeMb    Int?               @map("max_file_size_mb")
-  allowMultiple    Boolean            @default(false) @map("allow_multiple")
-  allowedFileTypes Json               @default("[]") @map("allowed_file_types")
-  description      String?            @db.Text
-  sortOrder        Int                @default(0) @map("sort_order")
-  status           MasterConfigStatus @default(ACTIVE)
-  createdById      String?            @map("created_by_id")
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
-  deletedAt        DateTime?          @map("deleted_at")
+  maxFileSizeMb    Int?                @map("max_file_size_mb")
+  allowMultiple    Boolean             @default(false) @map("allow_multiple")
+  allowedFileTypes Json                @default("[]") @map("allowed_file_types")
+  description      String?             @db.Text
+  sortOrder        Int                 @default(0) @map("sort_order")
+  status           MasterConfigStatus  @default(ACTIVE)
+  createdById      String?             @map("created_by_id")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  deletedAt        DateTime?           @map("deleted_at")
 
   createdBy      User?                @relation("FileUploadRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   productConfigs ProductPrintConfig[]
@@ -3188,11 +3295,11 @@ model ProductPrintConfig {
   createdAt                    DateTime @default(now()) @map("created_at")
   updatedAt                    DateTime @updatedAt @map("updated_at")
 
-  productOfferingVersion     ProductOfferingVersion     @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
-  printProcess               PrintProcess?              @relation(fields: [printProcessId], references: [id], onDelete: SetNull)
-  sizeTemplate               SizeTemplate?              @relation(fields: [sizeTemplateId], references: [id], onDelete: SetNull)
+  productOfferingVersion     ProductOfferingVersion      @relation(fields: [productOfferingVersionId], references: [id], onDelete: Cascade)
+  printProcess               PrintProcess?               @relation(fields: [printProcessId], references: [id], onDelete: SetNull)
+  sizeTemplate               SizeTemplate?               @relation(fields: [sizeTemplateId], references: [id], onDelete: SetNull)
   printSpecificationTemplate PrintSpecificationTemplate? @relation(fields: [printSpecificationTemplateId], references: [id], onDelete: SetNull)
-  fileUploadRuleTemplate     FileUploadRuleTemplate?    @relation(fields: [fileUploadRuleTemplateId], references: [id], onDelete: SetNull)
+  fileUploadRuleTemplate     FileUploadRuleTemplate?     @relation(fields: [fileUploadRuleTemplateId], references: [id], onDelete: SetNull)
 
   @@index([printProcessId])
   @@index([sizeTemplateId])
@@ -3359,10 +3466,10 @@ model ArtworkFile {
   createdAt         DateTime                @default(now()) @map("created_at")
   updatedAt         DateTime                @updatedAt @map("updated_at")
 
-  fileAsset       FileAsset        @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
-  fileRequirement FileRequirement? @relation(fields: [fileRequirementId], references: [id], onDelete: SetNull)
-  printLayer      PrintLayer?      @relation(fields: [printLayerId], references: [id], onDelete: SetNull)
-  owner           User             @relation("ArtworkFileOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  fileAsset       FileAsset               @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  fileRequirement FileRequirement?        @relation(fields: [fileRequirementId], references: [id], onDelete: SetNull)
+  printLayer      PrintLayer?             @relation(fields: [printLayerId], references: [id], onDelete: SetNull)
+  owner           User                    @relation("ArtworkFileOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   productVersion  ProductOfferingVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
   versions        ArtworkVersion[]
   orderArtworks   OrderArtwork[]
@@ -3385,12 +3492,12 @@ model ArtworkVersion {
   virusScanPassed  Boolean?                @map("virus_scan_passed")
   createdAt        DateTime                @default(now()) @map("created_at")
 
-  artworkFile       ArtworkFile        @relation(fields: [artworkFileId], references: [id], onDelete: Cascade)
-  fileAsset         FileAsset          @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
-  metadata          ArtworkMetadata?
-  validation        ArtworkValidation?
-  coverageAnalyses  CoverageAnalysis[]
-  orderArtworkPins  OrderArtworkVersion[]
+  artworkFile      ArtworkFile           @relation(fields: [artworkFileId], references: [id], onDelete: Cascade)
+  fileAsset        FileAsset             @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  metadata         ArtworkMetadata?
+  validation       ArtworkValidation?
+  coverageAnalyses CoverageAnalysis[]
+  orderArtworkPins OrderArtworkVersion[]
 
   @@unique([artworkFileId, versionNumber])
   @@index([artworkFileId])
@@ -3400,21 +3507,21 @@ model ArtworkVersion {
 
 /// Extracted file metadata from processing pipeline.
 model ArtworkMetadata {
-  id               String         @id @default(cuid())
-  artworkVersionId String         @unique @map("artwork_version_id")
-  fileFormat       String         @map("file_format")
-  widthPx          Int?           @map("width_px")
-  heightPx         Int?           @map("height_px")
-  widthMm          Decimal?       @map("width_mm") @db.Decimal(10, 2)
-  heightMm         Decimal?       @map("height_mm") @db.Decimal(10, 2)
+  id               String          @id @default(cuid())
+  artworkVersionId String          @unique @map("artwork_version_id")
+  fileFormat       String          @map("file_format")
+  widthPx          Int?            @map("width_px")
+  heightPx         Int?            @map("height_px")
+  widthMm          Decimal?        @map("width_mm") @db.Decimal(10, 2)
+  heightMm         Decimal?        @map("height_mm") @db.Decimal(10, 2)
   dpi              Int?
-  pageCount        Int?           @map("page_count")
+  pageCount        Int?            @map("page_count")
   colorMode        PrintColorMode? @map("color_mode")
-  hasTransparency  Boolean        @default(false) @map("has_transparency")
-  rotation         Int            @default(0)
-  fileSizeBytes    Int            @map("file_size_bytes")
-  rawMetadata      Json           @default("{}") @map("raw_metadata")
-  extractedAt      DateTime       @default(now()) @map("extracted_at")
+  hasTransparency  Boolean         @default(false) @map("has_transparency")
+  rotation         Int             @default(0)
+  fileSizeBytes    Int             @map("file_size_bytes")
+  rawMetadata      Json            @default("{}") @map("raw_metadata")
+  extractedAt      DateTime        @default(now()) @map("extracted_at")
 
   artworkVersion ArtworkVersion @relation(fields: [artworkVersionId], references: [id], onDelete: Cascade)
 
@@ -3441,8 +3548,8 @@ model CoverageAnalysis {
   artworkVersionId String   @map("artwork_version_id")
   coverageType     String   @map("coverage_type")
   coveragePercent  Decimal  @map("coverage_percent") @db.Decimal(8, 4)
-  coverageMm2        Decimal  @map("coverage_mm2") @db.Decimal(14, 4)
-  coverageCm2        Decimal  @map("coverage_cm2") @db.Decimal(12, 4)
+  coverageMm2      Decimal  @map("coverage_mm2") @db.Decimal(14, 4)
+  coverageCm2      Decimal  @map("coverage_cm2") @db.Decimal(12, 4)
   boundingBox      Json     @default("{}") @map("bounding_box")
   printablePixels  Int?     @map("printable_pixels")
   analysisData     Json     @default("{}") @map("analysis_data")
@@ -3457,21 +3564,21 @@ model CoverageAnalysis {
 
 /// Artwork pinned to a production order item.
 model OrderArtwork {
-  id                   String                @id @default(cuid())
-  orderItemId          String                @map("order_item_id")
-  artworkFileId        String                @map("artwork_file_id")
-  fileRequirementCode  String                @map("file_requirement_code")
-  printLayerCode       String?               @map("print_layer_code")
-  approvalStatus       ArtworkApprovalStatus @default(PENDING) @map("approval_status")
-  adminNotes           String?               @map("admin_notes") @db.Text
-  approvedById         String?               @map("approved_by_id")
-  approvedAt           DateTime?             @map("approved_at")
-  createdAt            DateTime              @default(now()) @map("created_at")
-  updatedAt            DateTime              @updatedAt @map("updated_at")
+  id                  String                @id @default(cuid())
+  orderItemId         String                @map("order_item_id")
+  artworkFileId       String                @map("artwork_file_id")
+  fileRequirementCode String                @map("file_requirement_code")
+  printLayerCode      String?               @map("print_layer_code")
+  approvalStatus      ArtworkApprovalStatus @default(PENDING) @map("approval_status")
+  adminNotes          String?               @map("admin_notes") @db.Text
+  approvedById        String?               @map("approved_by_id")
+  approvedAt          DateTime?             @map("approved_at")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
 
-  orderItem     ProductionOrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  artworkFile   ArtworkFile           @relation(fields: [artworkFileId], references: [id], onDelete: Restrict)
-  approvedBy    User?                 @relation("OrderArtworkApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  orderItem     ProductionOrderItem  @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  artworkFile   ArtworkFile          @relation(fields: [artworkFileId], references: [id], onDelete: Restrict)
+  approvedBy    User?                @relation("OrderArtworkApprover", fields: [approvedById], references: [id], onDelete: SetNull)
   pinnedVersion OrderArtworkVersion?
 
   @@index([orderItemId])

@@ -13,4 +13,5 @@ export const CacheTtl = {
   DELIVERY_SETTINGS_SEC: 120,
   PRICING_VERSION_SEC: 300,
   SLIDER_SEC: 60,
+  VENDOR_PRICE_OVERRIDE_SEC: 60,
 } as const;

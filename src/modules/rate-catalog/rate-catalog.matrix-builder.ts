@@ -1,4 +1,5 @@
-import { calculatePriceFromBundle } from '../../services/pricing-engine/pricing.calculator.js';
+import { priceResolverService } from '../../services/pricing-engine/price-resolver.service.js';
+import { toFeet } from '../../services/pricing-engine/chargeable-size.resolver.js';
 import { buildConfigurationDisplayLabel } from './rate-catalog.label-formatter.js';
 import type {
   RateMatrixCellDto,
@@ -40,6 +41,7 @@ const COVERAGE_STRATEGY_KEYS = new Set([
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
 
 function resolveMatrixMode(strategyKey: string | null | undefined): RateMatrixMode {
   if (!strategyKey) return 'quantity_break';
@@ -151,25 +153,57 @@ function buildQuantityColumns(bundle: VersionBundle): RateMatrixColumnDto[] {
     }));
 }
 
-function computeCell(
+async function computeCell(
   bundle: VersionBundle,
   quantity: number,
   selections: Record<string, string>,
   gstRate: number,
+  vendorId: string | undefined,
+  uploadedDimensionsFt: { widthFt: number; heightFt: number } | undefined,
   sizeAdjustment = 0,
   minimumCharge: number | null = null,
-): RateMatrixCellDto {
-  const result = calculatePriceFromBundle(bundle, { versionId: bundle.id, quantity, selections });
-  let grandTotal = round2(result.grandTotal + sizeAdjustment);
+): Promise<RateMatrixCellDto> {
+  const result = await priceResolverService.resolvePrice({
+    versionId: bundle.id,
+    vendorId,
+    quantity,
+    selections,
+    uploadedDimensions: uploadedDimensionsFt,
+  });
+
+  if (!result.valid) {
+    return {
+      columnKey: `qty-${quantity}`,
+      available: false,
+      unavailableReason: result.reason,
+      basePrice: 0,
+      adjustmentTotal: 0,
+      listPrice: 0,
+      grandTotal: 0,
+      overrideApplied: false,
+      unitPrice: 0,
+      gstRate,
+      gstAmount: 0,
+      totalWithGst: 0,
+      currency: result.currency,
+    };
+  }
+
+  let grandTotal = round2(result.finalPrice + sizeAdjustment);
   if (minimumCharge != null && grandTotal < minimumCharge) {
     grandTotal = minimumCharge;
   }
   const gstAmount = round2(grandTotal * gstRate);
+  const basePrice = result.lines.find((l) => l.code === 'base')?.amount ?? 0;
+
   return {
     columnKey: `qty-${quantity}`,
-    basePrice: result.subtotal,
-    adjustmentTotal: round2(result.adjustmentTotal + sizeAdjustment),
+    available: true,
+    basePrice,
+    adjustmentTotal: round2(grandTotal - basePrice),
+    listPrice: round2(result.listPrice + sizeAdjustment),
     grandTotal,
+    overrideApplied: result.overrideApplied,
     unitPrice: quantity > 0 ? round2(grandTotal / quantity) : grandTotal,
     gstRate,
     gstAmount,
@@ -187,6 +221,8 @@ export interface BuildMatrixInput {
   rowPage: number;
   rowLimit: number;
   filters: Record<string, string>;
+  /** Vendor viewing the catalogue — undefined for admin/anonymous previews (no override lookup). */
+  vendorId?: string;
   sizePresets?: SizePreset[];
   coverageMinCharge?: number | null;
 }
@@ -199,7 +235,7 @@ export interface BuiltRateMatrix {
   rowMeta: RateCatalogPaginationMeta;
 }
 
-export function buildRateMatrix(input: BuildMatrixInput): BuiltRateMatrix {
+export async function buildRateMatrix(input: BuildMatrixInput): Promise<BuiltRateMatrix> {
   const mode = resolveMatrixMode(input.pricingStrategyKey);
   const dimensions = buildDimensions(input.bundle);
   const columns = buildQuantityColumns(input.bundle);
@@ -211,39 +247,45 @@ export function buildRateMatrix(input: BuildMatrixInput): BuiltRateMatrix {
   return buildQuantityBreakMatrix(input, columns, dimensions, mode);
 }
 
-function buildQuantityBreakMatrix(
+async function buildQuantityBreakMatrix(
   input: BuildMatrixInput,
   columns: RateMatrixColumnDto[],
   dimensions: RateMatrixDimensionDto[],
   mode: RateMatrixMode,
-): BuiltRateMatrix {
+): Promise<BuiltRateMatrix> {
   const allRows = cartesianRows(input.bundle, input.filters);
   const total = allRows.length;
   const skip = (input.rowPage - 1) * input.rowLimit;
   const pageRows = allRows.slice(skip, skip + input.rowLimit);
 
-  const rows: RateMatrixRowDto[] = pageRows.map(({ selections, key }) => {
-    const labels = selectionLabels(input.bundle, selections);
-    const cells: RateMatrixCellDto[] = columns.map((col) => {
-      const qty = col.quantity ?? 1;
-      const cell = computeCell(
-        input.bundle,
-        qty,
-        selections,
-        input.gstRate,
-        0,
-        input.coverageMinCharge ?? null,
+  const rows: RateMatrixRowDto[] = await Promise.all(
+    pageRows.map(async ({ selections, key }) => {
+      const labels = selectionLabels(input.bundle, selections);
+      const cells = await Promise.all(
+        columns.map(async (col) => {
+          const qty = col.quantity ?? 1;
+          const cell = await computeCell(
+            input.bundle,
+            qty,
+            selections,
+            input.gstRate,
+            input.vendorId,
+            undefined,
+            0,
+            input.coverageMinCharge ?? null,
+          );
+          return { ...cell, columnKey: col.key };
+        }),
       );
-      return { ...cell, columnKey: col.key };
-    });
-    return {
-      key,
-      label: rowLabelFromSelections(input.bundle, selections, labels),
-      selections,
-      selectionLabels: labels,
-      cells,
-    };
-  });
+      return {
+        key,
+        label: rowLabelFromSelections(input.bundle, selections, labels),
+        selections,
+        selectionLabels: labels,
+        cells,
+      };
+    }),
+  );
 
   return {
     mode,
@@ -261,12 +303,12 @@ function buildQuantityBreakMatrix(
   };
 }
 
-function buildAreaMatrix(
+async function buildAreaMatrix(
   input: BuildMatrixInput,
   columns: RateMatrixColumnDto[],
   dimensions: RateMatrixDimensionDto[],
   mode: RateMatrixMode,
-): BuiltRateMatrix {
+): Promise<BuiltRateMatrix> {
   const baseSelections = { ...defaultSelections(input.bundle), ...input.filters };
   const presets = input.sizePresets ?? [];
   const total = presets.length;
@@ -278,31 +320,50 @@ function buildAreaMatrix(
       ? columns
       : [{ key: 'qty-1', label: '1', quantity: 1 }];
 
-  const rows: RateMatrixRowDto[] = pagePresets.map((preset) => {
-    const areaSqFt =
-      preset.areaCm2 != null ? round2(preset.areaCm2 / 929.03) : null;
-    const areaLabel =
-      preset.width && preset.height
-        ? `${preset.width}×${preset.height} ${preset.unit ?? 'MM'}${areaSqFt ? ` (${areaSqFt} sq ft)` : ''}`
-        : preset.label;
+  const rows: RateMatrixRowDto[] = await Promise.all(
+    pagePresets.map(async (preset) => {
+      const areaSqFt =
+        preset.areaCm2 != null ? round2(preset.areaCm2 / 929.03) : null;
+      const areaLabel =
+        preset.width && preset.height
+          ? `${preset.width}×${preset.height} ${preset.unit ?? 'MM'}${areaSqFt ? ` (${areaSqFt} sq ft)` : ''}`
+          : preset.label;
 
-    const cells: RateMatrixCellDto[] = areaColumns.map((col) => {
-      const qty = col.quantity ?? 1;
-      const cell = computeCell(input.bundle, qty, baseSelections, input.gstRate);
-      return { ...cell, columnKey: col.key };
-    });
+      // Roll/flex ("flex_area") strategy products price per uploaded design, not per catalog
+      // option — this preset stands in as "what if a vendor uploads exactly this size" so the
+      // catalogue can still show an indicative rate per row.
+      const uploadedDimensions =
+        input.pricingStrategyKey === 'flex_area' && preset.width && preset.height
+          ? { widthFt: toFeet(preset.width, preset.unit), heightFt: toFeet(preset.height, preset.unit) }
+          : undefined;
 
-    return {
-      key: `size:${preset.code}`,
-      label: preset.label,
-      selections: baseSelections,
-      selectionLabels: selectionLabels(input.bundle, baseSelections),
-      width: preset.width,
-      height: preset.height,
-      areaLabel,
-      cells,
-    };
-  });
+      const cells = await Promise.all(
+        areaColumns.map(async (col) => {
+          const qty = col.quantity ?? 1;
+          const cell = await computeCell(
+            input.bundle,
+            qty,
+            baseSelections,
+            input.gstRate,
+            input.vendorId,
+            uploadedDimensions,
+          );
+          return { ...cell, columnKey: col.key };
+        }),
+      );
+
+      return {
+        key: `size:${preset.code}`,
+        label: preset.label,
+        selections: baseSelections,
+        selectionLabels: selectionLabels(input.bundle, baseSelections),
+        width: preset.width,
+        height: preset.height,
+        areaLabel,
+        cells,
+      };
+    }),
+  );
 
   const areaDimensionColumns: RateMatrixColumnDto[] = [
     { key: 'width', label: 'Width' },

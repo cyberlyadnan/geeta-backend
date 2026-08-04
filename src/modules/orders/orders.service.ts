@@ -21,7 +21,8 @@ import {
   type OrderDetailRecord,
   type OrderListRecord,
 } from '../../repositories/order.repository.js';
-import { productsService } from '../products/products.service.js';
+import { priceResolverService, toFeet } from '../../services/pricing-engine/index.js';
+import type { PriceCalculationResult } from '../../services/pricing-engine/index.js';
 import { printJobService } from '../print-engine/services/print-job.service.js';
 import { printContextResolver } from '../admin-print-master/print-context.resolver.js';
 import { walletLedgerService } from '../../services/ledger/wallet-ledger.service.js';
@@ -423,13 +424,42 @@ export class OrdersService {
     }
 
     const pricingContext = buildOrderPricingInputContext(input, printContextResolved);
-    const priceResult = await productsService.calculatePrice({
-      productId: input.productId,
+    const uploadedDimensions =
+      input.size?.width != null && input.size?.height != null
+        ? {
+            widthFt: toFeet(input.size.width, input.size.unit),
+            heightFt: toFeet(input.size.height, input.size.unit),
+          }
+        : undefined;
+
+    const priceResolution = await priceResolverService.resolvePrice({
       versionId,
+      vendorId: userId,
       quantity: input.quantity,
       selections: input.selections,
+      uploadedDimensions,
       context: pricingContext,
     });
+
+    if (!priceResolution.valid) {
+      throw ApiError.badRequest(priceResolution.reason ?? 'This combination is not available');
+    }
+
+    const basePriceComponent =
+      priceResolution.lines.find((l) => l.code === 'base')?.amount ?? priceResolution.finalPrice;
+    const priceResult: PriceCalculationResult = {
+      versionId: priceResolution.versionId,
+      quantity: priceResolution.quantity,
+      subtotal: basePriceComponent,
+      adjustmentTotal: Math.round((priceResolution.finalPrice - basePriceComponent) * 100) / 100,
+      discountTotal: 0,
+      taxTotal: 0,
+      grandTotal: priceResolution.finalPrice,
+      unitPrice: priceResolution.unitPrice,
+      currency: priceResolution.currency,
+      lines: priceResolution.lines,
+      snapshotPayload: priceResolution.snapshotPayload,
+    };
 
     const livePricing = printJobService.buildLivePricingTotals(
       {
@@ -448,7 +478,12 @@ export class OrdersService {
         orderDeliveryChoice: input.orderDeliveryChoice,
         deliveryAddress: input.deliveryAddress,
       },
-      { priceResult, checkout, resolved: printContextResolved },
+      {
+        priceResult,
+        checkout,
+        resolved: printContextResolved,
+        skipSizeAdjustment: priceResolution.strategyKey === 'flex_area',
+      },
     );
 
     const printContext = printContextResolved?.context;
