@@ -18,7 +18,7 @@ function mapCategoryRef(cat: { id: string; name: string; slug: string }) {
 export class VendorBootstrapService {
   async getBootstrap(): Promise<VendorBootstrapDto> {
     const [version, categories, families, series, products] = await Promise.all([
-      catalogVersionService.getVersion(),
+      catalogVersionService.getVersionWithGroups(),
       categoriesService.findAll(),
       this.loadFamilies(),
       this.loadSeries(),

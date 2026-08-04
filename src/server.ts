@@ -6,7 +6,8 @@ import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { connectRedis, disconnectRedis } from './config/redis.js';
 import { registerEventListeners } from './events/index.js';
 import { logger } from './logs/logger.js';
-import { initializeSocket } from './websocket/index.js';
+import { initializeSocket, emitCatalogVersionChanged } from './websocket/index.js';
+import { onCatalogVersionChanged } from './services/catalog/catalog-invalidation.js';
 import { closeAllQueues } from './queues/index.js';
 import { scheduleSliderExpiryJob } from './jobs/slider-expiry.job.js';
 import { walletConfig } from './config/wallet.js';
@@ -36,6 +37,8 @@ async function bootstrap(): Promise<void> {
   const httpServer = http.createServer(app);
 
   initializeSocket(httpServer);
+  // Catalog writes bump a counter; that bump is pushed to connected clients here.
+  onCatalogVersionChanged(emitCatalogVersionChanged);
 
   httpServer.listen(env.PORT, () => {
     logger.info(`${env.APP_NAME} running`, {

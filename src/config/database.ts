@@ -8,6 +8,7 @@ import {
   resolveRuntimeDatabaseUrl,
 } from './database-url.js';
 import { prismaPerformanceExtension } from '../observability/prisma-performance.extension.js';
+import { catalogVersionExtension } from '../services/catalog/catalog-version.extension.js';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -24,7 +25,11 @@ function createPrismaClient(): PrismaClient {
     },
   });
 
-  const extended = base.$extends(prismaPerformanceExtension());
+  const extended = base
+    .$extends(prismaPerformanceExtension())
+    // Bumps the catalog version on any catalog-shaping write so vendor clients revalidate.
+    // One interception point rather than a call in each of the dozen-plus admin write paths.
+    .$extends(catalogVersionExtension());
   // Cast preserves TransactionClient typing across the codebase
   return extended as unknown as PrismaClient;
 }

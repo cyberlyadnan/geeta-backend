@@ -98,6 +98,23 @@ export class PricingRepository {
   invalidateVersion(versionId: string): void {
     localVersionCaches.get(versionId)?.invalidate();
   }
+
+  /**
+   * Drops every cached pricing bundle.
+   *
+   * Called whenever the catalog version is bumped — i.e. whenever an admin writes anything
+   * price-shaping. Without this, a matrix cell edit would keep being served from this TTL cache
+   * until it expired, so `resolvePrice()` could return the old price *after* the admin changed
+   * it. That is the same stale-price failure the client-side freshness fix addresses, one layer
+   * down, and the Phase 0 non-negotiables rule it out.
+   *
+   * Clearing all versions rather than just the edited one is deliberate: the bump signal is not
+   * version-scoped, admin writes are rare, and a cold bundle costs exactly one query to rebuild.
+   * Correctness is worth more than those queries.
+   */
+  invalidateAll(): void {
+    for (const cache of localVersionCaches.values()) cache.invalidate();
+  }
 }
 
 export const pricingRepository = new PricingRepository();

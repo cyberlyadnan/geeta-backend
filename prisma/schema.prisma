@@ -809,6 +809,20 @@ model VendorCodeSequence {
   @@map("vendor_code_sequences")
 }
 
+/// Single-row, atomically-incrementing catalog version. Every admin write to a catalog-shaping
+/// model (product hierarchy, versions, configuration, and — critically — price matrix cells and
+/// vendor overrides) bumps this counter, and connected vendor clients revalidate on the change.
+///
+/// Replaces deriving a version from nine max(updatedAt) aggregates: this is one primary-key read,
+/// which matters because every connected client polls it as a fallback when its socket is down.
+model CatalogVersion {
+  id        Int      @id @default(1)
+  version   BigInt   @default(1)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("catalog_versions")
+}
+
 /// Sequential production order numbers: GP-2026-000001
 model OrderNumberSequence {
   year      Int @id
@@ -1908,7 +1922,7 @@ model OrderAmendment {
   newSnapshotId      String   @unique @map("new_snapshot_id")
   /// Full tax-inclusive order-total delta actually settled against the wallet — not just the
   /// pre-tax product-price delta, so the wallet movement and order.totalAmount never drift apart.
-  priceDelta         Decimal  @db.Decimal(12, 2)
+  priceDelta         Decimal  @map("price_delta") @db.Decimal(12, 2)
   createdAt          DateTime @default(now()) @map("created_at")
 
   order            ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)

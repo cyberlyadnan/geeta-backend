@@ -51,7 +51,11 @@
     "db:security-lockdown": "dotenv -e .env -e .env.local -- prisma db execute --file scripts/supabase-rls-lockdown.sql --schema prisma/schema.prisma",
     "r2:configure-cors": "dotenv -e .env -e .env.local -- tsx scripts/configure-r2-cors.ts",
     "postinstall": "prisma generate",
-    "test:design-approval": "tsx --test src/modules/design-approval/__tests__/**/*.test.ts"
+    "test:design-approval": "tsx --test src/modules/design-approval/__tests__/**/*.test.ts",
+    "qa:stab": "dotenv -e .env -e .env.local -- tsx scripts/qa/stabilization.ts",
+    "qa:e2e": "dotenv -e .env -e .env.local -- tsx scripts/qa/e2e-journey.ts",
+    "qa:drift": "dotenv -e .env -e .env.local -- prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code",
+    "qa:uat": "dotenv -e .env -e .env.local -- tsx scripts/qa/uat-walkthrough.ts"
   },
   "keywords": [
     "erp",

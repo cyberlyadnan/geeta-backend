@@ -58,6 +58,18 @@ export interface LedgerDebitInput {
   financialEvent: WalletFinancialEventInput;
 }
 
+/**
+ * These transactions deliberately serialise on `SELECT … FOR UPDATE`, so under concurrent
+ * movement against one wallet each caller queues behind the ones before it. Prisma's default
+ * interactive-transaction timeout is 5s, which a queue of a dozen round trips to a hosted
+ * database blows straight through — the caller then fails with "Transaction already closed"
+ * instead of either succeeding or being told their balance is short.
+ *
+ * Matches the window `orders.service.ts` and `order-amendment.service.ts` already use for the
+ * transactions that wrap these calls.
+ */
+const LEDGER_TX_OPTIONS = { maxWait: 10_000, timeout: 45_000 } as const;
+
 function generateReference(prefix: string): string {
   const stamp = Date.now().toString(36).toUpperCase();
   const rand = randomBytes(3).toString('hex').toUpperCase();
@@ -170,7 +182,7 @@ export class WalletLedgerService {
     };
 
     if (existingTx) return run(existingTx);
-    return prisma.$transaction(run);
+    return prisma.$transaction(run, LEDGER_TX_OPTIONS);
   }
 
   async debitWallet(input: LedgerDebitInput, existingTx?: Prisma.TransactionClient) {
@@ -261,7 +273,7 @@ export class WalletLedgerService {
     };
 
     if (existingTx) return run(existingTx);
-    return prisma.$transaction(run);
+    return prisma.$transaction(run, LEDGER_TX_OPTIONS);
   }
 
   async getWalletSummary(userId: string) {

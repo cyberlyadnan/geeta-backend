@@ -39,6 +39,11 @@ export interface ListCreditTransactionsQuery {
  *  client, which node:test's mock.method cannot patch (see retail-customer.service tests). */
 export type CreditLedgerDb = Pick<typeof prisma, 'creditAccount' | 'creditTransaction' | '$transaction'>;
 
+/** Same reasoning as wallet-ledger.service.ts — these serialise on SELECT ... FOR UPDATE, and
+ *  Prisma's default 5s interactive-transaction timeout is too short for a queue of round trips
+ *  to a hosted database. */
+const CREDIT_TX_OPTIONS = { maxWait: 10_000, timeout: 45_000 } as const;
+
 function mapAccount(account: {
   id: string;
   actorType: FinancialActorType;
@@ -145,7 +150,7 @@ export class CreditLedgerService {
       );
 
       return { account: mapAccount(updated), transaction: creditTransaction, event };
-    });
+    }, CREDIT_TX_OPTIONS);
   }
 
   async recordRepayment(input: RecordRepaymentInput) {
@@ -192,7 +197,7 @@ export class CreditLedgerService {
       );
 
       return { account: mapAccount(updated), transaction: creditTransaction, event };
-    });
+    }, CREDIT_TX_OPTIONS);
   }
 
   async listTransactions(query: ListCreditTransactionsQuery) {

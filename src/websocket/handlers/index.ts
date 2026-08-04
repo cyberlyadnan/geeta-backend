@@ -4,6 +4,10 @@ import { logger } from '../../logs/logger.js';
 import { getIO } from '../socket.server.js';
 
 export function registerSocketHandlers(socket: Socket, _io: Server): void {
+  // Every client browses the catalogue, so joining is automatic rather than something each
+  // portal has to remember to do — a portal that forgot would silently go stale again.
+  void socket.join(SOCKET_ROOMS.catalog);
+
   socket.on(SOCKET_EVENTS.JOIN_ROOM, (room: string) => {
     void socket.join(room);
     logger.debug('Socket joined room', { socketId: socket.id, room });
