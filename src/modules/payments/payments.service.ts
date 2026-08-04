@@ -1,5 +1,7 @@
 import {
   FinancialAuditAction,
+  FinancialEventType,
+  FinancialReferenceType,
   PaymentMethod,
   PaymentStatus,
   WalletTransactionType,
@@ -422,6 +424,11 @@ export class PaymentsService {
           remarks: creditRemarks,
           paymentMethod: PaymentMethod.UPI_QR,
           auditAction: FinancialAuditAction.PAYMENT_WEBHOOK,
+          financialEvent: {
+            eventType: FinancialEventType.WALLET_TOPUP,
+            referenceType: FinancialReferenceType.TOPUP,
+            referenceId: paymentId,
+          },
         },
         tx,
       );

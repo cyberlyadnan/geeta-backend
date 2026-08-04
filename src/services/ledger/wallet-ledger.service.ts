@@ -1,5 +1,7 @@
 import {
   FinancialAuditAction,
+  FinancialEventType,
+  FinancialReferenceType,
   PaymentMethod,
   Prisma,
   WalletTransactionStatus,
@@ -9,6 +11,22 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { toDecimal, decimalToNumber } from '../../utils/money.js';
 import { randomBytes } from 'node:crypto';
+import { financialEventService } from './financial-event.service.js';
+
+/**
+ * Every wallet credit/debit must be able to point at a FinancialEvent — this is the
+ * ledger's audit/report layer described in docs/features/04-phase2-financial-ledger-udhar.md.
+ * Making the field required (not optional) means the compiler catches any call site that
+ * forgets to classify its money movement, rather than silently leaving a gap in the ledger.
+ */
+export interface WalletFinancialEventInput {
+  eventType: FinancialEventType;
+  referenceType: FinancialReferenceType;
+  /** Omit to default to the WalletTransaction this event accompanies (e.g. admin adjustments,
+   *  which have no other natural business reference). */
+  referenceId?: string;
+  createdByUserId?: string | null;
+}
 
 export interface LedgerCreditInput {
   userId: string;
@@ -23,6 +41,7 @@ export interface LedgerCreditInput {
   referenceNumber?: string;
   auditAction?: FinancialAuditAction;
   auditActorId?: string;
+  financialEvent: WalletFinancialEventInput;
 }
 
 export interface LedgerDebitInput {
@@ -36,6 +55,7 @@ export interface LedgerDebitInput {
   referenceNumber?: string;
   auditAction?: FinancialAuditAction;
   auditActorId?: string;
+  financialEvent: WalletFinancialEventInput;
 }
 
 function generateReference(prefix: string): string {
@@ -131,6 +151,21 @@ export class WalletLedgerService {
         });
       }
 
+      await financialEventService.record(
+        {
+          actorType: 'VENDOR',
+          actorId: input.userId,
+          eventType: input.financialEvent.eventType,
+          amount,
+          direction: 'CREDIT',
+          instrument: 'WALLET',
+          referenceType: input.financialEvent.referenceType,
+          referenceId: input.financialEvent.referenceId ?? transaction.id,
+          createdByUserId: input.financialEvent.createdByUserId ?? input.createdById ?? input.auditActorId,
+        },
+        tx,
+      );
+
       return { wallet: updatedWallet, transaction };
     };
 
@@ -206,6 +241,21 @@ export class WalletLedgerService {
           },
         });
       }
+
+      await financialEventService.record(
+        {
+          actorType: 'VENDOR',
+          actorId: input.userId,
+          eventType: input.financialEvent.eventType,
+          amount,
+          direction: 'DEBIT',
+          instrument: 'WALLET',
+          referenceType: input.financialEvent.referenceType,
+          referenceId: input.financialEvent.referenceId ?? transaction.id,
+          createdByUserId: input.financialEvent.createdByUserId ?? input.createdById ?? input.auditActorId,
+        },
+        tx,
+      );
 
       return { wallet: updatedWallet, transaction };
     };

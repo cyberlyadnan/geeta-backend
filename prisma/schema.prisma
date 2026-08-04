@@ -93,6 +93,50 @@ enum FinancialAuditAction {
   PAYMENT_REFUND
 }
 
+// Phase 2 — Financial Event Ledger + Udhar (Credit) System
+
+enum FinancialActorType {
+  VENDOR
+  RETAIL_CUSTOMER
+}
+
+enum FinancialEventType {
+  ORDER_PLACEMENT_DEBIT
+  AMENDMENT_DEBIT
+  AMENDMENT_CREDIT
+  WALLET_TOPUP
+  WALLET_ADMIN_CREDIT
+  WALLET_ADMIN_DEBIT
+  DELIVERY_CHARGE_DEBIT
+  UDHAR_DRAW
+  UDHAR_REPAYMENT
+}
+
+enum FinancialEventDirection {
+  DEBIT
+  CREDIT
+}
+
+enum FinancialInstrument {
+  WALLET
+  UDHAR
+}
+
+enum FinancialReferenceType {
+  ORDER
+  AMENDMENT
+  DISPATCH_BATCH
+  TOPUP
+  DRAW
+  REPAYMENT
+  WALLET_ADJUSTMENT
+}
+
+enum CreditTransactionType {
+  DRAW
+  REPAYMENT
+}
+
 enum ContactSubject {
   QUOTE
   ORDER
@@ -696,6 +740,8 @@ model User {
   productionOrdersCreatedAsStaff  ProductionOrder[]               @relation("ProductionOrderCreatedBy")
   retailCustomersCreated          RetailCustomer[]                @relation("RetailCustomerCreatedBy")
   orderAmendmentsActed            OrderAmendment[]                @relation("OrderAmendmentActor")
+  financialEventsCreated          FinancialEvent[]                @relation("FinancialEventCreatedBy")
+  creditTransactionsRecorded      CreditTransaction[]              @relation("CreditTransactionRecordedBy")
 
   @@index([roleId])
   @@index([status])
@@ -2912,6 +2958,74 @@ model WalletBalanceSnapshot {
   @@index([walletId])
   @@index([createdAt])
   @@map("wallet_balance_snapshots")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Financial Event Ledger + Udhar (Credit) — Phase 2
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Append-only record of every money movement in the system (non-negotiable #3). Never edited,
+/// never deleted. Read-optimized audit/report layer sitting on top of the row-locked wallet and
+/// credit-account balance logic — not a replacement for it. actorId is polymorphic (points at a
+/// User.id when actorType is VENDOR, a RetailCustomer.id when RETAIL_CUSTOMER) so it is
+/// intentionally not a foreign key — the same pattern the doc specifies for CreditAccount below.
+model FinancialEvent {
+  id              String                   @id @default(cuid())
+  actorType       FinancialActorType       @map("actor_type")
+  actorId         String                   @map("actor_id")
+  eventType       FinancialEventType       @map("event_type")
+  amount          Decimal                  @db.Decimal(14, 2)
+  direction       FinancialEventDirection
+  instrument      FinancialInstrument
+  referenceType   FinancialReferenceType   @map("reference_type")
+  referenceId     String                   @map("reference_id")
+  createdByUserId String?                  @map("created_by_user_id")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+
+  createdByUser User? @relation("FinancialEventCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorType, actorId, createdAt(sort: Desc)])
+  @@index([referenceType, referenceId])
+  @@index([eventType])
+  @@map("financial_events")
+}
+
+/// One credit (Udhar) account per actor. Limit is set explicitly by an admin before any draw is
+/// possible — there is no auto-create-on-first-draw behavior. actorId is polymorphic, same
+/// reasoning as FinancialEvent above.
+model CreditAccount {
+  id                 String   @id @default(cuid())
+  actorType          FinancialActorType @map("actor_type")
+  actorId            String   @map("actor_id")
+  creditLimit        Decimal  @map("credit_limit") @db.Decimal(14, 2)
+  outstandingBalance Decimal  @default(0) @map("outstanding_balance") @db.Decimal(14, 2)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  transactions CreditTransaction[]
+
+  @@unique([actorType, actorId])
+  @@map("credit_accounts")
+}
+
+/// Append-only draw/repayment history for a CreditAccount. Every row here has exactly one
+/// corresponding FinancialEvent row (instrument = UDHAR).
+model CreditTransaction {
+  id                String                  @id @default(cuid())
+  creditAccountId   String                  @map("credit_account_id")
+  type              CreditTransactionType
+  amount            Decimal                 @db.Decimal(14, 2)
+  referenceType     FinancialReferenceType? @map("reference_type")
+  referenceId       String?                 @map("reference_id")
+  recordedByUserId  String                  @map("recorded_by_user_id")
+  note              String?                 @db.Text
+  createdAt         DateTime                @default(now()) @map("created_at")
+
+  creditAccount  CreditAccount @relation(fields: [creditAccountId], references: [id], onDelete: Cascade)
+  recordedByUser User          @relation("CreditTransactionRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([creditAccountId, createdAt(sort: Desc)])
+  @@map("credit_transactions")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

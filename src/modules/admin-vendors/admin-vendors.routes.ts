@@ -8,6 +8,8 @@ import {
   vendorComplianceAdminRoutes,
 } from '../vendor-compliance/index.js';
 import { adminVendorsController } from './admin-vendors.controller.js';
+import { adminCreditController } from '../admin-credit/admin-credit.controller.js';
+import { setCreditLimitSchema } from '../admin-credit/admin-credit.validation.js';
 import { adminFileAssetAccessParamsSchema } from '../vendor-compliance/vendor-compliance.validation.js';
 import {
   createAdminNoteSchema,
@@ -55,6 +57,12 @@ router.post(
   validate(vendorIdParamSchema, 'params'),
   validate(createAdminNoteSchema),
   adminVendorsController.addNote,
+);
+router.post(
+  '/:id/credit-account',
+  validate(vendorIdParamSchema, 'params'),
+  validate(setCreditLimitSchema),
+  adminCreditController.setVendorCreditLimit,
 );
 
 export { router as adminVendorsRoutes };

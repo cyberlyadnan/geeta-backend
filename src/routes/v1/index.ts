@@ -54,6 +54,7 @@ import { orderCancellationRoutes } from '../../modules/order-cancellation/index.
 import { adminPricingSpineRoutes } from '../../modules/admin-pricing-spine/index.js';
 import { retailCustomerRoutes } from '../../modules/admin-retail-customers/index.js';
 import { adminOrdersRoutes } from '../../modules/admin-orders/index.js';
+import { adminCreditAccountsRoutes, adminFinancialEventsRoutes } from '../../modules/admin-credit/index.js';
 
 const v1Router = Router();
 
@@ -91,6 +92,8 @@ v1Router.use('/admin/pricing-rules', adminPricingRulesRoutes);
 v1Router.use('/admin/pricing-spine', adminPricingSpineRoutes);
 v1Router.use('/admin/retail-customers', retailCustomerRoutes);
 v1Router.use('/admin/orders', adminOrdersRoutes);
+v1Router.use('/admin/credit-accounts', adminCreditAccountsRoutes);
+v1Router.use('/admin/financial-events', adminFinancialEventsRoutes);
 v1Router.use('/admin/categories', adminCategoriesRoutes);
 v1Router.use('/admin/families', adminFamiliesRoutes);
 v1Router.use('/admin/series', adminSeriesRoutes);

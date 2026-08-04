@@ -1,4 +1,10 @@
-import { FinancialAuditAction, WalletTransactionType, type Prisma } from '@prisma/client';
+import {
+  FinancialAuditAction,
+  FinancialEventType,
+  FinancialReferenceType,
+  WalletTransactionType,
+  type Prisma,
+} from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { walletLedgerService } from '../../services/ledger/index.js';
@@ -170,6 +176,11 @@ export class AdminWalletsService {
       createdById: actorId,
       auditAction: FinancialAuditAction.WALLET_CREDIT,
       auditActorId: actorId,
+      financialEvent: {
+        eventType: FinancialEventType.WALLET_ADMIN_CREDIT,
+        referenceType: FinancialReferenceType.WALLET_ADJUSTMENT,
+        createdByUserId: actorId,
+      },
     });
     return walletLedgerService.mapWalletSummary(result.wallet);
   }
@@ -183,6 +194,11 @@ export class AdminWalletsService {
       createdById: actorId,
       auditAction: FinancialAuditAction.WALLET_DEBIT,
       auditActorId: actorId,
+      financialEvent: {
+        eventType: FinancialEventType.WALLET_ADMIN_DEBIT,
+        referenceType: FinancialReferenceType.WALLET_ADJUSTMENT,
+        createdByUserId: actorId,
+      },
     });
     return walletLedgerService.mapWalletSummary(result.wallet);
   }

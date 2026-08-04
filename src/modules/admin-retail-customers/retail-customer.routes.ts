@@ -5,6 +5,11 @@ import { authorize } from '../../middleware/authorize.js';
 import { validate } from '../../validators/validate.js';
 import { retailCustomerController } from './retail-customer.controller.js';
 import { createRetailCustomerSchema, lookupRetailCustomerQuerySchema } from './retail-customer.validation.js';
+import { adminCreditController } from '../admin-credit/admin-credit.controller.js';
+import {
+  creditAccountIdParamSchema,
+  setCreditLimitSchema,
+} from '../admin-credit/admin-credit.validation.js';
 
 const router = Router();
 
@@ -17,5 +22,11 @@ router.post(
   retailCustomerController.lookup,
 );
 router.post('/', validate(createRetailCustomerSchema), retailCustomerController.create);
+router.post(
+  '/:id/credit-account',
+  validate(creditAccountIdParamSchema, 'params'),
+  validate(setCreditLimitSchema),
+  adminCreditController.setRetailCustomerCreditLimit,
+);
 
 export { router as retailCustomerRoutes };

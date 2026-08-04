@@ -2,6 +2,8 @@ import {
   DeliveryPreference,
   DeliveryType,
   FinancialAuditAction,
+  FinancialEventType,
+  FinancialReferenceType,
   WalletTransactionType,
   type Prisma,
 } from '@prisma/client';
@@ -218,6 +220,12 @@ export class OrderAmendmentService {
               auditAction: FinancialAuditAction.WALLET_DEBIT,
               auditActorId: staffUserId,
               referenceNumber,
+              financialEvent: {
+                eventType: FinancialEventType.AMENDMENT_DEBIT,
+                referenceType: FinancialReferenceType.AMENDMENT,
+                referenceId: amendment.id,
+                createdByUserId: staffUserId,
+              },
             },
             tx,
           );
@@ -232,6 +240,12 @@ export class OrderAmendmentService {
               auditAction: FinancialAuditAction.WALLET_CREDIT,
               auditActorId: staffUserId,
               referenceNumber,
+              financialEvent: {
+                eventType: FinancialEventType.AMENDMENT_CREDIT,
+                referenceType: FinancialReferenceType.AMENDMENT,
+                referenceId: amendment.id,
+                createdByUserId: staffUserId,
+              },
             },
             tx,
           );

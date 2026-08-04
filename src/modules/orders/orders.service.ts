@@ -3,6 +3,8 @@ import {
   DeliveryPreference,
   DeliveryStatus,
   FinancialAuditAction,
+  FinancialEventType,
+  FinancialReferenceType,
   ProductionOrderStatus,
   WalletTransactionType,
   type Prisma,
@@ -334,6 +336,12 @@ export class OrdersService {
             auditAction: FinancialAuditAction.WALLET_DEBIT,
             auditActorId: eventActorId ?? actor.vendorUserId,
             referenceNumber: `ORD-${orderNumber}`,
+            financialEvent: {
+              eventType: FinancialEventType.ORDER_PLACEMENT_DEBIT,
+              referenceType: FinancialReferenceType.ORDER,
+              referenceId: created.id,
+              createdByUserId: eventActorId ?? actor.vendorUserId,
+            },
           },
           tx,
         );
