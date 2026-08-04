@@ -58,6 +58,7 @@ export const QUEUE_TASK_LIST_SELECT = {
               vendorProfile: { select: { businessName: true, vendorCode: true } },
             },
           },
+          retailCustomer: { select: { id: true, name: true } },
         },
       },
       productionOrderItem: {

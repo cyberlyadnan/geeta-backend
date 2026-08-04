@@ -16,6 +16,7 @@ export interface LedgerCreditInput {
   type: WalletTransactionType;
   paymentId?: string;
   orderId?: string;
+  productionOrderId?: string;
   remarks?: string;
   paymentMethod?: PaymentMethod;
   createdById?: string;
@@ -91,6 +92,7 @@ export class WalletLedgerService {
           walletId: wallet.id,
           userId: input.userId,
           orderId: input.orderId,
+          productionOrderId: input.productionOrderId,
           paymentId: input.paymentId,
           type: input.type,
           status: WalletTransactionStatus.COMPLETED,

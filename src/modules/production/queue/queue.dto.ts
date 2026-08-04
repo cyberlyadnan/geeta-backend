@@ -137,6 +137,7 @@ function toIso(value: Date | null | undefined): string | null {
 
 function resolveVendorName(record: QueueTaskListRecord): string {
   const customer = record.workflowInstance.order.customer;
+  if (!customer) return record.workflowInstance.order.retailCustomer?.name ?? 'Retail customer';
   const business = customer.vendorProfile?.businessName?.trim();
   if (business) return business;
   return `${customer.firstName} ${customer.lastName}`.trim();
@@ -196,10 +197,10 @@ export function mapQueueTaskCard(record: QueueTaskListRecord): QueueTaskCardDto 
     orderNumber: record.workflowInstance.order.orderNumber,
     orderName: record.workflowInstance.order.orderName,
     vendor: {
-      id: record.workflowInstance.order.customer.id,
+      id: record.workflowInstance.order.customer?.id ?? record.workflowInstance.order.retailCustomer?.id ?? '',
       name: resolveVendorName(record),
-      businessName: record.workflowInstance.order.customer.vendorProfile?.businessName ?? null,
-      memberCode: record.workflowInstance.order.customer.vendorProfile?.vendorCode ?? null,
+      businessName: record.workflowInstance.order.customer?.vendorProfile?.businessName ?? null,
+      memberCode: record.workflowInstance.order.customer?.vendorProfile?.vendorCode ?? null,
     },
     product: {
       id: offering?.id ?? null,

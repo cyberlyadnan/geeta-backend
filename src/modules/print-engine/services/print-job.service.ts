@@ -492,7 +492,8 @@ export class PrintJobService {
     input: LivePricingInput,
     deps: {
       priceResult: PriceCalculationResult;
-      checkout: VendorCheckoutContext;
+      /** Only `.settings` is read here — a retail-order checkout stand-in can pass just that. */
+      checkout: Pick<VendorCheckoutContext, 'settings'>;
       resolved: NonNullable<Awaited<ReturnType<typeof printContextResolver.resolveForVersion>>>;
       /**
        * Set when priceResult already came from the "flex_area" resolver — resolveChargeableSize

@@ -578,23 +578,28 @@ export class OrderCancellationService {
       return row;
     }, CANCEL_TX_OPTIONS);
 
-    emitOrderStatusChanged(request.orderId, request.order.customerId, {
-      status: request.previousOrderStatus,
-      updatedAt: new Date().toISOString(),
-    });
+    // A PENDING request can only originate from vendorRequestCancellation, which requires vendor
+    // ownership — so customerId is always set here in practice. Guarded anyway rather than relying
+    // on that invariant holding across future request-creation paths.
+    if (request.order.customerId) {
+      emitOrderStatusChanged(request.orderId, request.order.customerId, {
+        status: request.previousOrderStatus,
+        updatedAt: new Date().toISOString(),
+      });
 
-    void notifyUser(request.order.customerId, {
-      type: CANCELLATION_NOTIFICATION_TYPES.REQUEST_REJECTED,
-      title: 'Cancellation rejected',
-      body: `Your cancellation request for order ${request.order.orderNumber} was rejected. Reason: ${input.decisionRemarks}`,
-      entityType: 'ORDER_CANCELLATION_REQUEST',
-      entityId: requestId,
-      metadata: {
-        orderId: request.orderId,
-        orderNumber: request.order.orderNumber,
-        decisionRemarks: input.decisionRemarks,
-      },
-    });
+      void notifyUser(request.order.customerId, {
+        type: CANCELLATION_NOTIFICATION_TYPES.REQUEST_REJECTED,
+        title: 'Cancellation rejected',
+        body: `Your cancellation request for order ${request.order.orderNumber} was rejected. Reason: ${input.decisionRemarks}`,
+        entityType: 'ORDER_CANCELLATION_REQUEST',
+        entityId: requestId,
+        metadata: {
+          orderId: request.orderId,
+          orderNumber: request.order.orderNumber,
+          decisionRemarks: input.decisionRemarks,
+        },
+      });
+    }
 
     activityLogService.logAsync({
       action: 'ORDER_STATUS_CHANGED',
@@ -824,7 +829,8 @@ export class OrderCancellationService {
 
   private publishPostCancelSideEffects(input: {
     orderId: string;
-    customerId: string;
+    /** Null for retail-customer orders — there is no app user to notify or emit socket events to. */
+    customerId: string | null;
     previousStatus: ProductionOrderStatus;
     actorId: string;
     notificationType: string;
@@ -832,25 +838,27 @@ export class OrderCancellationService {
     notificationBody: string;
     requestId?: string;
   }) {
-    emitOrderStatusChanged(input.orderId, input.customerId, {
-      status: ProductionOrderStatus.CANCELLED,
-      updatedAt: new Date().toISOString(),
-    });
+    if (input.customerId) {
+      emitOrderStatusChanged(input.orderId, input.customerId, {
+        status: ProductionOrderStatus.CANCELLED,
+        updatedAt: new Date().toISOString(),
+      });
+
+      void notifyUser(input.customerId, {
+        type: input.notificationType,
+        title: input.notificationTitle,
+        body: input.notificationBody,
+        entityType: 'PRODUCTION_ORDER',
+        entityId: input.orderId,
+        metadata: { requestId: input.requestId },
+      });
+    }
 
     eventBus.emitEvent(APP_EVENTS.ORDER_STATUS_CHANGED, {
       orderId: input.orderId,
       from: input.previousStatus,
       to: ProductionOrderStatus.CANCELLED,
       actorId: input.actorId,
-    });
-
-    void notifyUser(input.customerId, {
-      type: input.notificationType,
-      title: input.notificationTitle,
-      body: input.notificationBody,
-      entityType: 'PRODUCTION_ORDER',
-      entityId: input.orderId,
-      metadata: { requestId: input.requestId },
     });
   }
 
@@ -906,7 +914,9 @@ export class OrderCancellationService {
       throw ApiError.conflict('Order is already cancelled');
     }
 
-    return order;
+    // A vendor can only own (and therefore self-cancel) a vendor order — proven non-null by the
+    // customerId !== userId check above, since userId itself is always a non-null string.
+    return { ...order, customerId: userId };
   }
 
   private async loadOrderForVendorOrStaff(orderId: string, userId: string, role: RoleName) {

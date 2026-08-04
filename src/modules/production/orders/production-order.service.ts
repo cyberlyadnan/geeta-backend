@@ -1,6 +1,7 @@
 import type { RoleName } from '@prisma/client';
 import { ApiError } from '../../../common/errors/ApiError.js';
 import { printEngineRepository } from '../../print-engine/repositories/print-engine.repository.js';
+import { orderAmendmentService } from '../../orders/order-amendment.service.js';
 import { assertCanViewProductionOrders } from './production-order.access.js';
 import {
   mapActivityRows,
@@ -100,6 +101,12 @@ export class ProductionOrderService {
     const data = await productionOrderRepository.getFiles(orderId);
     if (!data) throw ApiError.notFound('Files not found for order');
     return mapFilesView(data);
+  }
+
+  async getAmendments(orderId: string, role: RoleName, permissions: string[]) {
+    assertCanViewProductionOrders(role, permissions);
+    await this.assertOrderExists(orderId);
+    return orderAmendmentService.listAmendments(orderId);
   }
 
   async getActivity(orderId: string, query: ActivityQuery, role: RoleName, permissions: string[]) {

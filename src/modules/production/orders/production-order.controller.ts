@@ -33,6 +33,16 @@ export class ProductionOrderController {
     return ApiResponse.success(res, result);
   });
 
+  amendments = asyncHandler(async (req: Request, res: Response) => {
+    const { role, permissions } = actor(req);
+    const result = await productionOrderService.getAmendments(
+      req.params['orderId'] as string,
+      role,
+      permissions,
+    );
+    return ApiResponse.success(res, result);
+  });
+
   timeline = asyncHandler(async (req: Request, res: Response) => {
     const { role, permissions } = actor(req);
     const query = req.validatedQuery as import('./production-order.validation.js').TimelineQuery;

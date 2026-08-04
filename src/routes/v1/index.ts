@@ -52,6 +52,8 @@ import { adminWorkflowRoutes } from '../../modules/admin-workflow/index.js';
 import { vendorCatalogRoutes } from '../../modules/vendor-catalog/index.js';
 import { orderCancellationRoutes } from '../../modules/order-cancellation/index.js';
 import { adminPricingSpineRoutes } from '../../modules/admin-pricing-spine/index.js';
+import { retailCustomerRoutes } from '../../modules/admin-retail-customers/index.js';
+import { adminOrdersRoutes } from '../../modules/admin-orders/index.js';
 
 const v1Router = Router();
 
@@ -87,6 +89,8 @@ v1Router.use('/admin/attributes', adminAttributesRoutes);
 v1Router.use('/admin/config-rules', adminConfigRulesRoutes);
 v1Router.use('/admin/pricing-rules', adminPricingRulesRoutes);
 v1Router.use('/admin/pricing-spine', adminPricingSpineRoutes);
+v1Router.use('/admin/retail-customers', retailCustomerRoutes);
+v1Router.use('/admin/orders', adminOrdersRoutes);
 v1Router.use('/admin/categories', adminCategoriesRoutes);
 v1Router.use('/admin/families', adminFamiliesRoutes);
 v1Router.use('/admin/series', adminSeriesRoutes);

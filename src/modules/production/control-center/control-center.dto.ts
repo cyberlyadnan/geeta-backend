@@ -69,12 +69,17 @@ export function mapOrderDrillDown(order: OrderRow) {
       status: order.status,
       estimatedCompletionAt: order.estimatedCompletionAt?.toISOString() ?? null,
       createdAt: order.createdAt.toISOString(),
-      customer: {
-        id: order.customer.id,
-        name:
-          order.customer.vendorProfile?.businessName ??
-          userDisplayName(order.customer.firstName, order.customer.lastName),
-      },
+      customer: order.customer
+        ? {
+            id: order.customer.id,
+            name:
+              order.customer.vendorProfile?.businessName ??
+              userDisplayName(order.customer.firstName, order.customer.lastName),
+          }
+        : {
+            id: order.retailCustomer?.id ?? '',
+            name: order.retailCustomer?.name ?? 'Retail customer',
+          },
       items: order.items.map((item) => ({
         id: item.id,
         quantity: item.quantity,

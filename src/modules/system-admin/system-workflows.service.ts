@@ -76,6 +76,7 @@ export class SystemWorkflowsService {
             allowRework: true,
             allowSkip: true,
             isMandatory: true,
+            locksAmendmentsOnStart: true,
             instructions: true,
             metadata: true,
             department: { select: { id: true, code: true, name: true } },
@@ -169,6 +170,7 @@ export class SystemWorkflowsService {
         allowRework: step.allowRework,
         allowSkip: step.allowSkip,
         isMandatory: step.isMandatory,
+        locksAmendmentsOnStart: step.locksAmendmentsOnStart,
         instructions: step.instructions,
         metadata: (step.metadata as Record<string, unknown>) ?? {},
         sla: step.slaPolicy
@@ -220,6 +222,7 @@ export class SystemWorkflowsService {
         allowRework: step.allowRework ?? true,
         allowSkip: step.allowSkip ?? false,
         isMandatory: step.isMandatory ?? true,
+        locksAmendmentsOnStart: step.locksAmendmentsOnStart ?? false,
         instructions: step.instructions ?? null,
         metadata: (step.metadata ?? {}) as Prisma.InputJsonValue,
       };

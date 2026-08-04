@@ -1,5 +1,6 @@
 import {
   ActivityAction,
+  DeliveryPreference,
   DeliveryStatus,
   FinancialAuditAction,
   ProductionOrderStatus,
@@ -15,7 +16,8 @@ import {
   formatVendorAddress,
   resolveDeliveryForOrder,
 } from '../../services/delivery/index.js';
-import { contextRepository } from '../../repositories/context.repository.js';
+import { contextRepository, type VendorCheckoutContext } from '../../repositories/context.repository.js';
+import { deliverySettingsRepository } from '../../repositories/delivery-settings.repository.js';
 import {
   orderRepository,
   type OrderDetailRecord,
@@ -73,6 +75,42 @@ function buildOrderPricingInputContext(
   };
 }
 
+/**
+ * Who the order is being placed for. Vendor self-serve and admin-created-for-vendor both use
+ * the 'vendor' shape (identical pricing/wallet path); admin-created-for-walk-in uses 'retail'
+ * (same pipeline, no wallet — see phase1-order-flexibility-as-built.md).
+ */
+export type OrderActor =
+  | { type: 'vendor'; vendorUserId: string }
+  | { type: 'retail'; retailCustomerId: string };
+
+interface OrderCheckoutContext {
+  settings: VendorCheckoutContext['settings'];
+  vendor: { deliveryPreference: DeliveryPreference };
+  vendorDefaultAddress: string | null;
+}
+
+async function resolveCheckoutContext(actor: OrderActor): Promise<OrderCheckoutContext> {
+  if (actor.type === 'vendor') {
+    const ctx = await contextRepository.getVendorCheckoutContext(actor.vendorUserId);
+    return {
+      settings: ctx.settings,
+      vendor: ctx.vendor,
+      vendorDefaultAddress: formatVendorAddress(ctx.vendor),
+    };
+  }
+
+  // Retail customers have no VendorProfile to read a delivery preference from — default to
+  // "ask per order" so admin picks delivery vs. counter pickup at order-entry time, and no
+  // stored default address (Phase 1 RetailCustomer has no address field).
+  const settings = await deliverySettingsRepository.getOrCreate();
+  return {
+    settings,
+    vendor: { deliveryPreference: DeliveryPreference.ASK_ON_EVERY_ORDER },
+    vendorDefaultAddress: null,
+  };
+}
+
 export class OrdersService {
   async findAll(userId: string, query: ListOrdersQuery) {
     const { page, limit, search, status, fromDate, toDate } = query;
@@ -98,9 +136,15 @@ export class OrdersService {
     return await mapOrderToDetailDto(order);
   }
 
-  async preview(userId: string, input: OrderPreviewInput) {
-    const computed = await this.computeOrderTotals(userId, input, { forPreview: true });
-    const wallet = await walletLedgerService.getWalletSummary(userId);
+  async preview(actor: OrderActor, input: OrderPreviewInput) {
+    const computed = await this.computeOrderTotals(actor, input, { forPreview: true });
+
+    if (actor.type === 'retail') {
+      // No wallet for retail customers in Phase 1 — payment/credit is Phase 2 scope.
+      return { ...computed, wallet: null };
+    }
+
+    const wallet = await walletLedgerService.getWalletSummary(actor.vendorUserId);
     const balance = wallet.balance;
     const shortage = Math.max(0, computed.totals.grandTotal - balance);
 
@@ -110,25 +154,38 @@ export class OrdersService {
     };
   }
 
-  async create(userId: string, input: CreateProductionOrderInput) {
-    const [computed, wallet] = await Promise.all([
-      this.computeOrderTotals(userId, input),
-      walletLedgerService.getWalletSummary(userId),
-    ]);
+  /**
+   * @param createdByActorId Staff user id when placed on behalf of the actor (admin-created
+   *   order) — null for vendor self-serve.
+   */
+  async create(actor: OrderActor, input: CreateProductionOrderInput, createdByActorId: string | null = null) {
+    if (actor.type === 'retail' && !createdByActorId) {
+      throw ApiError.internal('Retail-customer orders must record which staff member created them');
+    }
 
-    if (wallet.balance < computed.totals.grandTotal) {
-      throw new ApiError(
-        StatusCodes.BAD_REQUEST,
-        'Insufficient wallet balance',
-        true,
-        undefined,
-        'INSUFFICIENT_WALLET',
-        {
-          shortage: computed.totals.grandTotal - wallet.balance,
-          required: computed.totals.grandTotal,
-          balance: wallet.balance,
-        },
-      );
+    const computed = await this.computeOrderTotals(actor, input);
+
+    // Retail-customer orders have no wallet in Phase 1 — nothing to check or debit (Phase 2
+    // scope). Vendor orders (self-serve or admin-created-for-vendor) keep the existing
+    // balance-sufficiency gate unchanged.
+    let walletBalanceBefore = 0;
+    if (actor.type === 'vendor') {
+      const wallet = await walletLedgerService.getWalletSummary(actor.vendorUserId);
+      walletBalanceBefore = wallet.balance;
+      if (wallet.balance < computed.totals.grandTotal) {
+        throw new ApiError(
+          StatusCodes.BAD_REQUEST,
+          'Insufficient wallet balance',
+          true,
+          undefined,
+          'INSUFFICIENT_WALLET',
+          {
+            shortage: computed.totals.grandTotal - wallet.balance,
+            required: computed.totals.grandTotal,
+            balance: wallet.balance,
+          },
+        );
+      }
     }
 
     const notesParts = [
@@ -139,6 +196,10 @@ export class OrdersService {
 
     const estimatedCompletionAt = new Date();
     estimatedCompletionAt.setDate(estimatedCompletionAt.getDate() + ESTIMATED_DAYS_DEFAULT);
+
+    // Who performed the action: the staff member for admin-created orders, the vendor
+    // themselves for self-serve, undefined for a retail walk-in order nobody "is".
+    const eventActorId = createdByActorId ?? (actor.type === 'vendor' ? actor.vendorUserId : undefined);
 
     const orderResult = await prisma.$transaction(
       async (tx) => {
@@ -162,7 +223,7 @@ export class OrdersService {
             coverageBreakdown: computed.livePricing?.adjustments.coverageBreakdown ?? [],
             delivery: computed.resolution,
             artworkEmailCharge: computed.totals.artworkEmailCharge,
-            walletBalanceBefore: wallet.balance,
+            walletBalanceBefore,
           } as unknown as Prisma.InputJsonValue,
         },
       });
@@ -175,7 +236,9 @@ export class OrdersService {
       const created = await tx.productionOrder.create({
         data: {
           orderNumber,
-          customerId: userId,
+          customerId: actor.type === 'vendor' ? actor.vendorUserId : null,
+          retailCustomerId: actor.type === 'retail' ? actor.retailCustomerId : null,
+          createdByActorId,
           orderName: input.orderName.trim(),
           status: initialStatusInTx,
           subtotal: computed.totals.productTotal,
@@ -187,7 +250,7 @@ export class OrdersService {
           deliveryAddress: computed.resolution.deliveryAddress,
           deliveryStatus: computed.resolution.deliveryRequired ? DeliveryStatus.PENDING : null,
           notes: notesParts.length > 0 ? notesParts.join('\n') : null,
-          walletDeducted: true,
+          walletDeducted: actor.type === 'vendor',
           estimatedCompletionAt,
           sourceDraftId: input.draftId ?? null,
           items: {
@@ -260,27 +323,32 @@ export class OrdersService {
         }),
       );
 
-      await walletLedgerService.debitWallet(
-        {
-          userId,
-          amount: computed.totals.grandTotal,
-          type: WalletTransactionType.ORDER_PAYMENT,
-          productionOrderId: created.id,
-          remarks: `Order ${orderNumber}`,
-          auditAction: FinancialAuditAction.WALLET_DEBIT,
-          auditActorId: userId,
-          referenceNumber: `ORD-${orderNumber}`,
-        },
-        tx,
-      );
+      if (actor.type === 'vendor') {
+        await walletLedgerService.debitWallet(
+          {
+            userId: actor.vendorUserId,
+            amount: computed.totals.grandTotal,
+            type: WalletTransactionType.ORDER_PAYMENT,
+            productionOrderId: created.id,
+            remarks: `Order ${orderNumber}`,
+            auditAction: FinancialAuditAction.WALLET_DEBIT,
+            auditActorId: eventActorId ?? actor.vendorUserId,
+            referenceNumber: `ORD-${orderNumber}`,
+          },
+          tx,
+        );
+      }
 
       await recordOrderEvent(
         created.id,
         {
           eventType: 'ORDER_CREATED',
           title: 'Order placed',
-          description: `Order ${orderNumber} created successfully`,
-          actorId: userId,
+          description:
+            createdByActorId
+              ? `Order ${orderNumber} created by staff on behalf of the ${actor.type === 'vendor' ? 'vendor' : 'customer'}`
+              : `Order ${orderNumber} created successfully`,
+          actorId: eventActorId,
           metadata: { orderNumber, total: computed.totals.grandTotal },
         },
         tx,
@@ -293,26 +361,28 @@ export class OrdersService {
             eventType: 'ARTWORK_UPLOADED',
             title: 'Artwork submitted',
             description: `${input.artworks.length} file(s) attached for production review`,
-            actorId: userId,
+            actorId: eventActorId,
           },
           tx,
         );
       }
 
-      await recordOrderEvent(
-        created.id,
-        {
-          eventType: 'WALLET_CHARGED',
-          title: 'Wallet charged',
-          description: `₹${computed.totals.grandTotal.toFixed(2)} deducted from wallet`,
-          actorId: userId,
-          metadata: { amount: computed.totals.grandTotal },
-        },
-        tx,
-      );
+      if (actor.type === 'vendor') {
+        await recordOrderEvent(
+          created.id,
+          {
+            eventType: 'WALLET_CHARGED',
+            title: 'Wallet charged',
+            description: `₹${computed.totals.grandTotal.toFixed(2)} deducted from wallet`,
+            actorId: eventActorId,
+            metadata: { amount: computed.totals.grandTotal },
+          },
+          tx,
+        );
+      }
 
-      if (input.draftId) {
-        await tx.vendorOrderDraft.deleteMany({ where: { id: input.draftId, userId } });
+      if (input.draftId && actor.type === 'vendor') {
+        await tx.vendorOrderDraft.deleteMany({ where: { id: input.draftId, userId: actor.vendorUserId } });
       }
 
       const workflowResult = await workflowEngine.createForProductionOrder(
@@ -320,7 +390,7 @@ export class OrdersService {
           orderId: created.id,
           productionOrderItemId: orderItem.id,
           productOfferingVersionId: computed.versionId,
-          createdById: userId,
+          createdById: eventActorId,
           metadata: { orderNumber },
         },
         tx,
@@ -339,29 +409,37 @@ export class OrdersService {
 
     workflowEngine.publishCreationEvents(orderResult.workflowResult);
 
-    void notifyUser(userId, {
-      type: 'ORDER_CREATED',
-      title: 'Order placed successfully',
-      body: `Your order ${orderResult.orderNumber} has been placed. Total: ₹${computed.totals.grandTotal.toFixed(2)}`,
-      entityType: 'production_order',
-      entityId: orderResult.orderId,
-    });
+    // Retail walk-in orders have no app user to notify — vendor-created orders (self-serve or
+    // admin-on-behalf-of) still get the usual in-app notification.
+    if (actor.type === 'vendor') {
+      void notifyUser(actor.vendorUserId, {
+        type: 'ORDER_CREATED',
+        title: 'Order placed successfully',
+        body: `Your order ${orderResult.orderNumber} has been placed. Total: ₹${computed.totals.grandTotal.toFixed(2)}`,
+        entityType: 'production_order',
+        entityId: orderResult.orderId,
+      });
+    }
 
-    activityLogService.logAsync({
-      action: ActivityAction.ORDER_CREATED,
-      entityType: 'production_order',
-      entityId: orderResult.orderId,
-      actorId: userId,
-      metadata: { orderNumber: orderResult.orderNumber, total: computed.totals.grandTotal },
-    });
+    if (eventActorId) {
+      activityLogService.logAsync({
+        action: ActivityAction.ORDER_CREATED,
+        entityType: 'production_order',
+        entityId: orderResult.orderId,
+        actorId: eventActorId,
+        metadata: { orderNumber: orderResult.orderNumber, total: computed.totals.grandTotal },
+      });
+    }
 
-    activityLogService.logAsync({
-      action: ActivityAction.ORDER_WALLET_CHARGED,
-      entityType: 'production_order',
-      entityId: orderResult.orderId,
-      actorId: userId,
-      metadata: { amount: computed.totals.grandTotal },
-    });
+    if (actor.type === 'vendor' && eventActorId) {
+      activityLogService.logAsync({
+        action: ActivityAction.ORDER_WALLET_CHARGED,
+        entityType: 'production_order',
+        entityId: orderResult.orderId,
+        actorId: eventActorId,
+        metadata: { amount: computed.totals.grandTotal },
+      });
+    }
 
     return {
       id: orderResult.orderId,
@@ -407,7 +485,7 @@ export class OrdersService {
   }
 
   private async computeOrderTotals(
-    userId: string,
+    actor: OrderActor,
     input: CreateProductionOrderInput | OrderPreviewInput,
     options: { forPreview?: boolean } = {},
   ) {
@@ -415,7 +493,7 @@ export class OrdersService {
     if (!versionId) throw ApiError.badRequest('Product version is required');
 
     const [checkout, printContextResolved] = await Promise.all([
-      contextRepository.getVendorCheckoutContext(userId),
+      resolveCheckoutContext(actor),
       printContextResolver.resolveForVersion(versionId),
     ]);
 
@@ -434,7 +512,7 @@ export class OrdersService {
 
     const priceResolution = await priceResolverService.resolvePrice({
       versionId,
-      vendorId: userId,
+      vendorId: actor.type === 'vendor' ? actor.vendorUserId : undefined,
       quantity: input.quantity,
       selections: input.selections,
       uploadedDimensions,
@@ -495,7 +573,7 @@ export class OrdersService {
       vendorPreference: checkout.vendor.deliveryPreference,
       orderDeliveryChoice: input.orderDeliveryChoice,
       deliveryAddress: input.deliveryAddress,
-      vendorDefaultAddress: formatVendorAddress(checkout.vendor),
+      vendorDefaultAddress: checkout.vendorDefaultAddress,
     });
 
     if (
@@ -542,8 +620,15 @@ export class OrdersService {
     let coverageSnapshot: Record<string, unknown> | null = null;
 
     if (input.artworks?.length) {
+      // Artwork ownership is checked against the vendor for vendor orders (self-serve or
+      // admin-placed-on-their-behalf — the vendor still owns their own uploads either way).
+      // Retail walk-ins have no app account to own an upload against; artwork attachment for
+      // retail orders is out of Phase 1's scope (no artwork slots in the admin-order UI yet).
+      if (actor.type === 'retail') {
+        throw ApiError.badRequest('Artwork attachment is not yet supported for retail-customer orders');
+      }
       const validation = await printJobService.validateArtworksForOrder(
-        userId,
+        actor.vendorUserId,
         versionId,
         input.artworks,
         printContextResolved,

@@ -22,6 +22,7 @@ export const ORDER_DETAIL_SELECT = {
   estimatedCompletionAt: true,
   createdAt: true,
   updatedAt: true,
+  retailCustomer: { select: { id: true, name: true, phone: true } },
   items: {
     select: {
       id: true,

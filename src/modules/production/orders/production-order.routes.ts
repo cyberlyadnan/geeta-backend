@@ -50,6 +50,13 @@ router.get(
 );
 
 router.get(
+  '/orders/:orderId/amendments',
+  authorize(...viewRoles),
+  validate(orderIdParamSchema, 'params'),
+  productionOrderController.amendments,
+);
+
+router.get(
   '/orders/:orderId/timeline',
   authorize(...viewRoles),
   validate(orderIdParamSchema, 'params'),

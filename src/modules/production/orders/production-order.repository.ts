@@ -41,6 +41,7 @@ export const PRODUCTION_ORDER_LIST_SELECT = {
       vendorProfile: { select: { id: true, businessName: true, vendorCode: true } },
     },
   },
+  retailCustomer: { select: { id: true, name: true, phone: true } },
   items: {
     take: 1,
     select: {
@@ -652,6 +653,7 @@ export class ProductionOrderRepository {
             vendorProfile: { select: { businessName: true } },
           },
         },
+        retailCustomer: { select: { name: true } },
         items: {
           select: {
             id: true,

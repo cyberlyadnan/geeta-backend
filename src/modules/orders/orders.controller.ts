@@ -3,12 +3,14 @@ import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { ordersService } from './orders.service.js';
 import { orderDraftsService } from './order-drafts.service.js';
+import { orderAmendmentService } from './order-amendment.service.js';
 import type {
   CreateProductionOrderInput,
   ListOrdersQuery,
   OrderPreviewInput,
   SaveDraftInput,
 } from './orders.validation.js';
+import type { RequestAmendmentInput } from './order-amendment.validation.js';
 
 export class OrdersController {
   list = asyncHandler(async (req: Request, res: Response) => {
@@ -24,12 +26,18 @@ export class OrdersController {
   });
 
   preview = asyncHandler(async (req: Request, res: Response) => {
-    const result = await ordersService.preview(req.user!.id, req.body as OrderPreviewInput);
+    const result = await ordersService.preview(
+      { type: 'vendor', vendorUserId: req.user!.id },
+      req.body as OrderPreviewInput,
+    );
     return ApiResponse.success(res, result);
   });
 
   create = asyncHandler(async (req: Request, res: Response) => {
-    const result = await ordersService.create(req.user!.id, req.body as CreateProductionOrderInput);
+    const result = await ordersService.create(
+      { type: 'vendor', vendorUserId: req.user!.id },
+      req.body as CreateProductionOrderInput,
+    );
     return ApiResponse.created(res, result, 'Order placed successfully');
   });
 
@@ -53,6 +61,22 @@ export class OrdersController {
   deleteDraft = asyncHandler(async (req: Request, res: Response) => {
     const { draftId } = req.validatedParams as { draftId: string };
     const result = await orderDraftsService.remove(req.user!.id, draftId);
+    return ApiResponse.success(res, result);
+  });
+
+  requestAmendment = asyncHandler(async (req: Request, res: Response) => {
+    const { orderId } = req.validatedParams as { orderId: string };
+    const result = await orderAmendmentService.requestAmendment(
+      orderId,
+      req.user!.id,
+      req.body as RequestAmendmentInput,
+    );
+    return ApiResponse.created(res, result, 'Order amended');
+  });
+
+  listAmendments = asyncHandler(async (req: Request, res: Response) => {
+    const { orderId } = req.validatedParams as { orderId: string };
+    const result = await orderAmendmentService.listAmendments(orderId);
     return ApiResponse.success(res, result);
   });
 }

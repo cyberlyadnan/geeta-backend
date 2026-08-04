@@ -27,6 +27,7 @@ export const WORKFLOW_TEMPLATE_WITH_STEPS = {
       expectedMinutes: true,
       allowSkip: true,
       isMandatory: true,
+      locksAmendmentsOnStart: true,
       instructions: true,
       metadata: true,
       dependencies: {

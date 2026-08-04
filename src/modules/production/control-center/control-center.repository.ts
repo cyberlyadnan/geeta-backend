@@ -513,6 +513,7 @@ export class ControlCenterRepository {
             vendorProfile: { select: { businessName: true } },
           },
         },
+        retailCustomer: { select: { id: true, name: true } },
         items: {
           select: {
             id: true,

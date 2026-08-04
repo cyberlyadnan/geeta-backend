@@ -19,6 +19,50 @@ function vendorName(customer: {
   return customer.vendorProfile?.businessName ?? userName(customer.firstName, customer.lastName);
 }
 
+/** An order belongs to exactly one of these (enforced by DB constraint) — never both, never neither. */
+function resolveOrderCustomer(row: {
+  customer: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email?: string;
+    phone?: string | null;
+    vendorProfile: {
+      id?: string;
+      businessName: string;
+      vendorCode?: string;
+      ownerName?: string;
+      accountStatus?: string;
+    } | null;
+  } | null;
+  retailCustomer: { id: string; name: string; phone: string } | null;
+}) {
+  if (row.customer) {
+    return {
+      isRetail: false as const,
+      id: row.customer.id,
+      name: vendorName(row.customer),
+      code: row.customer.vendorProfile?.vendorCode ?? null,
+      email: row.customer.email ?? null,
+      phone: row.customer.phone ?? null,
+      vendorProfile: row.customer.vendorProfile,
+    };
+  }
+  if (row.retailCustomer) {
+    return {
+      isRetail: true as const,
+      id: row.retailCustomer.id,
+      name: row.retailCustomer.name,
+      code: null,
+      email: null,
+      phone: row.retailCustomer.phone,
+      vendorProfile: null,
+    };
+  }
+  // Unreachable given the DB XOR constraint — fail loudly rather than silently showing "Unknown".
+  throw new Error('Order has neither a vendor customer nor a retail customer');
+}
+
 function computeSlaStatus(
   estimatedCompletionAt: Date | null | undefined,
   orderStatus: string,
@@ -93,11 +137,7 @@ export function mapProductionOrderListItem(row: ListRow) {
     id: row.id,
     orderNumber: row.orderNumber,
     orderName: row.orderName,
-    vendor: {
-      id: row.customer.id,
-      name: vendorName(row.customer),
-      code: row.customer.vendorProfile?.vendorCode ?? null,
-    },
+    vendor: resolveOrderCustomer(row),
     product: product
       ? {
           id: product.id,
@@ -136,13 +176,7 @@ export function mapProductionOrderOverview(order: OrderDetail, context: OrderCon
     orderNumber: order.orderNumber,
     orderName: order.orderName,
     status: order.status,
-    vendor: {
-      id: order.customer.id,
-      name: vendorName(order.customer),
-      email: order.customer.email,
-      phone: order.customer.phone,
-      vendorProfile: order.customer.vendorProfile,
-    },
+    vendor: resolveOrderCustomer(order),
     product: product
       ? {
           id: product.id,
@@ -449,11 +483,7 @@ export function mapJobCard(
     orderName: data.orderName,
     qrPayload: data.jobCards[0]?.qrCode ?? data.orderNumber,
     jobCardNumber: data.jobCards[0]?.jobCardNumber ?? null,
-    vendor: vendorName({
-      firstName: data.customer.firstName,
-      lastName: data.customer.lastName,
-      vendorProfile: data.customer.vendorProfile,
-    }),
+    vendor: data.customer ? vendorName(data.customer) : (data.retailCustomer?.name ?? 'Retail customer'),
     product: item
       ? (item.productOfferingVersion.productOffering.displayName ??
         item.productOfferingVersion.productOffering.name)
