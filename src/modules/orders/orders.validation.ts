@@ -53,6 +53,11 @@ export const createProductionOrderSchema = z.object({
   pressline: z.string().max(200).optional(),
   fileOption: z.enum(['attach', 'email']).optional(),
   draftId: z.string().optional(),
+  /**
+   * Phase 4 — the raw matter (names, dates, wording) a customer supplies when they want the
+   * design team to create the artwork rather than uploading their own.
+   */
+  designMatter: z.string().max(10_000).optional(),
 });
 
 export const orderIdParamSchema = z.object({

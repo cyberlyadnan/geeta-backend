@@ -34,6 +34,7 @@ import { activityLogService } from '../../services/activity/activity-log.service
 import { allocateOrderNumber } from './order-number.service.js';
 import { notifyUser, recordOrderEvent } from './order-events.service.js';
 import { workflowEngine } from '../workflow/workflow.engine.js';
+import { designApprovalService } from '../design-approval/design-approval.service.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import { isPreviewableArtwork } from '../../services/storage/storage.utils.js';
 import type { CreateProductionOrderInput, ListOrdersQuery, OrderPreviewInput } from './orders.validation.js';
@@ -393,6 +394,20 @@ export class OrdersService {
         await tx.vendorOrderDraft.deleteMany({ where: { id: input.draftId, userId: actor.vendorUserId } });
       }
 
+      // Phase 4 — products whose type profile requires design approval get a DesignTask, unless
+      // the vendor supplied print-ready artwork (then there is nothing to design). The wallet was
+      // already debited above: design revisions never re-charge, however many rounds happen.
+      if (computed.requiresDesignApproval) {
+        await designApprovalService.createForOrder(
+          {
+            orderId: created.id,
+            hasArtwork: Boolean(input.artworks?.length),
+            matterContent: input.designMatter ?? input.specialRemark ?? null,
+          },
+          tx,
+        );
+      }
+
       const workflowResult = await workflowEngine.createForProductionOrder(
         {
           orderId: created.id,
@@ -659,6 +674,9 @@ export class OrdersService {
       resolution,
       configEntries,
       fileRequirements,
+      /** Phase 4 — drives whether placement creates a DesignTask. */
+      requiresDesignApproval:
+        printContextResolved.version.productTypeProfile?.requiresDesignApproval ?? false,
       productSnapshot: {
         productId: offering.id,
         name: offering.displayName ?? offering.name,

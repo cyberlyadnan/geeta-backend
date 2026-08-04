@@ -137,6 +137,36 @@ enum CreditTransactionType {
   REPAYMENT
 }
 
+// Phase 4 — Product Type Profiles + Design Approval
+
+enum ProductSizeMode {
+  CONFIG
+  ROLL_BASED
+  FIXED
+}
+
+/// Where the content for a design came from.
+enum DesignTaskSource {
+  /// Vendor supplied print-ready artwork — no design work needed.
+  VENDOR_ARTWORK
+  /// Vendor supplied raw matter (names, dates, text) for the design team to typeset.
+  VENDOR_MATTER
+}
+
+enum DesignTaskStatus {
+  PENDING
+  IN_PROGRESS
+  AWAITING_VENDOR_APPROVAL
+  REVISION_REQUESTED
+  APPROVED
+}
+
+/// Which approval gate a vendor decision belongs to.
+enum DesignApprovalGate {
+  DIGITAL_PROOF
+  PHYSICAL_SAMPLE
+}
+
 // Phase 3 — Dispatch & Delivery
 
 enum DispatchBatchStatus {
@@ -424,6 +454,10 @@ enum WorkflowStepType {
   PACKAGING
   DISPATCH
   QUALITY_CHECK
+  /// Phase 4 — a gate the vendor (not an operator) closes. Its task sits READY but is hidden
+  /// from operator queues and never auto-advances; only the vendor's approve/revise action moves
+  /// it. Used twice in the wedding-card flow: digital proof approval and physical sample approval.
+  VENDOR_APPROVAL
   CUSTOM
 }
 
@@ -757,6 +791,9 @@ model User {
   financialEventsCreated          FinancialEvent[]                @relation("FinancialEventCreatedBy")
   creditTransactionsRecorded      CreditTransaction[]              @relation("CreditTransactionRecordedBy")
   dispatchBatches                 DispatchBatch[]                 @relation("DispatchBatchVendor")
+  designTasksAssigned             DesignTask[]                    @relation("DesignTaskAssignee")
+  designProofsSubmitted           DesignProofVersion[]            @relation("DesignProofSubmitter")
+  designApprovalDecisions         DesignApprovalDecision[]        @relation("DesignApprovalDecider")
 
   @@index([roleId])
   @@index([status])
@@ -1135,6 +1172,11 @@ model ProductOfferingVersion {
   pricingProfileKey            String?                      @map("pricing_profile_key")
   /// Rate for the "flex_area" pricing strategy — price = chargedArea (sq ft) x ratePerSqFt.
   ratePerSqFt                  Decimal?                     @map("rate_per_sq_ft") @db.Decimal(12, 2)
+  /// Phase 4 — which flow profile this product follows. Null means the pre-Phase-4 default
+  /// (self-serve config wizard); existing products were deliberately not backfilled.
+  productTypeProfileId         String?                      @map("product_type_profile_id")
+  /// Whole price for the "fixed_catalog" strategy — admin-set, no matrix, no quantity tiers.
+  fixedPrice                   Decimal?                     @map("fixed_price") @db.Decimal(12, 2)
   workflowKey                  String?                      @map("workflow_key")
   printProcessId               String?                      @map("print_process_id")
   sizeTemplateId               String?                      @map("size_template_id")
@@ -1149,6 +1191,7 @@ model ProductOfferingVersion {
   deletedAt                    DateTime?                    @map("deleted_at")
 
   productOffering            ProductOffering             @relation(fields: [productOfferingId], references: [id], onDelete: Restrict)
+  productTypeProfile         ProductTypeProfile?         @relation(fields: [productTypeProfileId], references: [id], onDelete: SetNull)
   configurationGroups        ConfigurationGroup[]
   configurationFields        ConfigurationField[]
   configurationRules         ConfigurationRule[]
@@ -1817,6 +1860,7 @@ model ProductionOrder {
   cancellationRequests OrderCancellationRequest[]
   amendments           OrderAmendment[]
   dispatchBatchOrder   DispatchBatchOrder?
+  designTask           DesignTask?
 
   @@index([customerId])
   @@index([customerId, createdAt(sort: Desc)])
@@ -3043,6 +3087,102 @@ model CreditTransaction {
 
   @@index([creditAccountId, createdAt(sort: Desc)])
   @@map("credit_transactions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Product Type Profiles + Design Approval — Phase 4
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Non-negotiable #4: a product type is a data profile, not a code branch. Deliberately minimal
+/// — just enough to carry the CATALOG_DESIGN_APPROVAL flow. `wizardStepsKey` names a frontend
+/// step sequence; the frontend picks a sequence by key, it does NOT interpret this row as a
+/// generic wizard definition (that engine is explicitly out of scope this phase).
+model ProductTypeProfile {
+  id                     String          @id @default(cuid())
+  key                    String          @unique
+  name                   String
+  sizeMode               ProductSizeMode @map("size_mode")
+  /// Matches the strategy strings resolvePrice() dispatches on: "matrix" | "flex_area" |
+  /// "fixed_catalog" | "quantity_pricing".
+  pricingStrategyKey     String          @map("pricing_strategy_key")
+  wizardStepsKey         String          @map("wizard_steps_key")
+  requiresDesignApproval Boolean         @default(false) @map("requires_design_approval")
+  createdAt              DateTime        @default(now()) @map("created_at")
+  updatedAt              DateTime        @updatedAt @map("updated_at")
+
+  productVersions ProductOfferingVersion[]
+
+  @@map("product_type_profiles")
+}
+
+/// One design job per order. Exists only for products whose profile requires design approval and
+/// where the vendor did not supply print-ready artwork.
+///
+/// `orderId` references ProductionOrder, not the legacy `Order` model the plan doc's sketch
+/// named — ProductionOrder is the order entity every flow since Phase 1 actually uses.
+model DesignTask {
+  id               String           @id @default(cuid())
+  orderId          String           @unique @map("order_id")
+  source           DesignTaskSource
+  /// Raw text/notes supplied by the vendor when source is VENDOR_MATTER.
+  matterContent    String?          @map("matter_content") @db.Text
+  assignedToUserId String?          @map("assigned_to_user_id")
+  status           DesignTaskStatus @default(PENDING)
+  /// Latest digital proof. Superseded proofs stay in DesignProofVersion for history.
+  proofUrl         String?          @map("proof_url") @db.Text
+  /// Rounds the vendor sent back, across BOTH gates. No cap is enforced yet — the client has not
+  /// specified one; this is tracked so a limit can be added later without a schema change.
+  revisionCount    Int              @default(0) @map("revision_count")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  order        ProductionOrder      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignedTo   User?                @relation("DesignTaskAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  proofs       DesignProofVersion[]
+  decisions    DesignApprovalDecision[]
+
+  @@index([status])
+  @@index([assignedToUserId])
+  @@map("design_tasks")
+}
+
+/// Append-only history of every proof the design team submitted, so a vendor can see what
+/// changed between rounds rather than only the latest file.
+model DesignProofVersion {
+  id            String   @id @default(cuid())
+  designTaskId  String   @map("design_task_id")
+  versionNumber Int      @map("version_number")
+  proofUrl      String   @map("proof_url") @db.Text
+  notes         String?  @db.Text
+  submittedById String   @map("submitted_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  designTask  DesignTask @relation(fields: [designTaskId], references: [id], onDelete: Cascade)
+  submittedBy User       @relation("DesignProofSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+
+  @@unique([designTaskId, versionNumber])
+  @@index([designTaskId])
+  @@map("design_proof_versions")
+}
+
+/// Append-only record of each vendor decision at either gate — the audit trail behind
+/// revisionCount, and what the vendor-facing timeline renders.
+model DesignApprovalDecision {
+  id             String             @id @default(cuid())
+  designTaskId   String             @map("design_task_id")
+  gate           DesignApprovalGate
+  approved       Boolean
+  revisionNote   String?            @map("revision_note") @db.Text
+  decidedByUserId String            @map("decided_by_user_id")
+  /// The workflow task this decision closed, for tracing back into the production timeline.
+  workflowTaskId String?            @map("workflow_task_id")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  designTask DesignTask @relation(fields: [designTaskId], references: [id], onDelete: Cascade)
+  decidedBy  User       @relation("DesignApprovalDecider", fields: [decidedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([designTaskId, createdAt(sort: Desc)])
+  @@map("design_approval_decisions")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

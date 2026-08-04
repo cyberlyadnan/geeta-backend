@@ -2,6 +2,7 @@ import {
   Prisma,
   WorkflowInstanceStatus,
   WorkflowPriority,
+  WorkflowStepType,
   WorkflowTaskStatus,
 } from '@prisma/client';
 import type { DepartmentQueueQuery } from './queue.validation.js';
@@ -23,7 +24,13 @@ export function buildQueueTaskWhere(
   departmentId: string,
   query: DepartmentQueueQuery,
 ): Prisma.WorkflowTaskWhereInput {
-  const and: Prisma.WorkflowTaskWhereInput[] = [{ departmentId }];
+  const and: Prisma.WorkflowTaskWhereInput[] = [
+    { departmentId },
+    // VENDOR_APPROVAL tasks are gates the customer closes, not work anyone on the floor can do.
+    // They would otherwise sit in a department queue as un-actionable clutter that no operator
+    // can ever complete. The vendor portal surfaces them instead.
+    { workflowStep: { stepType: { not: WorkflowStepType.VENDOR_APPROVAL } } },
+  ];
 
   if (query.lens === 'rush') {
     and.push({ priority: { in: [...RUSH_PRIORITIES] as WorkflowPriority[] } });

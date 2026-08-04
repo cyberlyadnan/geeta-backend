@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DepartmentStaffRole, RoleName, UserStatus } from '@prisma/client';
+import { DepartmentStaffRole, RoleName, UserStatus, WorkflowStepType } from '@prisma/client';
 
 export const cursorQuerySchema = z.object({
   cursor: z.string().cuid().optional(),
@@ -101,18 +101,9 @@ export const workflowStepSchema = z.object({
   departmentId: z.string().cuid(),
   stepName: z.string().min(1).max(200),
   stepCode: z.string().min(1).max(80),
-  stepType: z.enum([
-    'VERIFICATION',
-    'PRINTING',
-    'LAMINATION',
-    'UV',
-    'FOILING',
-    'DIE_CUTTING',
-    'PACKAGING',
-    'DISPATCH',
-    'QUALITY_CHECK',
-    'CUSTOM',
-  ]),
+  // Derived from the Prisma enum rather than re-listed, so a new step type (e.g. Phase 4's
+  // VENDOR_APPROVAL) cannot be silently rejected by a stale copy of the list.
+  stepType: z.nativeEnum(WorkflowStepType),
   stepOrder: z.coerce.number().int().min(1),
   expectedMinutes: z.coerce.number().int().min(1),
   allowRework: z.boolean().optional(),

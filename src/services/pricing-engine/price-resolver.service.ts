@@ -75,6 +75,9 @@ export class PriceResolverService {
     if (strategyKey === 'matrix') {
       return this.resolveMatrixStrategy(bundle, input, strategyKey);
     }
+    if (strategyKey === 'fixed_catalog') {
+      return this.resolveFixedCatalog(bundle, input, strategyKey);
+    }
     return this.resolveDefaultStrategy(bundle, input, strategyKey);
   }
 
@@ -170,6 +173,54 @@ export class PriceResolverService {
       overrideApplied: !!override,
       matrixCellId: matrix.cellId,
       dimensionKey: matrix.dimensionKey,
+    });
+  }
+
+  /**
+   * Catalog products (Phase 4): the admin-set `fixedPrice` IS the price. No matrix, no quantity
+   * tiers, no option stacking — a wedding-card design costs what the card costs. A whole-product
+   * vendor override still applies on top, so non-negotiable #2 (sparse overrides everywhere)
+   * holds here as it does for every other strategy.
+   */
+  private async resolveFixedCatalog(
+    bundle: VersionPricingBundle,
+    input: ResolvePriceInput,
+    strategyKey: string,
+  ): Promise<ResolvePriceResult> {
+    const fixedPrice = bundle.fixedPrice != null ? decimalToNumber(bundle.fixedPrice) : null;
+    if (fixedPrice == null) {
+      return this.invalid(strategyKey, 'This catalog product has no price set yet', input);
+    }
+    if (input.quantity <= 0) {
+      return this.invalid(strategyKey, 'Quantity must be at least 1', input);
+    }
+
+    const buildResult = (unitPrice: number): PriceCalculationResult => ({
+      versionId: input.versionId,
+      quantity: input.quantity,
+      subtotal: unitPrice,
+      adjustmentTotal: 0,
+      discountTotal: 0,
+      taxTotal: 0,
+      grandTotal: round2(unitPrice * input.quantity),
+      unitPrice,
+      currency: 'INR',
+      lines: [{ code: 'base', label: 'Catalog price', type: 'base', amount: unitPrice }],
+      snapshotPayload: { selections: input.selections, fixedPrice: unitPrice },
+    });
+
+    const listResult = buildResult(fixedPrice);
+
+    const overrides = await this.loadOverrides(input);
+    const override = this.overrides.pickApplicable(overrides, null);
+    const finalResult = override ? buildResult(applyVendorOverride(fixedPrice, override)) : listResult;
+
+    return this.toResult({
+      strategyKey,
+      listResult,
+      finalResult,
+      overrideApplied: !!override,
+      matrixCellId: null,
     });
   }
 

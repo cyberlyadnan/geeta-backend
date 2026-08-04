@@ -1,6 +1,7 @@
 import {
   WorkflowHistoryAction,
   WorkflowInstanceStatus,
+  WorkflowStepType,
   WorkflowTaskExecutionSessionStatus,
   WorkflowTaskStatus,
   ReworkStatus,
@@ -607,43 +608,11 @@ export class WorkflowEngine {
         },
       });
 
-      const downstreamTasks = await tx.workflowTask.findMany({
-        where: {
-          workflowInstanceId: input.workflowInstanceId,
-          stepOrder: { gt: targetTask.stepOrder },
-          status: {
-            notIn: [
-              WorkflowTaskStatus.CANCELLED,
-              WorkflowTaskStatus.SKIPPED,
-            ],
-          },
-        },
-        select: { id: true, status: true },
-      });
-
-      for (const downstream of downstreamTasks) {
-        if (downstream.id === qcTask.id) continue;
-        if (isTaskTerminal(downstream.status)) {
-          await tx.workflowTask.update({
-            where: { id: downstream.id },
-            data: { status: WorkflowTaskStatus.BLOCKED, completedAt: null },
-          });
-          continue;
-        }
-        if (downstream.status !== WorkflowTaskStatus.BLOCKED) {
-          await tx.workflowTask.update({
-            where: { id: downstream.id },
-            data: { status: WorkflowTaskStatus.BLOCKED },
-          });
-        }
-      }
-
-      await tx.workflowTask.update({
-        where: { id: targetTask.id },
-        data: {
-          status: WorkflowTaskStatus.REWORK,
-          completedAt: null,
-        },
+      await this.blockDownstreamAndReworkTarget(tx, {
+        workflowInstanceId: input.workflowInstanceId,
+        sourceTaskId: qcTask.id,
+        targetTaskId: targetTask.id,
+        targetStepOrder: targetTask.stepOrder,
       });
 
       await tx.workflowTaskHistory.create({
@@ -814,6 +783,220 @@ export class WorkflowEngine {
       orderId: input.orderId,
       cancelledTaskIds: input.cancelledTaskIds,
       actorId: input.actorId,
+    });
+  }
+
+  /**
+   * Sends a workflow back to an earlier step: everything after the target is blocked, and the
+   * target itself is put into REWORK so its department picks it up again.
+   *
+   * Shared by QC failure and vendor rejection so both kinds of "send it back" behave identically
+   * — a second, subtly different implementation is exactly how a workflow ends up with two tasks
+   * both believing they are current.
+   */
+  private async blockDownstreamAndReworkTarget(
+    tx: Prisma.TransactionClient,
+    args: {
+      workflowInstanceId: string;
+      sourceTaskId: string;
+      targetTaskId: string;
+      targetStepOrder: number;
+    },
+  ): Promise<void> {
+    const downstreamTasks = await tx.workflowTask.findMany({
+      where: {
+        workflowInstanceId: args.workflowInstanceId,
+        stepOrder: { gt: args.targetStepOrder },
+        status: { notIn: [WorkflowTaskStatus.CANCELLED, WorkflowTaskStatus.SKIPPED] },
+      },
+      select: { id: true, status: true },
+    });
+
+    for (const downstream of downstreamTasks) {
+      if (downstream.id === args.sourceTaskId) continue;
+      if (isTaskTerminal(downstream.status)) {
+        await tx.workflowTask.update({
+          where: { id: downstream.id },
+          data: { status: WorkflowTaskStatus.BLOCKED, completedAt: null },
+        });
+        continue;
+      }
+      if (downstream.status !== WorkflowTaskStatus.BLOCKED) {
+        await tx.workflowTask.update({
+          where: { id: downstream.id },
+          data: { status: WorkflowTaskStatus.BLOCKED },
+        });
+      }
+    }
+
+    await tx.workflowTask.update({
+      where: { id: args.targetTaskId },
+      data: { status: WorkflowTaskStatus.REWORK, completedAt: null },
+    });
+  }
+
+  /**
+   * Finds the open VENDOR_APPROVAL gate for an order's workflow, if one is waiting.
+   *
+   * VENDOR_APPROVAL tasks reach READY like any other task, but nothing on the production floor
+   * can complete them — only the vendor's decision does. This is how the vendor portal discovers
+   * "is there something waiting for me, and which gate is it".
+   */
+  async findOpenVendorApprovalTask(
+    orderId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{
+    taskId: string;
+    workflowInstanceId: string;
+    stepCode: string;
+    stepName: string;
+    stepOrder: number;
+  } | null> {
+    const db = tx ?? prisma;
+    const task = await db.workflowTask.findFirst({
+      where: {
+        workflowInstance: { orderId },
+        workflowStep: { stepType: WorkflowStepType.VENDOR_APPROVAL },
+        status: {
+          in: [
+            WorkflowTaskStatus.READY,
+            WorkflowTaskStatus.PENDING,
+            WorkflowTaskStatus.WAITING,
+            WorkflowTaskStatus.ASSIGNED,
+            WorkflowTaskStatus.IN_PROGRESS,
+            WorkflowTaskStatus.REWORK,
+          ],
+        },
+      },
+      orderBy: { stepOrder: 'asc' },
+      select: {
+        id: true,
+        workflowInstanceId: true,
+        stepOrder: true,
+        workflowStep: { select: { stepCode: true, stepName: true } },
+      },
+    });
+    if (!task) return null;
+    return {
+      taskId: task.id,
+      workflowInstanceId: task.workflowInstanceId,
+      stepCode: task.workflowStep.stepCode,
+      stepName: task.workflowStep.stepName,
+      stepOrder: task.stepOrder,
+    };
+  }
+
+  /**
+   * The vendor rejected at an approval gate. The gate does NOT advance; the workflow is routed
+   * back to whichever step can act on the feedback.
+   *
+   * Which step that is comes from the gate's own `metadata.reworkTargetStepCode` — so the digital
+   * proof gate points at the design step, and the physical sample gate points at whatever the
+   * client decides it should (design vs re-print). That makes the open question a template data
+   * change rather than a code change once they answer.
+   */
+  async rejectVendorApproval(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    actorId: string;
+    reason: string;
+  }): Promise<{ targetTaskId: string; targetStepCode: string; reworkRequestId: string }> {
+    return prisma.$transaction(async (tx) => {
+      const gateTask = await tx.workflowTask.findFirst({
+        where: { id: input.taskId, workflowInstanceId: input.workflowInstanceId },
+        select: {
+          id: true,
+          status: true,
+          stepOrder: true,
+          workflowStep: {
+            select: { stepCode: true, stepName: true, stepType: true, metadata: true },
+          },
+        },
+      });
+      if (!gateTask) throw ApiError.notFound('Approval task not found');
+      if (gateTask.workflowStep.stepType !== WorkflowStepType.VENDOR_APPROVAL) {
+        throw ApiError.badRequest('This workflow step is not a vendor approval gate');
+      }
+
+      const targetTaskId = await this.resolveReworkTargetTaskId(
+        input.workflowInstanceId,
+        gateTask.id,
+        gateTask.stepOrder,
+        gateTask.workflowStep.metadata,
+        undefined,
+        tx,
+      );
+
+      const targetTask = await tx.workflowTask.findUnique({
+        where: { id: targetTaskId },
+        select: { id: true, stepOrder: true, workflowStep: { select: { stepCode: true } } },
+      });
+      if (!targetTask) throw ApiError.notFound('Revision target task not found');
+
+      await tx.workflowTask.update({
+        where: { id: gateTask.id },
+        data: { status: WorkflowTaskStatus.BLOCKED, remarks: input.reason },
+      });
+
+      await tx.workflowTaskHistory.create({
+        data: {
+          taskId: gateTask.id,
+          action: WorkflowHistoryAction.REJECTED,
+          remarks: input.reason,
+          performedById: input.actorId,
+        },
+      });
+
+      await this.blockDownstreamAndReworkTarget(tx, {
+        workflowInstanceId: input.workflowInstanceId,
+        sourceTaskId: gateTask.id,
+        targetTaskId: targetTask.id,
+        targetStepOrder: targetTask.stepOrder,
+      });
+
+      await tx.workflowTaskHistory.create({
+        data: {
+          taskId: targetTask.id,
+          action: WorkflowHistoryAction.REWORKED,
+          remarks: input.reason,
+          performedById: input.actorId,
+        },
+      });
+
+      const reworkCycle =
+        (await tx.reworkRequest.count({ where: { targetTaskId: targetTask.id } })) + 1;
+
+      const reworkRequest = await tx.reworkRequest.create({
+        data: {
+          taskId: gateTask.id,
+          targetTaskId: targetTask.id,
+          status: ReworkStatus.OPEN,
+          reason: `Customer requested changes at ${gateTask.workflowStep.stepName}`,
+          notes: input.reason,
+          reworkCycle,
+          createdById: input.actorId,
+        },
+        select: { id: true },
+      });
+
+      await workflowTimelineService.recordEvents(
+        [
+          workflowTimelineService.workflowReworked({
+            workflowInstanceId: input.workflowInstanceId,
+            taskId: targetTask.id,
+            targetStepCode: targetTask.workflowStep.stepCode,
+            actorId: input.actorId,
+            remarks: input.reason,
+          }),
+        ],
+        tx,
+      );
+
+      return {
+        targetTaskId: targetTask.id,
+        targetStepCode: targetTask.workflowStep.stepCode,
+        reworkRequestId: reworkRequest.id,
+      };
     });
   }
 

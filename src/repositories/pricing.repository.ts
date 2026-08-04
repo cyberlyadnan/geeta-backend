@@ -32,6 +32,10 @@ export const VERSION_PRICING_INCLUDE = {
   rollWidthOptions: { where: { isActive: true }, orderBy: { widthFeet: 'asc' } },
   productPrintConfig: { select: { pricingStrategyKey: true } },
   printProcess: { select: { pricingStrategyKey: true } },
+  // Phase 4 — the product type profile, when one is tagged, states the strategy directly.
+  productTypeProfile: {
+    select: { key: true, pricingStrategyKey: true, wizardStepsKey: true, requiresDesignApproval: true },
+  },
 } satisfies Prisma.ProductOfferingVersionInclude;
 
 const localVersionCaches = new Map<
@@ -66,6 +70,9 @@ export type VersionPricingBundle = NonNullable<Awaited<ReturnType<typeof fetchVe
  */
 export function resolvePricingStrategyKey(bundle: VersionPricingBundle): string {
   return (
+    // A tagged product type profile states the strategy outright, so it wins. Safe to put first:
+    // nothing created before Phase 4 has a profile, so no existing product changes strategy.
+    bundle.productTypeProfile?.pricingStrategyKey ??
     bundle.productPrintConfig?.pricingStrategyKey ??
     bundle.printProcess?.pricingStrategyKey ??
     bundle.pricingProfileKey ??
