@@ -93,6 +93,7 @@ export class DeliveryService {
         deliveryRequired: resolution.deliveryRequired,
         deliveryType: resolution.deliveryType,
         deliveryCharge: resolution.deliveryCharge,
+        indicativeDeliveryCharge: resolution.indicativeDeliveryCharge,
         deliveryAddress: resolution.deliveryAddress,
         canToggleDelivery: resolution.canToggleDelivery,
         askOnOrder: resolution.askOnOrder,

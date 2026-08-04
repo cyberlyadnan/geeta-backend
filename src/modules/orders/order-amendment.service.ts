@@ -126,7 +126,11 @@ export class OrderAmendmentService {
       deliveryResolution: {
         deliveryRequired: order.deliveryRequired,
         deliveryType: order.deliveryType ?? DeliveryType.SELF_PICKUP,
+        // Replays whatever this order actually stored. Orders placed before Phase 3 carry a
+        // non-zero order-time delivery charge; keeping it here is what makes the amendment
+        // delta correct for them. Orders placed since carry 0 and are billed at dispatch.
         deliveryCharge: decimalToNumber(order.deliveryCharge),
+        indicativeDeliveryCharge: decimalToNumber(order.deliveryCharge),
         deliveryAddress: order.deliveryAddress,
         canToggleDelivery: false,
         askOnOrder: false,

@@ -137,6 +137,20 @@ enum CreditTransactionType {
   REPAYMENT
 }
 
+// Phase 3 — Dispatch & Delivery
+
+enum DispatchBatchStatus {
+  /// Batch is open and still collecting orders for its shift; no charge entered yet.
+  AWAITING_READY
+  /// Dispatcher entered a delivery charge but the actor's wallet could not cover it.
+  /// deliveryCharge is retained so a wallet top-up can retry billing without re-entry.
+  HELD_INSUFFICIENT_BALANCE
+  /// Billed: delivery charge debited (or waived for retail) and the invoice generated.
+  READY
+  /// Physically dispatched.
+  DISPATCHED
+}
+
 enum ContactSubject {
   QUOTE
   ORDER
@@ -742,6 +756,7 @@ model User {
   orderAmendmentsActed            OrderAmendment[]                @relation("OrderAmendmentActor")
   financialEventsCreated          FinancialEvent[]                @relation("FinancialEventCreatedBy")
   creditTransactionsRecorded      CreditTransaction[]              @relation("CreditTransactionRecordedBy")
+  dispatchBatches                 DispatchBatch[]                 @relation("DispatchBatchVendor")
 
   @@index([roleId])
   @@index([status])
@@ -1801,6 +1816,7 @@ model ProductionOrder {
   walletTransactions   WalletTransaction[]        @relation("ProductionOrderWalletTx")
   cancellationRequests OrderCancellationRequest[]
   amendments           OrderAmendment[]
+  dispatchBatchOrder   DispatchBatchOrder?
 
   @@index([customerId])
   @@index([customerId, createdAt(sort: Desc)])
@@ -1826,8 +1842,9 @@ model RetailCustomer {
   createdById String   @map("created_by_id")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  createdBy User              @relation("RetailCustomerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  orders    ProductionOrder[]
+  createdBy       User                @relation("RetailCustomerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  orders          ProductionOrder[]
+  dispatchBatches DispatchBatch[]
 
   @@index([phone])
   @@map("retail_customers")
@@ -3026,6 +3043,117 @@ model CreditTransaction {
 
   @@index([creditAccountId, createdAt(sort: Desc)])
   @@map("credit_transactions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dispatch & Delivery — Phase 3
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A daily dispatch window. Orders that become ready for dispatch are assigned to the first
+/// shift whose cutoff has not yet passed; once the last shift of the day is past, they roll to
+/// the first shift of the next day.
+model DeliveryShift {
+  id       String  @id @default(cuid())
+  label    String
+  /// "HH:mm" 24-hour local time. Stored as text (not DateTime) because this is a recurring
+  /// time-of-day, not an instant — and it sorts correctly lexicographically in this format.
+  cutoffTime String @map("cutoff_time")
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive Boolean @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  batches DispatchBatch[]
+
+  @@index([isActive, cutoffTime])
+  @@map("delivery_shifts")
+}
+
+/// One batch per (actor, shift, dispatch day) — orders accumulate into an existing open batch
+/// rather than each creating their own. vendorId/retailCustomerId are mutually exclusive,
+/// mirroring ProductionOrder's XOR (enforced by a CHECK constraint in the migration).
+model DispatchBatch {
+  id               String              @id @default(cuid())
+  vendorId         String?             @map("vendor_id")
+  retailCustomerId String?             @map("retail_customer_id")
+  shiftId          String              @map("shift_id")
+  /// Local calendar day this batch dispatches on, as "YYYY-MM-DD". Part of the batch identity:
+  /// the same vendor + same shift on a different day is a different batch.
+  dispatchDate     String              @map("dispatch_date")
+  status           DispatchBatchStatus @default(AWAITING_READY)
+  /// Entered manually by the dispatcher; null until then. Retained while a batch is held so a
+  /// wallet top-up can retry billing without the dispatcher re-entering it.
+  deliveryCharge   Decimal?            @map("delivery_charge") @db.Decimal(12, 2)
+  /// Shortfall recorded when billing was blocked, so the dispatcher UI can show why.
+  heldShortfall    Decimal?            @map("held_shortfall") @db.Decimal(12, 2)
+  heldAt           DateTime?           @map("held_at")
+  billedAt         DateTime?           @map("billed_at")
+  dispatchedAt     DateTime?           @map("dispatched_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  shift          DeliveryShift        @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  vendor         User?                @relation("DispatchBatchVendor", fields: [vendorId], references: [id], onDelete: Restrict)
+  retailCustomer RetailCustomer?      @relation(fields: [retailCustomerId], references: [id], onDelete: Restrict)
+  orders         DispatchBatchOrder[]
+  invoice        Invoice?
+
+  @@unique([vendorId, shiftId, dispatchDate])
+  @@unique([retailCustomerId, shiftId, dispatchDate])
+  @@index([status, dispatchDate])
+  @@index([shiftId, status])
+  @@map("dispatch_batches")
+}
+
+model DispatchBatchOrder {
+  id              String   @id @default(cuid())
+  dispatchBatchId String   @map("dispatch_batch_id")
+  orderId         String   @unique @map("order_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  dispatchBatch DispatchBatch   @relation(fields: [dispatchBatchId], references: [id], onDelete: Cascade)
+  order         ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([dispatchBatchId])
+  @@map("dispatch_batch_orders")
+}
+
+/// Consolidated GST invoice for one dispatch batch. invoiceNumber is allocated from
+/// InvoiceNumberSequence inside the same transaction that creates this row, so numbering is
+/// sequential and gapless (a rolled-back invoice rolls back its number too).
+model Invoice {
+  id              String             @id @default(cuid())
+  invoiceNumber   String             @unique @map("invoice_number")
+  dispatchBatchId String             @unique @map("dispatch_batch_id")
+  actorType       FinancialActorType @map("actor_type")
+  actorId         String             @map("actor_id")
+  /// Snapshot of the billed party's GST number at invoice time — null for unregistered retail.
+  /// Snapshotted rather than joined so a later profile edit cannot alter an issued invoice.
+  gstNumber       String?            @map("gst_number")
+  billedToName    String             @map("billed_to_name")
+  /// Sum of the orders' pre-tax subtotals.
+  subtotal        Decimal            @db.Decimal(12, 2)
+  deliveryCharge  Decimal            @map("delivery_charge") @db.Decimal(12, 2)
+  gstRate         Decimal            @map("gst_rate") @db.Decimal(5, 4)
+  gstAmount       Decimal            @map("gst_amount") @db.Decimal(12, 2)
+  total           Decimal            @db.Decimal(12, 2)
+  pdfUrl          String?            @map("pdf_url") @db.Text
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  dispatchBatch DispatchBatch @relation(fields: [dispatchBatchId], references: [id], onDelete: Restrict)
+
+  @@index([actorType, actorId, createdAt(sort: Desc)])
+  @@map("invoices")
+}
+
+/// Gapless per-year invoice counter: INV-2026-000001. Same upsert+increment pattern as
+/// OrderNumberSequence — the row lock serialises concurrent allocations, and because the
+/// increment runs inside the invoice transaction, a rollback returns the number.
+model InvoiceNumberSequence {
+  year      Int @id
+  lastValue Int @default(0) @map("last_value")
+
+  @@map("invoice_number_sequences")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

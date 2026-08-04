@@ -3,6 +3,7 @@ import { registerWorkflowListeners } from './workflow.listeners.js';
 import { registerProductionQueueListeners } from './production-queue.listeners.js';
 import { registerAssignmentListeners } from './assignment.listeners.js';
 import { registerAssignmentNotificationListeners } from './assignment-notification.listeners.js';
+import { registerDispatchListeners } from './dispatch.listeners.js';
 
 export function registerEventListeners(): void {
   registerOrderListeners();
@@ -10,4 +11,5 @@ export function registerEventListeners(): void {
   registerProductionQueueListeners();
   registerAssignmentListeners();
   registerAssignmentNotificationListeners();
+  registerDispatchListeners();
 }

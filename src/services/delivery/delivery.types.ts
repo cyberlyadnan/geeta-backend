@@ -21,7 +21,19 @@ export interface DeliveryResolutionInput {
 export interface DeliveryResolution {
   deliveryRequired: boolean;
   deliveryType: DeliveryType;
+  /**
+   * Always 0 since Phase 3. Delivery is priced by the dispatcher at dispatch time against the
+   * whole batch, not per order at checkout — billing it here too would double-charge the vendor.
+   * Kept in the shape (rather than removed) so order totals, snapshots and amendment maths keep
+   * a single delivery line that simply reads zero. See `indicativeDeliveryCharge` for display.
+   */
   deliveryCharge: number;
+  /**
+   * The admin-configured `DeliverySettings.defaultDeliveryCharge`, for display only — what
+   * delivery *typically* costs. Never billed at order time; the dispatcher UI uses it to
+   * prefill the actual charge when billing a batch.
+   */
+  indicativeDeliveryCharge: number;
   deliveryAddress: string | null;
   /** Whether vendor can change delivery on/off during order creation */
   canToggleDelivery: boolean;

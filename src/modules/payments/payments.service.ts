@@ -14,6 +14,7 @@ import { walletLedgerService } from '../../services/ledger/index.js';
 import { razorpayService } from '../../services/razorpay/index.js';
 import { mapRazorpayError } from '../../services/razorpay/razorpay.errors.js';
 import { logger } from '../../logs/logger.js';
+import { eventBus, APP_EVENTS } from '../../events/eventBus.js';
 import { decimalToNumber, paiseFromRupees, toDecimal } from '../../utils/money.js';
 import type { CreatePaymentInput } from './payments.validation.js';
 
@@ -395,9 +396,9 @@ export class PaymentsService {
     razorpayQrId: string | undefined,
     creditRemarks: string,
   ) {
-    await prisma.$transaction(async (tx) => {
+    const credited = await prisma.$transaction(async (tx) => {
       const locked = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
-      if (locked.status === PaymentStatus.SUCCESS) return;
+      if (locked.status === PaymentStatus.SUCCESS) return null;
 
       await tx.payment.update({
         where: { id: paymentId },
@@ -413,7 +414,7 @@ export class PaymentsService {
       const existingTx = await tx.walletTransaction.findUnique({
         where: { paymentId },
       });
-      if (existingTx) return;
+      if (existingTx) return null;
 
       await walletLedgerService.creditWallet(
         {
@@ -432,7 +433,15 @@ export class PaymentsService {
         },
         tx,
       );
+
+      return { userId: locked.userId };
     });
+
+    // Emitted only after the credit has committed, so any listener that re-reads the balance
+    // (dispatch batch release) sees the topped-up figure.
+    if (credited) {
+      eventBus.emitEvent(APP_EVENTS.WALLET_TOPPED_UP, { userId: credited.userId });
+    }
   }
 
   private async handlePaymentFailed(payload: {

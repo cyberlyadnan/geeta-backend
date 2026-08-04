@@ -8,6 +8,7 @@ import {
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { walletLedgerService } from '../../services/ledger/index.js';
+import { eventBus, APP_EVENTS } from '../../events/eventBus.js';
 import { decimalToNumber } from '../../utils/money.js';
 import type {
   AdminWalletAdjustInput,
@@ -182,6 +183,9 @@ export class AdminWalletsService {
         createdByUserId: actorId,
       },
     });
+    // A manual credit tops the wallet up just like a Razorpay recharge, so it releases held
+    // dispatch batches the same way.
+    eventBus.emitEvent(APP_EVENTS.WALLET_TOPPED_UP, { userId: input.userId });
     return walletLedgerService.mapWalletSummary(result.wallet);
   }
 

@@ -6,6 +6,8 @@ export const APP_EVENTS = {
   ORDER_STATUS_CHANGED: 'order:status_changed',
   PAYMENT_RECEIVED: 'payment:received',
   WALLET_TRANSACTION: 'wallet:transaction',
+  /** Emitted after a wallet credit has committed — carries the vendor's User id. */
+  WALLET_TOPPED_UP: 'wallet:topped_up',
   WORKFLOW_STEP_COMPLETED: 'workflow:step_completed',
   WORKFLOW_CREATED: 'workflow:created',
   WORKFLOW_COMPLETED: 'workflow:completed',

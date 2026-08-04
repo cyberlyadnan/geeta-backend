@@ -15,6 +15,7 @@ import type {
   CatalogImageUploadFolder,
   PresignedUploadRequest,
   PresignedUploadResult,
+  StorageFolder,
   VendorCompliancePresignResult,
 } from './storage.types.js';
 import { STORAGE_FOLDERS } from './storage.types.js';
@@ -120,6 +121,34 @@ export class StorageService {
         ContentLength: input.fileSize,
       }),
     );
+  }
+
+  /**
+   * Uploads a generated PDF (invoices) straight from memory. Separate from the image helpers
+   * because those force an image content type through normalizeImageContentType; this is the
+   * same PutObjectCommand path with application/pdf.
+   */
+  async uploadPdfFromBuffer(input: {
+    folder: StorageFolder;
+    buffer: Buffer;
+    fileName: string;
+  }): Promise<{ key: string; publicUrl: string }> {
+    const contentType = 'application/pdf';
+    const config = assertR2Config();
+    const key = buildObjectKey(input.folder, input.fileName, contentType);
+    const publicUrl = buildPublicUrl(config.publicUrl, key);
+
+    await getS3Client().send(
+      new PutObjectCommand({
+        Bucket: config.bucketName,
+        Key: key,
+        Body: input.buffer,
+        ContentType: contentType,
+        ContentLength: input.buffer.byteLength,
+      }),
+    );
+
+    return { key, publicUrl };
   }
 
   async uploadImageFromBuffer(input: {
