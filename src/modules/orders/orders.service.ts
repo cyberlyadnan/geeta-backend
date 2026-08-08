@@ -595,7 +595,10 @@ export class OrdersService {
     // UV option adds its own, all from admin configuration. Enforced here and not only in the
     // wizard: the browser decides what to show, the server decides what is acceptable, so a stale
     // client or a direct API call cannot place an order missing artwork production needs.
-    if (input.fileOption !== 'email') {
+    // Placement only. Preview runs continuously while the vendor is still choosing options, long
+    // before any file is attached — enforcing here made every preview fail, which surfaced as a
+    // missing-artwork warning next to a ₹0 total.
+    if (!options.forPreview && input.fileOption !== 'email') {
       const requiredCodes = resolveRequiredSlotCodes(fileRequirements, input.selections);
       const supplied = new Set((input.artworks ?? []).map((a) => a.requirementCode));
       const missing = requiredCodes.filter((code) => !supplied.has(code));
