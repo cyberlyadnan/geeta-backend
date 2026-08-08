@@ -15,6 +15,7 @@ import {
   mapVendorProductListItem,
 } from '../admin-products/admin-products.serialization.js';
 import type { CalculatePriceInput } from '../admin-products/admin-products.validation.js';
+import { buildProductSearchFilter } from './product-search.filter.js';
 
 const VENDOR_LIST_INCLUDE = {
   series: {
@@ -132,12 +133,7 @@ export class ProductsService {
 
     const where: Prisma.ProductOfferingWhereInput = {
       ...this.vendorVisibilityFilter(),
-      ...(params?.search && {
-        OR: [
-          { name: { contains: params.search, mode: 'insensitive' } },
-          { shortDescription: { contains: params.search, mode: 'insensitive' } },
-        ],
-      }),
+      ...(params?.search && { OR: buildProductSearchFilter(params.search) }),
       ...(params?.seriesId
         ? { seriesId: params.seriesId }
         : params?.familyId

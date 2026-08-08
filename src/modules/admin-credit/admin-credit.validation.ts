@@ -14,6 +14,12 @@ export const recordRepaymentSchema = z.object({
   note: z.string().max(2000).optional(),
 });
 
+export const listCreditAccountsQuerySchema = z.object({
+  search: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 export const listCreditTransactionsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -31,5 +37,6 @@ export const listFinancialEventsQuerySchema = z.object({
 
 export type SetCreditLimitInput = z.infer<typeof setCreditLimitSchema>;
 export type RecordRepaymentInput = z.infer<typeof recordRepaymentSchema>;
+export type ListCreditAccountsQuery = z.infer<typeof listCreditAccountsQuerySchema>;
 export type ListCreditTransactionsQuery = z.infer<typeof listCreditTransactionsQuerySchema>;
 export type ListFinancialEventsQuery = z.infer<typeof listFinancialEventsQuerySchema>;

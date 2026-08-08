@@ -2,6 +2,7 @@ import { FinancialActorType } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { creditLedgerService, financialEventService } from '../../services/ledger/index.js';
+import { decimalToNumber } from '../../utils/money.js';
 import type {
   ListCreditTransactionsQuery,
   ListFinancialEventsQuery,
@@ -43,6 +44,64 @@ export class AdminCreditService {
       actorId: retailCustomer.id,
       creditLimit: input.creditLimit,
     });
+  }
+
+  /**
+   * Every credit account with its actor's display name resolved.
+   *
+   * `actorId` is polymorphic — a User.id for vendors, a RetailCustomer.id for walk-ins — so the
+   * names are looked up per actor kind rather than joined.
+   */
+  async listAccounts(query: { search?: string; page: number; limit: number }) {
+    const [accounts, total] = await Promise.all([
+      this.db.creditAccount.findMany({
+        orderBy: { updatedAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.db.creditAccount.count(),
+    ]);
+
+    const vendorIds = accounts.filter((a) => a.actorType === 'VENDOR').map((a) => a.actorId);
+    const retailIds = accounts.filter((a) => a.actorType === 'RETAIL_CUSTOMER').map((a) => a.actorId);
+
+    const [vendors, retails] = await Promise.all([
+      vendorIds.length
+        ? this.db.user.findMany({
+            where: { id: { in: vendorIds } },
+            select: { id: true, firstName: true, lastName: true, vendorProfile: { select: { businessName: true } } },
+          })
+        : Promise.resolve([]),
+      retailIds.length
+        ? this.db.retailCustomer.findMany({ where: { id: { in: retailIds } }, select: { id: true, name: true, phone: true } })
+        : Promise.resolve([]),
+    ]);
+
+    const names = new Map<string, string>();
+    for (const v of vendors) {
+      names.set(v.id, v.vendorProfile?.businessName ?? `${v.firstName} ${v.lastName}`);
+    }
+    for (const r of retails) names.set(r.id, `${r.name} (${r.phone})`);
+
+    const items = accounts.map((a) => ({
+      id: a.id,
+      actorType: a.actorType,
+      actorId: a.actorId,
+      actorName: names.get(a.actorId) ?? 'Unknown',
+      creditLimit: decimalToNumber(a.creditLimit),
+      outstandingBalance: decimalToNumber(a.outstandingBalance),
+      availableCredit: decimalToNumber(a.creditLimit.sub(a.outstandingBalance)),
+      updatedAt: a.updatedAt.toISOString(),
+    }));
+
+    const filtered = query.search
+      ? items.filter((i) => i.actorName.toLowerCase().includes(query.search!.toLowerCase()))
+      : items;
+
+    return {
+      items: filtered,
+      meta: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) || 1 },
+    };
   }
 
   async recordRepayment(creditAccountId: string, input: RecordRepaymentInput, staffUserId: string) {

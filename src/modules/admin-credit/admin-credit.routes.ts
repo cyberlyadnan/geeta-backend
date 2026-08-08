@@ -6,6 +6,7 @@ import { validate } from '../../validators/validate.js';
 import { adminCreditController } from './admin-credit.controller.js';
 import {
   creditAccountIdParamSchema,
+  listCreditAccountsQuerySchema,
   listCreditTransactionsQuerySchema,
   listFinancialEventsQuerySchema,
   recordRepaymentSchema,
@@ -16,6 +17,11 @@ const creditAccountsRouter = Router();
 creditAccountsRouter.use(authenticate);
 creditAccountsRouter.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
 
+creditAccountsRouter.get(
+  '/',
+  validate(listCreditAccountsQuerySchema, 'query'),
+  adminCreditController.listAccounts,
+);
 creditAccountsRouter.post(
   '/:id/repayments',
   validate(creditAccountIdParamSchema, 'params'),

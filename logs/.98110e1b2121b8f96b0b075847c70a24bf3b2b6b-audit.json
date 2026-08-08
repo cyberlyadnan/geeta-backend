@@ -6,16 +6,6 @@
     "auditLog": "E:\\Nextjs Projects\\geeta-print\\backend\\logs\\.98110e1b2121b8f96b0b075847c70a24bf3b2b6b-audit.json",
     "files": [
         {
-            "date": 1783406572134,
-            "name": "E:\\Nextjs Projects\\geeta-print\\backend\\logs\\application-2026-07-07.log",
-            "hash": "fe6f4991ebc1ca2be8cdc34f3e3a2deee881f0156f42df0b317c0b82b630661c"
-        },
-        {
-            "date": 1783504242120,
-            "name": "E:\\Nextjs Projects\\geeta-print\\backend\\logs\\application-2026-07-08.log",
-            "hash": "a4803512515520d636ec1a8a8c1180808d11773eb0b94acbbe27867fc3cdce1d"
-        },
-        {
             "date": 1783593634841,
             "name": "E:\\Nextjs Projects\\geeta-print\\backend\\logs\\application-2026-07-09.log",
             "hash": "7cd0b0c141dff96230103e7486afa773d3af23f514e4fd0265b9dac361083231"
@@ -54,6 +44,11 @@
             "date": 1785875138916,
             "name": "E:\\Nextjs Projects\\geeta-print\\backend\\logs\\application-2026-08-05.log",
             "hash": "2f4004b8fba025120f81c9613865a447a00459e60d86d4323f801499e1d88fe8"
+        },
+        {
+            "date": 1786178264925,
+            "name": "E:\\Nextjs Projects\\geeta-print\\backend\\logs\\application-2026-08-08.log",
+            "hash": "5d67e46728f774a9d9e4dbbad72d2e0622057f24efcaae76643b196e2234e175"
         }
     ],
     "hashType": "sha256"

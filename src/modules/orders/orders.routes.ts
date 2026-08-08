@@ -33,6 +33,25 @@ router.post(
   ordersController.requestAmendment,
 );
 router.get(
+  '/:orderId/amendments/context',
+  authorize(...amendmentStaffRoles),
+  validate(amendmentOrderIdParamSchema, 'params'),
+  ordersController.amendmentContext,
+);
+router.post(
+  '/:orderId/amendments/preview',
+  authorize(...amendmentStaffRoles),
+  validate(amendmentOrderIdParamSchema, 'params'),
+  validate(requestAmendmentSchema),
+  ordersController.previewAmendment,
+);
+// The customer's own view — no role gate, scoped to orders they own.
+router.get(
+  '/:orderId/amendments/mine',
+  validate(amendmentOrderIdParamSchema, 'params'),
+  ordersController.myAmendments,
+);
+router.get(
   '/:orderId/amendments',
   authorize(...amendmentStaffRoles),
   validate(amendmentOrderIdParamSchema, 'params'),

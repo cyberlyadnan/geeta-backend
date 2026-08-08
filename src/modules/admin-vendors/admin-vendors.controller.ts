@@ -24,6 +24,13 @@ export class AdminVendorsController {
     return ApiResponse.success(res, result);
   });
 
+  recentlyOrderedFor = asyncHandler(async (req: Request, res: Response) => {
+    const raw = Number(req.query['limit']);
+    const limit = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 20) : 8;
+    const result = await adminVendorsService.listRecentlyOrderedFor(limit);
+    return ApiResponse.success(res, result);
+  });
+
   activityFeed = asyncHandler(async (req: Request, res: Response) => {
     const { limit } = req.validatedQuery as VendorActivityFeedQuery;
     const result = await adminVendorsService.getActivityFeed(limit);

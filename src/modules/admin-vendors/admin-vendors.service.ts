@@ -63,6 +63,46 @@ export class AdminVendorsService {
     };
   }
 
+  /**
+   * Vendors staff most recently placed an order for.
+   *
+   * The admin create-order screen leads with this: in a print shop the same handful of vendors
+   * come back day after day, so the fastest path is almost always "the one I did yesterday"
+   * rather than typing a name. Ordered by that vendor's most recent order, newest first.
+   */
+  async listRecentlyOrderedFor(limit = 8) {
+    // Distinct customer ids off the order table, newest first. `distinct` with `orderBy` keeps
+    // the newest row per customer, which is exactly the recency we want to sort by.
+    const recentOrders = await prisma.productionOrder.findMany({
+      where: { customerId: { not: null } },
+      distinct: ['customerId'],
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: { customerId: true, createdAt: true },
+    });
+
+    const userIds = recentOrders.map((o) => o.customerId!).filter(Boolean);
+    if (userIds.length === 0) return { items: [] };
+
+    const profiles = await prisma.vendorProfile.findMany({
+      where: { userId: { in: userIds } },
+      include: { user: { select: VENDOR_ADMIN_USER_SELECT } },
+    });
+
+    // Re-apply the recency order the profile query lost.
+    const orderIndex = new Map(userIds.map((id, index) => [id, index]));
+    const lastOrderedAt = new Map(recentOrders.map((o) => [o.customerId!, o.createdAt]));
+
+    return {
+      items: profiles
+        .sort((a, b) => (orderIndex.get(a.userId) ?? 0) - (orderIndex.get(b.userId) ?? 0))
+        .map((profile) => ({
+          ...mapVendorListItemToDto(profile),
+          lastOrderedAt: lastOrderedAt.get(profile.userId)?.toISOString() ?? null,
+        })),
+    };
+  }
+
   async getById(id: string) {
     const [profile, activities] = await Promise.all([
       prisma.vendorProfile.findUnique({

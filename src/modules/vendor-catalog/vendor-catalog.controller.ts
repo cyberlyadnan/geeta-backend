@@ -6,6 +6,7 @@ import { asyncHandler } from '../../utils/asyncHandler.js';
 import { catalogVersionService } from './catalog-version.service.js';
 import { vendorBootstrapService } from './vendor-bootstrap.service.js';
 import { vendorFamilyProductsService } from './vendor-family-products.service.js';
+import { vendorGalleryService } from './vendor-gallery.service.js';
 
 export class VendorCatalogController {
   bootstrap = asyncHandler(async (_req: Request, res: Response) => {
@@ -35,6 +36,20 @@ export class VendorCatalogController {
     if (!familyId) throw ApiError.badRequest('familyId is required');
     const items = await vendorFamilyProductsService.getProductsForFamily(familyId);
     return ApiResponse.success(res, { items });
+  });
+
+  /** Catalogue designs (fixed-price products) as a browsable gallery. */
+  galleryList = asyncHandler(async (req: Request, res: Response) => {
+    const search = typeof req.query['search'] === 'string' ? req.query['search'] : undefined;
+    const result = await vendorGalleryService.list(search);
+    return ApiResponse.success(res, result);
+  });
+
+  galleryDetail = asyncHandler(async (req: Request, res: Response) => {
+    const productId = typeof req.params['productId'] === 'string' ? req.params['productId'] : undefined;
+    if (!productId) throw ApiError.badRequest('productId is required');
+    const result = await vendorGalleryService.detail(productId);
+    return ApiResponse.success(res, result);
   });
 }
 

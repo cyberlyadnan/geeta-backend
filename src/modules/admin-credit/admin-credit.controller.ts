@@ -3,6 +3,7 @@ import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { adminCreditService } from './admin-credit.service.js';
 import type {
+  ListCreditAccountsQuery,
   ListCreditTransactionsQuery,
   ListFinancialEventsQuery,
   RecordRepaymentInput,
@@ -23,6 +24,13 @@ export class AdminCreditController {
       req.body as SetCreditLimitInput,
     );
     return ApiResponse.success(res, result, 'Credit limit updated');
+  });
+
+  /** All credit accounts with actor names — the Udhar screen's list. */
+  listAccounts = asyncHandler(async (req: Request, res: Response) => {
+    const query = req.validatedQuery as ListCreditAccountsQuery;
+    const result = await adminCreditService.listAccounts(query);
+    return ApiResponse.success(res, result);
   });
 
   recordRepayment = asyncHandler(async (req: Request, res: Response) => {

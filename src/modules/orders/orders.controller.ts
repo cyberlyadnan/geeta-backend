@@ -74,6 +74,27 @@ export class OrdersController {
     return ApiResponse.created(res, result, 'Order amended');
   });
 
+  amendmentContext = asyncHandler(async (req: Request, res: Response) => {
+    const { orderId } = req.validatedParams as { orderId: string };
+    const result = await orderAmendmentService.getAmendmentContext(orderId);
+    return ApiResponse.success(res, result);
+  });
+
+  myAmendments = asyncHandler(async (req: Request, res: Response) => {
+    const { orderId } = req.validatedParams as { orderId: string };
+    const result = await orderAmendmentService.listAmendmentsForCustomer(req.user!.id, orderId);
+    return ApiResponse.success(res, result);
+  });
+
+  previewAmendment = asyncHandler(async (req: Request, res: Response) => {
+    const { orderId } = req.validatedParams as { orderId: string };
+    const result = await orderAmendmentService.previewAmendment(
+      orderId,
+      req.body as RequestAmendmentInput,
+    );
+    return ApiResponse.success(res, result);
+  });
+
   listAmendments = asyncHandler(async (req: Request, res: Response) => {
     const { orderId } = req.validatedParams as { orderId: string };
     const result = await orderAmendmentService.listAmendments(orderId);

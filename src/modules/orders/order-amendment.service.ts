@@ -61,7 +61,14 @@ export class OrderAmendmentService {
     return { order, item, priceSnapshot: item.priceSnapshot };
   }
 
-  async requestAmendment(orderId: string, staffUserId: string, input: RequestAmendmentInput) {
+  /**
+   * Everything an amendment needs to know before anything is written: the gate check, the
+   * re-priced totals, and the delta.
+   *
+   * Extracted so the staff-facing preview and the actual commit run the *same* computation — a
+   * preview that disagreed with what gets charged would be worse than no preview at all.
+   */
+  private async computeAmendment(orderId: string, input: RequestAmendmentInput) {
     const { order, item, priceSnapshot } = await this.loadOrderForAmendment(orderId);
 
     const workflowInstance = order.workflowInstances[0];
@@ -147,6 +154,80 @@ export class OrderAmendmentService {
     // "Decisions that diverged from the plan" in the as-built doc.
     const priceDelta =
       Math.round((totals.grandTotal - decimalToNumber(order.totalAmount)) * 100) / 100;
+
+    return {
+      order, item, priceSnapshot, priceResolution, totals, priceDelta,
+      basePriceComponent, newSelections, newQuantity, artworkEmailCharge,
+    };
+  }
+
+  /**
+   * What the amendment screen needs to render its form: the order's current configuration, the
+   * fields that can be changed, and whether amending is still allowed at all.
+   */
+  async getAmendmentContext(orderId: string) {
+    const { order, item } = await this.loadOrderForAmendment(orderId);
+    const gate = checkOrderAmendable({
+      orderStatus: order.status,
+      workflowTasks: order.workflowInstances[0]?.tasks ?? [],
+    });
+
+    const configSnapshot = item.configurationSnapshot as { selections?: Record<string, string> } | null;
+
+    const fieldRows = await prisma.configurationField.findMany({
+      where: { productOfferingVersionId: item.productOfferingVersionId },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        code: true,
+        label: true,
+        options: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' },
+          select: { value: true, label: true },
+        },
+      },
+    });
+
+    const fields = fieldRows.map((f) => ({
+      code: f.code,
+      label: f.label,
+      options: f.options.map((o) => ({ value: o.value, label: o.label })),
+    }));
+
+    return {
+      orderId,
+      orderNumber: order.orderNumber,
+      amendable: gate.amendable,
+      reason: gate.reason ?? null,
+      currentQuantity: item.quantity,
+      currentSelections: configSnapshot?.selections ?? {},
+      currentTotal: decimalToNumber(order.totalAmount),
+      fields,
+    };
+  }
+
+  /** Re-price without writing anything — what the staff amendment screen shows before confirming. */
+  async previewAmendment(orderId: string, input: RequestAmendmentInput) {
+    const c = await this.computeAmendment(orderId, input);
+    return {
+      orderId,
+      currentTotal: decimalToNumber(c.order.totalAmount),
+      newTotal: c.totals.grandTotal,
+      priceDelta: c.priceDelta,
+      /** DEBIT = customer pays more, CREDIT = refunded, NONE = no money moves. */
+      settlement: c.priceDelta > 0 ? 'DEBIT' : c.priceDelta < 0 ? 'CREDIT' : 'NONE',
+      totals: c.totals,
+      unitPrice: c.priceResolution.unitPrice,
+      quantity: c.newQuantity,
+      selections: c.newSelections,
+    };
+  }
+
+  async requestAmendment(orderId: string, staffUserId: string, input: RequestAmendmentInput) {
+    const {
+      order, item, priceResolution, totals, priceDelta,
+      basePriceComponent, newSelections, newQuantity, artworkEmailCharge,
+    } = await this.computeAmendment(orderId, input);
 
     const result = await this.db.$transaction(async (tx) => {
       // Never touch the original snapshot — a brand new, immutable row.
@@ -286,13 +367,32 @@ export class OrderAmendmentService {
     };
   }
 
+  /**
+   * The customer's own view of what staff changed on their order.
+   *
+   * Scoped by `customerId` rather than by role: a vendor may only ever see amendments on an
+   * order that is theirs, and an order that isn't theirs is reported as not found rather than
+   * as forbidden so this can't be used to probe for other customers' order ids.
+   */
+  async listAmendmentsForCustomer(customerId: string, orderId: string) {
+    const order = await prisma.productionOrder.findFirst({
+      where: { id: orderId, customerId },
+      select: { id: true },
+    });
+    if (!order) throw ApiError.notFound('Order not found');
+    return await this.readAmendments(orderId);
+  }
+
   async listAmendments(orderId: string) {
     const order = await prisma.productionOrder.findUnique({
       where: { id: orderId },
       select: { id: true },
     });
     if (!order) throw ApiError.notFound('Order not found');
+    return await this.readAmendments(orderId);
+  }
 
+  private async readAmendments(orderId: string) {
     const rows = await prisma.orderAmendment.findMany({
       where: { orderId },
       orderBy: { createdAt: 'desc' },

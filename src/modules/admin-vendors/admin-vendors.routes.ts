@@ -26,6 +26,8 @@ router.use(authenticate);
 router.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
 
 router.get('/stats', adminVendorsController.stats);
+// Must stay above '/:id' — otherwise Express matches "recently-ordered-for" as a vendor id.
+router.get('/recently-ordered-for', adminVendorsController.recentlyOrderedFor);
 router.get(
   '/activity-feed',
   validate(vendorActivityFeedQuerySchema, 'query'),
