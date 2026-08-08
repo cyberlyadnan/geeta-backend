@@ -65,6 +65,10 @@ export class PrintContextResolver {
               // Null means "always asked for". The client filters slots by this against the
               // vendor's current selections; order placement re-checks it server-side.
               condition: req.condition ?? null,
+              // Ordered page list; the wizard resolves which pages apply and asks for one file
+              // containing exactly those, instead of one upload box per page.
+              pages: req.pages ?? null,
+              groupLabel: req.groupLabel ?? null,
               allowedFileTypes: req.allowedFileTypes.map((t) => t.fileType),
               printLayer: req.printLayer
                 ? {

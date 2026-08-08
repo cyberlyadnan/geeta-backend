@@ -138,6 +138,12 @@ export const createFileRequirementSchema = z.object({
   /** Optional "only ask for this file when…" rule, in the shared ConfigurationRule condition
    *  shape, e.g. { field: "print_side", equals: "both_side" }. Omit for an always-required slot. */
   condition: z.record(z.unknown()).nullish(),
+  /** Ordered pages inside this slot's file; each may carry its own condition. */
+  pages: z
+    .array(z.object({ label: z.string().min(1), condition: z.record(z.unknown()).nullish() }))
+    .nullish(),
+  /** Section heading this slot renders under, e.g. "Design" or "UV". */
+  groupLabel: z.string().max(120).nullish(),
   sortOrder: z.number().int().optional(),
 });
 

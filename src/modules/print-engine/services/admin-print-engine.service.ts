@@ -65,6 +65,8 @@ export class AdminPrintEngineService {
       allowedFileTypes: string[];
       /** Shared ConfigurationRule condition shape; null/undefined = always ask for this slot. */
       condition?: Record<string, unknown> | null;
+      pages?: { label: string; condition?: Record<string, unknown> | null }[] | null;
+      groupLabel?: string | null;
       sortOrder?: number;
     },
   ) {
@@ -80,6 +82,8 @@ export class AdminPrintEngineService {
           maxFileSizeMb: data.maxFileSizeMb,
           allowMultiple: data.allowMultiple ?? false,
           condition: (data.condition ?? undefined) as Prisma.InputJsonValue | undefined,
+          pages: (data.pages ?? undefined) as Prisma.InputJsonValue | undefined,
+          groupLabel: data.groupLabel ?? null,
           sortOrder: data.sortOrder ?? 0,
         },
       });

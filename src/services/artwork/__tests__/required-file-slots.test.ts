@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   resolveApplicableSlots,
+  resolveFileSlots,
   resolveRequiredSlotCodes,
   type ConditionalFileSlot,
 } from '../required-file-slots.js';
@@ -86,5 +87,65 @@ describe('conditional artwork slots', () => {
     ];
     assert.deepEqual(resolveRequiredSlotCodes(always, {}), ['main']);
     assert.deepEqual(resolveRequiredSlotCodes(always, { anything: 'x' }), ['main']);
+  });
+});
+
+/**
+ * The print-shop convention: both-sides artwork arrives as one file with two pages, not two
+ * files. Pages are declared per slot and each may be conditional, so the same upload box asks
+ * for one page or two depending on what the vendor picked — and toggling between them does not
+ * discard an already-uploaded file, which a second slot would.
+ */
+describe('conditional pages within a slot', () => {
+  const designSlot: ConditionalFileSlot = {
+    code: 'design',
+    label: 'Design',
+    requirementType: 'REQUIRED',
+    pages: [
+      { label: 'Front Design File' },
+      { label: 'Back Design File', condition: { field: 'print_side', equals: 'both_side' } },
+    ],
+  };
+
+  it('single side asks for a one-page file', () => {
+    const [slot] = resolveFileSlots([designSlot], { print_side: 'single_side' });
+    assert.equal(slot?.requiredPages, 1);
+    assert.deepEqual(slot?.pageLabels, ['Front Design File']);
+  });
+
+  it('both sides asks for one file with two named pages, in order', () => {
+    const [slot] = resolveFileSlots([designSlot], { print_side: 'both_side' });
+    assert.equal(slot?.requiredPages, 2);
+    assert.deepEqual(slot?.pageLabels, ['Front Design File', 'Back Design File']);
+  });
+
+  it('a slot declaring no pages is an ordinary single-file upload', () => {
+    const plain: ConditionalFileSlot = { code: 'ref', label: 'Reference', requirementType: 'OPTIONAL' };
+    const [slot] = resolveFileSlots([plain], {});
+    assert.equal(slot?.requiredPages, 1);
+    assert.deepEqual(slot?.pageLabels, []);
+  });
+
+  it('malformed page data degrades to a single page rather than throwing', () => {
+    const broken = { ...designSlot, pages: 'not-an-array' } as ConditionalFileSlot;
+    const [slot] = resolveFileSlots([broken], { print_side: 'both_side' });
+    assert.equal(slot?.requiredPages, 1);
+  });
+
+  it('slot conditions and page conditions compose', () => {
+    const uv: ConditionalFileSlot = {
+      code: 'uv',
+      label: 'UV layer',
+      requirementType: 'REQUIRED',
+      groupLabel: 'UV',
+      condition: { field: 'uv', in: ['front', 'both'] },
+      pages: [
+        { label: 'UV Front' },
+        { label: 'UV Back', condition: { field: 'uv', equals: 'both' } },
+      ],
+    };
+    assert.deepEqual(resolveFileSlots([uv], { uv: 'none' }), []);
+    assert.equal(resolveFileSlots([uv], { uv: 'front' })[0]?.requiredPages, 1);
+    assert.equal(resolveFileSlots([uv], { uv: 'both' })[0]?.requiredPages, 2);
   });
 });

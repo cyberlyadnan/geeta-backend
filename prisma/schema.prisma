@@ -1551,6 +1551,14 @@ model FileRequirement {
   /// Null means "always required". This is what lets both-sides printing ask for a second file,
   /// or a UV option add its own slots, without any of those field codes appearing in code.
   condition                Json?
+  /// Ordered page list for a slot that takes one multi-page file, each entry optionally
+  /// conditional: [{ label: "Front Design File" }, { label: "Back Design File", condition: {...} }].
+  /// A both-sides job then asks for a single 2-page PDF instead of a second upload box, and
+  /// switching back to single side does not discard what was already uploaded. Null/empty means
+  /// a one-page file labelled after the slot.
+  pages                    Json?
+  /// Heading this slot renders under, so UV layers group away from the design files.
+  groupLabel               String?             @map("group_label")
   sortOrder                Int                 @default(0) @map("sort_order")
   createdAt                DateTime            @default(now()) @map("created_at")
   updatedAt                DateTime            @updatedAt @map("updated_at")
