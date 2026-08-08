@@ -11,7 +11,7 @@ import { pricingRepository } from '../../repositories/pricing.repository.js';
  * clients never revalidated and kept quoting the old price — the exact failure the Phase 0
  * non-negotiables forbid.
  */
-const CATALOG_MODELS = new Set([
+export const CATALOG_MODELS = new Set([
   'Category',
   'ProductFamily',
   'ProductSeries',
@@ -20,7 +20,10 @@ const CATALOG_MODELS = new Set([
   'ProductImage',
   'ConfigurationGroup',
   'ConfigurationField',
-  'ConfigurationFieldOption',
+  // Was 'ConfigurationFieldOption', which matches no Prisma model — so adding or editing an
+  // option (a GSM value, a lamination choice) bumped nothing and vendor clients never revalidated.
+  'ConfigurationOption',
+  'ConfigurationOptionPricing',
   'ConfigurationRule',
   'QuantityPricing',
   'PricingRule',
@@ -29,6 +32,10 @@ const CATALOG_MODELS = new Set([
   'RollWidthOption',
   'VendorPriceOverride',
   'ProductTypeProfile',
+  // Selects the pricing strategy and artwork rules for a version — changing it changes what the
+  // vendor is shown and how they are quoted.
+  'ProductPrintConfig',
+  'FileRequirement',
 ]);
 
 const WRITE_OPS = new Set([
@@ -39,7 +46,7 @@ const WRITE_OPS = new Set([
 ]);
 
 export function isCatalogWrite(model: string | undefined, operation: string): boolean {
-  return Boolean(model) && CATALOG_MODELS.has(model!) && WRITE_OPS.has(operation);
+  return model != null && CATALOG_MODELS.has(model) && WRITE_OPS.has(operation);
 }
 
 /** Listeners are notified after a bump so transports (Socket.io) can push to clients. */

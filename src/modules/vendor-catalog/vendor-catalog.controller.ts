@@ -19,7 +19,11 @@ export class VendorCatalogController {
 
   catalogVersion = asyncHandler(async (req: Request, res: Response) => {
     const version = await catalogVersionService.getVersion();
-    const etag = catalogVersionService.buildEtag(version);
+    // Must be the counter-derived ETag the service already produced. buildEtag() hashes
+    // versionGroups, which this probe deliberately returns empty, so it produced the SHA of "{}"
+    // — a constant. Every client therefore got 304 forever and could only see catalog changes
+    // after a hard reload cleared its in-memory ETag.
+    const etag = version.etag ?? catalogVersionService.buildEtag(version);
     res.setHeader('ETag', etag);
 
     const ifNoneMatch = req.headers['if-none-match'];
