@@ -216,43 +216,84 @@ export class AdminProductsService {
       }
 
       if (input.attributes?.length) {
-        for (const attr of input.attributes) {
-          const field = await tx.configurationField.create({
-            data: {
-              productOfferingVersionId: version.id,
-              code: attr.code,
-              label: attr.label,
-              fieldType: attr.fieldType,
-              isRequired: attr.isRequired ?? false,
-              sortOrder: attr.sortOrder ?? 0,
-            },
+        // Batched rather than a row-at-a-time loop: a product with a handful of questions and
+        // twenty-odd options used to fire ~40 sequential round trips and blow the transaction
+        // timeout against a hosted database. This is four, whatever the option count.
+        await tx.configurationField.createMany({
+          data: input.attributes.map((attr, index) => ({
+            productOfferingVersionId: version.id,
+            code: attr.code,
+            label: attr.label,
+            fieldType: attr.fieldType,
+            isRequired: attr.isRequired ?? false,
+            sortOrder: attr.sortOrder ?? index,
+          })),
+        });
+
+        const fields = await tx.configurationField.findMany({
+          where: { productOfferingVersionId: version.id },
+          select: { id: true, code: true },
+        });
+        const fieldIdByCode = new Map(fields.map((f) => [f.code, f.id]));
+
+        const optionRows = input.attributes.flatMap((attr) => {
+          const fieldId = fieldIdByCode.get(attr.code);
+          if (!fieldId) return [];
+          return (attr.values ?? []).map((val, index) => ({
+            fieldId,
+            label: val.label,
+            value: val.value,
+            sortOrder: val.sortOrder ?? index,
+          }));
+        });
+
+        if (optionRows.length > 0) {
+          await tx.configurationOption.createMany({ data: optionRows });
+        }
+
+        const pricedValues = input.attributes.flatMap((attr) =>
+          (attr.values ?? []).flatMap((val) =>
+            val.adjustmentType != null && val.adjustmentValue != null
+              ? [
+                  {
+                    fieldCode: attr.code,
+                    value: val.value,
+                    adjustmentType: val.adjustmentType,
+                    adjustmentValue: val.adjustmentValue,
+                  },
+                ]
+              : [],
+          ),
+        );
+
+        if (pricedValues.length > 0) {
+          const options = await tx.configurationOption.findMany({
+            where: { fieldId: { in: [...fieldIdByCode.values()] } },
+            select: { id: true, value: true, field: { select: { code: true } } },
           });
+          const optionIdByKey = new Map(
+            options.map((o) => [`${o.field.code}|${o.value}`, o.id]),
+          );
 
-          for (const val of attr.values ?? []) {
-            const option = await tx.configurationOption.create({
-              data: {
-                fieldId: field.id,
-                label: val.label,
-                value: val.value,
-                sortOrder: val.sortOrder ?? 0,
-              },
-            });
+          const pricingRows = pricedValues.flatMap(
+            ({ fieldCode, value, adjustmentType, adjustmentValue }) => {
+              const optionId = optionIdByKey.get(`${fieldCode}|${value}`);
+              if (!optionId) return [];
+              return [{ optionId, adjustmentType, adjustmentValue: toDecimal(adjustmentValue) }];
+            },
+          );
 
-            if (val.adjustmentType != null && val.adjustmentValue != null) {
-              await tx.configurationOptionPricing.create({
-                data: {
-                  optionId: option.id,
-                  adjustmentType: val.adjustmentType,
-                  adjustmentValue: toDecimal(val.adjustmentValue),
-                },
-              });
-            }
+          if (pricingRows.length > 0) {
+            await tx.configurationOptionPricing.createMany({ data: pricingRows });
           }
         }
       }
 
       return offering;
-    });
+      // Headroom for a large first save over a high-latency link — a remote dev machine can see
+      // 1-2s per round trip, where Prisma's 5s default cannot finish even a batched create. The
+      // batched writes above keep this to a handful of trips; co-located it finishes in ms.
+    }, { timeout: 30_000 });
 
     await catalogAuditService.logProductActivity({
       action: ActivityAction.PRODUCT_CREATED,

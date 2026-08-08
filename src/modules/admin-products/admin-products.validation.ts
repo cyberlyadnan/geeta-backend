@@ -160,6 +160,9 @@ export const listPricingRulesQuerySchema = z.object({
 });
 
 export const upsertQuantityTierSchema = z.object({
+  /** Set when editing an existing tier — without it a changed quantity would create a duplicate
+   *  row instead of moving the tier, since the natural key is (version, quantity). */
+  id: z.string().min(1).optional(),
   versionId: z.string().min(1),
   quantity: z.number().int().positive(),
   basePrice: z.number().positive(),

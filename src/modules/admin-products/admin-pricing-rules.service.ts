@@ -10,6 +10,7 @@ import type {
 } from './admin-products.validation.js';
 import { rateCatalogCacheService } from '../rate-catalog/rate-catalog.cache.js';
 import { pricingRepository } from '../../repositories/pricing.repository.js';
+import { migrateMatrixBands, readBandLabels } from './quantity-band-migration.js';
 
 export class AdminPricingRulesService {
   async list(versionId: string) {
@@ -152,6 +153,39 @@ export class AdminPricingRulesService {
     return { id, deleted: true };
   }
 
+  /**
+   * Edits a tier in place, including its quantity. Kept separate from the create path because the
+   * table's natural key is (version, quantity): upserting a renamed tier would silently leave the
+   * old row behind and add a second one, which is what the admin screen used to do.
+   */
+  private async updateExistingTier(tx: Prisma.TransactionClient, input: UpsertQuantityTierInput & { id: string }) {
+    const existing = await tx.quantityPricing.findUnique({ where: { id: input.id } });
+    if (existing?.productOfferingVersionId !== input.versionId) {
+      throw ApiError.notFound('Quantity tier not found');
+    }
+
+    if (existing.quantity !== input.quantity) {
+      const clash = await tx.quantityPricing.findUnique({
+        where: {
+          productOfferingVersionId_quantity: {
+            productOfferingVersionId: input.versionId,
+            quantity: input.quantity,
+          },
+        },
+      });
+      if (clash) {
+        throw ApiError.badRequest(
+          `This product already has a quantity tier starting at ${String(input.quantity)}. Edit or remove that tier instead.`,
+        );
+      }
+    }
+
+    return tx.quantityPricing.update({
+      where: { id: input.id },
+      data: { quantity: input.quantity, basePrice: toDecimal(input.basePrice), isActive: true },
+    });
+  }
+
   async upsertQuantityTier(input: UpsertQuantityTierInput, actorId: string) {
     const version = await prisma.productOfferingVersion.findUnique({
       where: { id: input.versionId },
@@ -159,29 +193,40 @@ export class AdminPricingRulesService {
     });
     if (!version) throw ApiError.notFound('Product version not found');
 
-    const tier = await prisma.quantityPricing.upsert({
-      where: {
-        productOfferingVersionId_quantity: {
-          productOfferingVersionId: input.versionId,
-          quantity: input.quantity,
-        },
-      },
-      create: {
-        productOfferingVersionId: input.versionId,
-        quantity: input.quantity,
-        basePrice: toDecimal(input.basePrice),
-      },
-      update: {
-        basePrice: toDecimal(input.basePrice),
-        isActive: true,
-      },
+    // Tier write and band migration share one transaction: a half-applied rename would leave the
+    // price table pointing at bands that no longer exist.
+    const { tier, bands } = await prisma.$transaction(async (tx) => {
+      const before = await readBandLabels(tx, input.versionId);
+
+      const saved = input.id
+        ? await this.updateExistingTier(tx, input as UpsertQuantityTierInput & { id: string })
+        : await tx.quantityPricing.upsert({
+            where: {
+              productOfferingVersionId_quantity: {
+                productOfferingVersionId: input.versionId,
+                quantity: input.quantity,
+              },
+            },
+            create: {
+              productOfferingVersionId: input.versionId,
+              quantity: input.quantity,
+              basePrice: toDecimal(input.basePrice),
+            },
+            update: {
+              basePrice: toDecimal(input.basePrice),
+              isActive: true,
+            },
+          });
+
+      const after = await readBandLabels(tx, input.versionId);
+      return { tier: saved, bands: await migrateMatrixBands(tx, input.versionId, before, after) };
     });
 
     await catalogAuditService.logProductActivity({
       action: ActivityAction.PRODUCT_PRICING_CHANGED,
       productId: version.productOfferingId,
       actorId,
-      metadata: { quantityTierId: tier.id, quantity: input.quantity },
+      metadata: { quantityTierId: tier.id, quantity: input.quantity, bands },
     });
 
     pricingRepository.invalidateVersion(input.versionId);
@@ -192,6 +237,7 @@ export class AdminPricingRulesService {
       quantity: tier.quantity,
       basePrice: decimalToNumber(tier.basePrice),
       isActive: tier.isActive,
+      bands,
     };
   }
 
@@ -202,19 +248,25 @@ export class AdminPricingRulesService {
     });
     if (!existing) throw ApiError.notFound('Quantity tier not found');
 
-    await prisma.quantityPricing.delete({ where: { id } });
+    const versionId = existing.productOfferingVersionId;
+    const bands = await prisma.$transaction(async (tx) => {
+      const before = await readBandLabels(tx, versionId);
+      await tx.quantityPricing.delete({ where: { id } });
+      const after = await readBandLabels(tx, versionId);
+      return migrateMatrixBands(tx, versionId, before, after);
+    });
 
     await catalogAuditService.logProductActivity({
       action: ActivityAction.PRODUCT_PRICING_CHANGED,
       productId: existing.productOfferingVersion.productOfferingId,
       actorId,
-      metadata: { quantityTierId: id, action: 'deleted' },
+      metadata: { quantityTierId: id, action: 'deleted', bands },
     });
 
-    pricingRepository.invalidateVersion(existing.productOfferingVersionId);
+    pricingRepository.invalidateVersion(versionId);
     void rateCatalogCacheService.invalidateProduct(existing.productOfferingVersion.productOfferingId);
 
-    return { id, deleted: true };
+    return { id, deleted: true, bands };
   }
 }
 
