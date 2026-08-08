@@ -10,6 +10,7 @@ import {
   deleteMatrixCellParamSchema,
   idParamSchema,
   listVendorOverridesQuerySchema,
+  vendorIdQuerySchema,
   saveMatrixCellsSchema,
   updateFlexPricingSchema,
   updateModifierRuleSchema,
@@ -53,6 +54,11 @@ router.get(
   '/vendor-overrides',
   validate(listVendorOverridesQuerySchema, 'query'),
   adminPricingSpineController.listVendorOverrides,
+);
+router.get(
+  '/vendor-overrides/by-vendor',
+  validate(vendorIdQuerySchema, 'query'),
+  adminPricingSpineController.listVendorOverridesByVendor,
 );
 router.post(
   '/vendor-overrides',

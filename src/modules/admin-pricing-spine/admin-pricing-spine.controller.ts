@@ -8,6 +8,7 @@ import type {
   CreateModifierRuleInput,
   CreateVendorOverrideInput,
   ListVendorOverridesQuery,
+  VendorIdQuery,
   SaveMatrixCellsInput,
   UpdateFlexPricingInput,
   UpdateModifierRuleInput,
@@ -72,6 +73,13 @@ export class AdminPricingSpineController {
   // Vendor overrides
   listVendorOverrides = asyncHandler(async (req: Request, res: Response) => {
     const result = await adminVendorOverridesService.list(req.validatedQuery as ListVendorOverridesQuery);
+    return ApiResponse.success(res, result);
+  });
+
+  /** Every negotiated price for one vendor — the account-manager view. */
+  listVendorOverridesByVendor = asyncHandler(async (req: Request, res: Response) => {
+    const { vendorId } = req.validatedQuery as VendorIdQuery;
+    const result = await adminVendorOverridesService.listForVendor(vendorId);
     return ApiResponse.success(res, result);
   });
 

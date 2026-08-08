@@ -34,6 +34,68 @@ export class AdminVendorOverridesService {
     }));
   }
 
+  /**
+   * Every negotiated price one vendor holds, across the whole catalogue.
+   *
+   * The product-first listing above answers "who has a deal on this product"; an account manager
+   * needs the other direction — "what has this vendor been promised" — which previously could only
+   * be assembled by opening every product in turn. Each row carries the list price it departs from
+   * and the resulting price, because a bare "-2" tells nobody what the vendor actually pays.
+   */
+  async listForVendor(vendorId: string) {
+    const overrides = await prisma.vendorPriceOverride.findMany({
+      where: { vendorId },
+      include: {
+        matrixCell: { select: { id: true, dimensionKey: true, price: true } },
+        setByUser: { select: { firstName: true, lastName: true } },
+        productOfferingVersion: {
+          select: {
+            id: true,
+            versionLabel: true,
+            fixedPrice: true,
+            productOffering: { select: { id: true, name: true, sku: true } },
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+
+    return overrides.map((o) => {
+      const listPrice = o.matrixCell?.price
+        ? decimalToNumber(o.matrixCell.price)
+        : o.productOfferingVersion.fixedPrice
+          ? decimalToNumber(o.productOfferingVersion.fixedPrice)
+          : null;
+      const value = decimalToNumber(o.value);
+      // REPLACE substitutes the price outright; DELTA adds to it, so a negative DELTA is a discount.
+      const effectivePrice =
+        o.overrideType === 'REPLACE' ? value : listPrice != null ? listPrice + value : null;
+
+      return {
+        id: o.id,
+        product: {
+          id: o.productOfferingVersion.productOffering.id,
+          name: o.productOfferingVersion.productOffering.name,
+          sku: o.productOfferingVersion.productOffering.sku,
+        },
+        versionId: o.productOfferingVersion.id,
+        versionLabel: o.productOfferingVersion.versionLabel,
+        matrixCellId: o.matrixCellId,
+        matrixCellDimensionKey: o.matrixCell?.dimensionKey ?? null,
+        overrideType: o.overrideType,
+        value,
+        listPrice,
+        effectivePrice,
+        /** Negative means the vendor pays less than list — what an admin scans the table for. */
+        discountAmount:
+          listPrice != null && effectivePrice != null ? effectivePrice - listPrice : null,
+        setBy: `${o.setByUser.firstName} ${o.setByUser.lastName}`.trim(),
+        createdAt: o.createdAt,
+        updatedAt: o.updatedAt,
+      };
+    });
+  }
+
   async create(input: CreateVendorOverrideInput, actorId: string) {
     const version = await prisma.productOfferingVersion.findUnique({
       where: { id: input.versionId },

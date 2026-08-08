@@ -68,3 +68,7 @@ export type UpdateModifierRuleInput = z.infer<typeof updateModifierRuleSchema>;
 export type UpdateFlexPricingInput = z.infer<typeof updateFlexPricingSchema>;
 export type CreateVendorOverrideInput = z.infer<typeof createVendorOverrideSchema>;
 export type ListVendorOverridesQuery = z.infer<typeof listVendorOverridesQuerySchema>;
+
+/** Vendor-first listing: everything one vendor has negotiated, across all products. */
+export const vendorIdQuerySchema = z.object({ vendorId: z.string().min(1) });
+export type VendorIdQuery = z.infer<typeof vendorIdQuerySchema>;
