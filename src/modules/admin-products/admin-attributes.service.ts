@@ -96,6 +96,22 @@ async function upsertOptionPricing(
   }
 }
 
+/**
+ * Only one question per version can stand in for the product name, so promoting one demotes the
+ * rest. Enforced in the same transaction as the write rather than by a partial unique index,
+ * because "exactly one true per version, or none" is not expressible as a plain constraint.
+ */
+async function clearOtherPrimaries(
+  tx: Prisma.TransactionClient,
+  versionId: string,
+  keepFieldId: string,
+): Promise<void> {
+  await tx.configurationField.updateMany({
+    where: { productOfferingVersionId: versionId, isPrimary: true, id: { not: keepFieldId } },
+    data: { isPrimary: false },
+  });
+}
+
 export class AdminAttributesService {
   async list(versionId: string) {
     const fields = await prisma.configurationField.findMany({
@@ -118,6 +134,7 @@ export class AdminAttributesService {
       placeholder: f.placeholder,
       isRequired: f.isRequired,
       isVisible: f.isVisible,
+      isPrimary: f.isPrimary,
       sortOrder: f.sortOrder,
       values: f.options.map((o) => ({
         id: o.id,
@@ -147,11 +164,14 @@ export class AdminAttributesService {
           fieldType: input.fieldType,
           isRequired: input.isRequired ?? false,
           isVisible: input.isVisible ?? true,
+          isPrimary: input.isPrimary ?? false,
           description: input.description,
           placeholder: input.placeholder,
           sortOrder: input.sortOrder ?? 0,
         },
       });
+
+      if (input.isPrimary) await clearOtherPrimaries(tx, input.versionId, created.id);
 
       for (const val of input.values ?? []) {
         const option = await tx.configurationOption.create({
@@ -228,11 +248,16 @@ export class AdminAttributesService {
           ...(input.fieldType != null && { fieldType: input.fieldType }),
           ...(input.isRequired != null && { isRequired: input.isRequired }),
           ...(input.isVisible != null && { isVisible: input.isVisible }),
+          ...(input.isPrimary != null && { isPrimary: input.isPrimary }),
           ...(input.description !== undefined && { description: input.description }),
           ...(input.placeholder !== undefined && { placeholder: input.placeholder }),
           ...(input.sortOrder != null && { sortOrder: input.sortOrder }),
         },
       });
+
+      if (input.isPrimary) {
+        await clearOtherPrimaries(tx, existing.productOfferingVersionId, id);
+      }
 
       if (input.values) {
         const seenIds = new Set<string>();

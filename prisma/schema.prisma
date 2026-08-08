@@ -1274,6 +1274,10 @@ model ConfigurationField {
   placeholder              String?
   isRequired               Boolean                @default(false) @map("is_required")
   isVisible                Boolean                @default(true) @map("is_visible")
+  /// At most one question per version may be primary. Its chosen value stands in for the product
+  /// name when a vendor picks what to order — a catalogue that used to be one product per GSM
+  /// still reads as "pick a GSM" now that GSM is an option on a single product.
+  isPrimary                Boolean                @default(false) @map("is_primary")
   sortOrder                Int                    @default(0) @map("sort_order")
   createdAt                DateTime               @default(now()) @map("created_at")
   updatedAt                DateTime               @updatedAt @map("updated_at")

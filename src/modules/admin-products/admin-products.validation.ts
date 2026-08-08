@@ -126,6 +126,8 @@ export const createAttributeSchema = z.object({
   placeholder: z.string().max(200).optional().nullable(),
   isRequired: z.boolean().optional(),
   isVisible: z.boolean().optional(),
+  /** Marks this question as the one shown in place of the product name when ordering. */
+  isPrimary: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   values: z.array(attributeValueSchema).optional(),
 });

@@ -147,6 +147,7 @@ export function mapProductDetailToDto(product: ProductDetailRow) {
             placeholder: field.placeholder,
             isRequired: field.isRequired,
             isVisible: field.isVisible,
+            isPrimary: field.isPrimary,
             sortOrder: field.sortOrder,
             values: field.options.map((opt) => ({
               id: opt.id,
