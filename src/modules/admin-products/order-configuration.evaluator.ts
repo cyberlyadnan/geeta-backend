@@ -57,6 +57,18 @@ function evalCondition(
 }
 
 /**
+ * Evaluates a raw stored condition against selections. Exported so anything conditional on a
+ * vendor's answers — questions, artwork slots — shares one implementation and one JSON dialect
+ * rather than growing a second, subtly different rules language.
+ */
+export function evaluateOrderCondition(
+  raw: unknown,
+  selections: Record<string, string>,
+): boolean {
+  return evalCondition(asCondition(raw), selections);
+}
+
+/**
  * Resolve visibility / required / disabled flags for each question given current selections.
  * Default: use field.isVisible / field.isRequired when no matching rules apply.
  */

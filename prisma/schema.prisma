@@ -1542,6 +1542,11 @@ model FileRequirement {
   requirementType          FileRequirementType @map("requirement_type")
   maxFileSizeMb            Int?                @map("max_file_size_mb")
   allowMultiple            Boolean             @default(false) @map("allow_multiple")
+  /// When set, this slot is only asked for while the condition holds against the vendor's
+  /// selections — same JSON shape ConfigurationRule uses, evaluated by the same evaluator.
+  /// Null means "always required". This is what lets both-sides printing ask for a second file,
+  /// or a UV option add its own slots, without any of those field codes appearing in code.
+  condition                Json?
   sortOrder                Int                 @default(0) @map("sort_order")
   createdAt                DateTime            @default(now()) @map("created_at")
   updatedAt                DateTime            @updatedAt @map("updated_at")

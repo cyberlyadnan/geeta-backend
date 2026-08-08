@@ -135,6 +135,9 @@ export const createFileRequirementSchema = z.object({
   maxFileSizeMb: z.number().int().positive().optional(),
   allowMultiple: z.boolean().optional(),
   allowedFileTypes: z.array(z.string()).min(1),
+  /** Optional "only ask for this file when…" rule, in the shared ConfigurationRule condition
+   *  shape, e.g. { field: "print_side", equals: "both_side" }. Omit for an always-required slot. */
+  condition: z.record(z.unknown()).nullish(),
   sortOrder: z.number().int().optional(),
 });
 

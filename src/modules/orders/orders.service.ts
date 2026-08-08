@@ -12,6 +12,7 @@ import {
 import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
+import { resolveRequiredSlotCodes } from '../../services/artwork/required-file-slots.js';
 import { toDecimal } from '../../utils/money.js';
 import {
   calculateOrderTotals,
@@ -589,6 +590,22 @@ export class OrdersService {
 
     const printContext = printContextResolved?.context;
     const fileRequirements = printContext?.fileRequirements ?? [];
+
+    // Which slots this configuration actually asks for — both-sides printing adds a back file, a
+    // UV option adds its own, all from admin configuration. Enforced here and not only in the
+    // wizard: the browser decides what to show, the server decides what is acceptable, so a stale
+    // client or a direct API call cannot place an order missing artwork production needs.
+    if (input.fileOption !== 'email') {
+      const requiredCodes = resolveRequiredSlotCodes(fileRequirements, input.selections);
+      const supplied = new Set((input.artworks ?? []).map((a) => a.requirementCode));
+      const missing = requiredCodes.filter((code) => !supplied.has(code));
+      if (missing.length > 0) {
+        const labels = missing.map(
+          (code) => fileRequirements.find((r) => r.code === code)?.label ?? code,
+        );
+        throw ApiError.badRequest(`Artwork is still missing for: ${labels.join(', ')}`);
+      }
+    }
 
     const productTotal = livePricing?.productTotal ?? priceResult.grandTotal;
 

@@ -62,6 +62,9 @@ export class PrintContextResolver {
               requirementType: req.requirementType,
               maxFileSizeMb: req.maxFileSizeMb,
               allowMultiple: req.allowMultiple,
+              // Null means "always asked for". The client filters slots by this against the
+              // vendor's current selections; order placement re-checks it server-side.
+              condition: req.condition ?? null,
               allowedFileTypes: req.allowedFileTypes.map((t) => t.fileType),
               printLayer: req.printLayer
                 ? {
