@@ -140,8 +140,27 @@ describe('priceResolverService.resolvePrice — matrix strategy', () => {
       selections: { gsm: '350', sheetSize: '13x19', printSide: 'BOTH_SIDE' },
     });
     assert.equal(result.valid, true);
-    assert.equal(result.listPrice, 16); // 10 base + 6 B/S surcharge
-    assert.equal(result.finalPrice, 16);
+    // Matrix cells and their surcharges are per-unit rates, so both scale with quantity:
+    // (10 base + 6 B/S) x 3.
+    assert.equal(result.listPrice, 48);
+    assert.equal(result.finalPrice, 48);
+    assert.equal(result.unitPrice, 16);
+  });
+
+  it('the band rate and its surcharges both scale with quantity', async (t) => {
+    stubBundle(t, MATRIX_BUNDLE);
+    stubNoOverrides(t);
+    const service = new PriceResolverService();
+    const selections = { gsm: '350', sheetSize: '13x19', printSide: 'BOTH_SIDE' };
+
+    const one = await service.resolvePrice({ versionId: 'version-matrix', quantity: 1, selections });
+    const five = await service.resolvePrice({ versionId: 'version-matrix', quantity: 5, selections });
+
+    // Quantity used to only pick the band and was then discarded, so five sheets billed the same
+    // as one. The rate is per sheet, so the line total must scale while the unit rate holds.
+    assert.equal(one.listPrice, 16);
+    assert.equal(five.listPrice, 80);
+    assert.equal(five.unitPrice, one.unitPrice);
   });
 
   it('an unavailable combination is rejected before any override lookup', async (t) => {
@@ -166,8 +185,10 @@ describe('priceResolverService.resolvePrice — matrix strategy', () => {
       quantity: 3,
       selections: { gsm: '350', sheetSize: '13x19', printSide: 'BOTH_SIDE' },
     });
-    assert.equal(result.listPrice, 16);
-    assert.equal(result.finalPrice, 15); // (10 - 1) + 6
+    // The override discounts the per-unit cell rate, then the whole line scales by quantity.
+    assert.equal(result.listPrice, 48); // (10 + 6) x 3
+    assert.equal(result.finalPrice, 45); // ((10 - 1) + 6) x 3
+    assert.equal(result.unitPrice, 15);
     assert.equal(result.overrideApplied, true);
   });
 });
@@ -224,6 +245,7 @@ describe('cross-call-site parity', () => {
 
     assert.deepEqual(asRateCatalogue.listPrice, asOrderPreview.listPrice);
     assert.deepEqual(asRateCatalogue.finalPrice, asOrderPreview.finalPrice);
-    assert.equal(asOrderPreview.finalPrice, 15); // 9 (overridden base) + 6 surcharge
+    assert.equal(asOrderPreview.finalPrice, 45); // (9 overridden base + 6 surcharge) x 3
+    assert.equal(asOrderPreview.unitPrice, 15);
   });
 });

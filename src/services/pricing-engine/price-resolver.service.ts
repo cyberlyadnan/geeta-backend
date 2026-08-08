@@ -145,13 +145,29 @@ export class PriceResolverService {
       context: input.context,
     };
 
+    /**
+     * Matrix cells and their surcharges are per-unit rates off one rate card — "11+ = ₹15" means
+     * ₹15 a sheet, and a both-sides or lamination surcharge is likewise charged on every sheet.
+     * Quantity used to select the band and then be discarded, so 11 sheets at ₹15 billed ₹15.
+     * Each line is scaled here rather than in the calculator so the legacy quantity-tier strategy,
+     * whose tier price really is a whole-order amount, keeps its existing meaning.
+     */
+    const qty = Math.max(1, input.quantity);
+    const band = matrix.qtyBand ?? 'default';
+    const perUnit = (amount: number, label: string): string =>
+      qty > 1 ? `${label} (₹${String(amount)} × ${String(qty)})` : label;
+
     const buildBase = (cellPrice: number): CalculatorBaseOverride => {
       const { lines } = applyPriceModifierRules(cellPrice, bundle.priceModifierRules, input.selections);
       return {
-        amount: cellPrice,
-        label: `Matrix price (${matrix.qtyBand})`,
-        tierQuantity: matrix.qtyBand!,
-        preAdjustmentLines: lines,
+        amount: round2(cellPrice * qty),
+        label: perUnit(cellPrice, `Matrix price (${band})`),
+        tierQuantity: band,
+        preAdjustmentLines: lines.map((line) => ({
+          ...line,
+          amount: round2(line.amount * qty),
+          label: perUnit(line.amount, line.label),
+        })),
       };
     };
 
