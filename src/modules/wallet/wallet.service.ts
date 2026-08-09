@@ -81,6 +81,11 @@ export class WalletService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        // Joining the order so the row can link straight to it — an amendment "±₹X · Amendment on
+        // order ORD-1234" is meaningless without a way to see what actually changed.
+        include: {
+          productionOrder: { select: { id: true, orderNumber: true } },
+        },
       }),
       prisma.walletTransaction.count({ where }),
     ]);
@@ -108,6 +113,7 @@ export class WalletService {
     description: string | null;
     paymentMethod: string | null;
     paymentId: string | null;
+    productionOrder?: { id: string; orderNumber: string } | null;
     createdAt: Date;
   }) {
     return {
@@ -121,6 +127,12 @@ export class WalletService {
       paymentId: t.paymentId,
       remarks: t.remarks ?? t.description,
       paymentMethod: t.paymentMethod,
+      // The reference number "AMD-<id>" is enough for the API to recognise an amendment; the
+      // client uses this to render an "Amendment" badge and a link to the order.
+      isAmendment: (t.referenceNumber ?? '').startsWith('AMD-'),
+      relatedOrder: t.productionOrder
+        ? { id: t.productionOrder.id, orderNumber: t.productionOrder.orderNumber }
+        : null,
       createdAt: t.createdAt.toISOString(),
     };
   }
