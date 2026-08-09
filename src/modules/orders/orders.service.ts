@@ -798,11 +798,26 @@ async function resolveArtworkFileUrl(fileAsset: {
 
 function mapOrderToListDto(order: OrderListRecord) {
   const item = order.items[0];
+  // Rolled-up artwork state for the list row's badge. "needs_revision" wins over "rejected"
+  // because it is the actionable one — the vendor needs to upload a new file. Nothing set means
+  // no artwork attached (email-flow order or wizard-in-progress).
+  const artworkStatuses = item?.orderArtworks.map((a) => a.approvalStatus) ?? [];
+  const artworkState: 'needs_revision' | 'rejected' | 'approved' | 'pending' | 'none' =
+    artworkStatuses.length === 0
+      ? 'none'
+      : artworkStatuses.includes('REVISION_REQUESTED')
+        ? 'needs_revision'
+        : artworkStatuses.includes('REJECTED')
+          ? 'rejected'
+          : artworkStatuses.every((s) => s === 'APPROVED')
+            ? 'approved'
+            : 'pending';
   return {
     id: order.id,
     orderNumber: order.orderNumber,
     orderName: order.orderName,
     status: order.status,
+    artworkState,
     productName:
       item?.productOfferingVersion.productOffering.displayName ??
       item?.productOfferingVersion.productOffering.name,

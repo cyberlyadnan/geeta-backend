@@ -141,6 +141,9 @@ export const ORDER_LIST_SELECT = {
           productOffering: { select: { name: true, displayName: true, thumbnailUrl: true } },
         },
       },
+      // Only the approval status is needed for the list row's badge — full artwork details are
+      // loaded when the vendor opens the order.
+      orderArtworks: { select: { approvalStatus: true } },
     },
   },
 } satisfies Prisma.ProductionOrderSelect;
