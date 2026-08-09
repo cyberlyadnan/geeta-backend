@@ -213,87 +213,97 @@ export class SystemWorkflowsService {
     );
 
     const toDelete = [...existingIds].filter((id) => !incomingIds.has(id));
-
     const sortedSteps = [...input.steps].sort((a, b) => a.stepOrder - b.stepOrder);
     const stepIdByOrder = new Map<number, string>();
 
-    // Execute deletion and step reordering inside a single transaction to prevent unique constraint collisions on stepOrder
-    await prisma.$transaction(async (tx) => {
-      // 1. Shift all existing steps for this template to negative order values (-10000 - i)
-      //    to prevent @@unique([workflowTemplateId, stepOrder]) collisions during order update
-      const currentSteps = await tx.workflowTemplateStep.findMany({
-        where: { workflowTemplateId: templateId },
-        select: { id: true },
-      });
-      for (let i = 0; i < currentSteps.length; i++) {
-        await tx.workflowTemplateStep.update({
-          where: { id: currentSteps[i]!.id },
-          data: { stepOrder: -(i + 10000) },
-        });
-      }
+    // Execute all step modifications inside an optimized transaction with 30s timeout
+    await prisma.$transaction(
+      async (tx) => {
+        // 1. Instantly negate step_order for all existing steps using raw SQL (1-2 ms)
+        //    This prevents @@unique([workflowTemplateId, stepOrder]) collisions during reordering
+        await tx.$executeRaw`
+          UPDATE workflow_template_steps
+          SET step_order = -step_order - 10000
+          WHERE workflow_template_id = ${templateId}
+        `;
 
-      // 2. Delete steps no longer present in incoming list
-      if (toDelete.length > 0) {
-        await tx.workflowTemplateStep.deleteMany({ where: { id: { in: toDelete } } });
-      }
-
-      // 3. Upsert steps with their final clean stepOrder (1..N)
-      for (const step of sortedSteps) {
-        const data = {
-          workflowTemplateId: templateId,
-          departmentId: step.departmentId,
-          stepName: step.stepName.trim(),
-          stepCode: step.stepCode.trim().toUpperCase(),
-          stepType: step.stepType,
-          stepOrder: step.stepOrder,
-          expectedMinutes: step.expectedMinutes,
-          allowRework: step.allowRework ?? true,
-          allowSkip: step.allowSkip ?? false,
-          isMandatory: step.isMandatory ?? true,
-          locksAmendmentsOnStart: step.locksAmendmentsOnStart ?? false,
-          instructions: step.instructions?.trim() ? step.instructions.trim() : null,
-          metadata: (step.metadata ?? {}) as Prisma.InputJsonValue,
-        };
-
-        const record = step.id
-          ? await tx.workflowTemplateStep.update({ where: { id: step.id }, data })
-          : await tx.workflowTemplateStep.create({ data });
-
-        stepIdByOrder.set(step.stepOrder, record.id);
-
-        if (step.sla) {
-          await tx.workflowSlaPolicy.upsert({
-            where: { workflowTemplateStepId: record.id },
-            update: step.sla,
-            create: { workflowTemplateStepId: record.id, ...step.sla },
-          });
+        // 2. Delete steps no longer present in incoming list
+        if (toDelete.length > 0) {
+          await tx.workflowTemplateStep.deleteMany({ where: { id: { in: toDelete } } });
         }
-      }
 
-      // 4. Re-link dependencies
-      await tx.workflowTemplateStepDependency.deleteMany({
-        where: { workflowTemplateStep: { workflowTemplateId: templateId } },
-      });
+        // 3. Upsert steps with their final clean stepOrder (1..N)
+        for (const step of sortedSteps) {
+          const data = {
+            workflowTemplateId: templateId,
+            departmentId: step.departmentId,
+            stepName: step.stepName.trim(),
+            stepCode: step.stepCode.trim().toUpperCase(),
+            stepType: step.stepType,
+            stepOrder: step.stepOrder,
+            expectedMinutes: step.expectedMinutes,
+            allowRework: step.allowRework ?? true,
+            allowSkip: step.allowSkip ?? false,
+            isMandatory: step.isMandatory ?? true,
+            locksAmendmentsOnStart: step.locksAmendmentsOnStart ?? false,
+            instructions: step.instructions?.trim() ? step.instructions.trim() : null,
+            metadata: (step.metadata ?? {}) as Prisma.InputJsonValue,
+          };
 
-      for (const step of sortedSteps) {
-        const stepId = step.id ?? stepIdByOrder.get(step.stepOrder);
-        if (!stepId) continue;
+          const record = step.id
+            ? await tx.workflowTemplateStep.update({ where: { id: step.id }, data })
+            : await tx.workflowTemplateStep.create({ data });
 
-        const depIds =
-          step.dependsOnStepIds ??
-          (step.stepOrder > 1 ? [stepIdByOrder.get(step.stepOrder - 1)!].filter(Boolean) : []);
+          stepIdByOrder.set(step.stepOrder, record.id);
 
-        for (const depId of depIds) {
-          await tx.workflowTemplateStepDependency.create({
-            data: {
+          if (step.sla) {
+            await tx.workflowSlaPolicy.upsert({
+              where: { workflowTemplateStepId: record.id },
+              update: step.sla,
+              create: { workflowTemplateStepId: record.id, ...step.sla },
+            });
+          }
+        }
+
+        // 4. Re-link step dependencies in bulk
+        await tx.workflowTemplateStepDependency.deleteMany({
+          where: { workflowTemplateStep: { workflowTemplateId: templateId } },
+        });
+
+        const depPayloads: Array<{
+          workflowTemplateStepId: string;
+          dependsOnStepId: string;
+          dependencyType: 'FINISH_TO_START';
+        }> = [];
+
+        for (const step of sortedSteps) {
+          const stepId = step.id ?? stepIdByOrder.get(step.stepOrder);
+          if (!stepId) continue;
+
+          const depIds =
+            step.dependsOnStepIds ??
+            (step.stepOrder > 1 ? [stepIdByOrder.get(step.stepOrder - 1)!].filter(Boolean) : []);
+
+          for (const depId of depIds) {
+            depPayloads.push({
               workflowTemplateStepId: stepId,
               dependsOnStepId: depId,
               dependencyType: 'FINISH_TO_START',
-            },
+            });
+          }
+        }
+
+        if (depPayloads.length > 0) {
+          await tx.workflowTemplateStepDependency.createMany({
+            data: depPayloads,
           });
         }
-      }
-    });
+      },
+      {
+        timeout: 30000,
+        maxWait: 10000,
+      },
+    );
 
     await workflowTemplateCache.invalidateTemplate(templateId);
     return this.getById(templateId);
