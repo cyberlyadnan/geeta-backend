@@ -70,6 +70,15 @@ vendorRouter.get(
   printJobController.getArtworkStatus,
 );
 
+// Vendor resubmits a file the verifier asked them to revise. Ownership is enforced inside the
+// handler — no admin-role gate here, on purpose: this is the vendor's own action.
+vendorRouter.post(
+  '/order-artwork/:id/resubmit',
+  validate(orderArtworkIdParamSchema, 'params'),
+  withArtworkUpload(artworkMultipartUpload.single('file')),
+  productionArtworkController.resubmitOrderArtworkForVendor,
+);
+
 vendorRouter.post(
   '/calculate-pricing',
   validate(livePricingSchema),

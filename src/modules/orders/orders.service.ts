@@ -831,6 +831,10 @@ async function mapOrderToDetailDto(order: OrderDetailRecord) {
           artworkVersionId: a.pinnedVersion?.artworkVersion.id ?? null,
           requirementCode: a.fileRequirementCode,
           approvalStatus: a.approvalStatus,
+          // The verifier's note is what a vendor needs to see when a revision is requested — the
+          // approval status alone tells them something is wrong without saying what.
+          verifierNote: a.adminNotes ?? null,
+          approvedAt: a.approvedAt ? a.approvedAt.toISOString() : null,
           fileName: a.artworkFile.fileAsset.originalName,
           extension: a.artworkFile.fileAsset.extension,
           previewUrl: await resolveArtworkPreviewUrl(

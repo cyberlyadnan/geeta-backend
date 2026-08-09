@@ -52,6 +52,8 @@ export const ORDER_DETAIL_SELECT = {
           id: true,
           fileRequirementCode: true,
           approvalStatus: true,
+          adminNotes: true,
+          approvedAt: true,
           artworkFile: {
             select: {
               id: true,

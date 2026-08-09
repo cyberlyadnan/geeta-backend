@@ -6,6 +6,7 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import { productionArtworkService } from '../production/artwork/production-artwork.service.js';
+import { notifyUser, recordOrderEvent } from '../orders/order-events.service.js';
 
 export const printJobController = {
   getContext: asyncHandler(async (req: Request, res: Response) => {
@@ -160,14 +161,78 @@ export const productionArtworkController = {
       adminNotes?: string;
     };
 
-    const updated = await prisma.orderArtwork.update({
+    // Load the order the vendor owns *before* the write, so a notification failure never leaves
+    // the update in place without one — the transaction covers both.
+    const artwork = await prisma.orderArtwork.findUnique({
       where: { id },
-      data: {
-        approvalStatus: status,
-        adminNotes,
-        approvedById: req.user!.id,
-        approvedAt: new Date(),
+      select: {
+        orderItem: {
+          select: {
+            order: { select: { id: true, orderNumber: true, customerId: true } },
+            productOfferingVersion: {
+              select: { productOffering: { select: { name: true } } },
+            },
+          },
+        },
       },
+    });
+    if (!artwork) throw ApiError.notFound('Artwork not found');
+    const order = artwork.orderItem.order;
+    const productName = artwork.orderItem.productOfferingVersion.productOffering.name;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.orderArtwork.update({
+        where: { id },
+        data: {
+          approvalStatus: status,
+          adminNotes,
+          approvedById: req.user!.id,
+          approvedAt: new Date(),
+        },
+      });
+
+      // The verifier↔vendor loop: revision request must reach the vendor as both a persistent
+      // notification (they may be offline) and an entry on the order's own timeline. Approve /
+      // reject go on the timeline too so the vendor can see what happened without asking.
+      const eventTitle =
+        status === 'REVISION_REQUESTED'
+          ? 'Changes requested on your artwork'
+          : status === 'APPROVED'
+            ? 'Artwork approved'
+            : 'Artwork rejected';
+      await recordOrderEvent(
+        order.id,
+        {
+          eventType: `ARTWORK_${status}`,
+          title: eventTitle,
+          description: adminNotes ?? undefined,
+          metadata: { orderArtworkId: id, product: productName },
+          actorId: req.user!.id,
+        },
+        tx,
+      );
+
+      // Only revision requests need a push — approvals and rejections are visible on the order
+      // page but the vendor does not have to act on them urgently. Retail (walk-in) orders have
+      // no customer user and simply skip the notification — the order is still logged.
+      if (status === 'REVISION_REQUESTED' && order.customerId) {
+        await notifyUser(
+          order.customerId,
+          {
+            type: 'ARTWORK_REVISION_REQUESTED',
+            title: `Changes needed on ${order.orderNumber}`,
+            body:
+              adminNotes?.trim() ||
+              `Verification asked for a revision on ${productName}. Open the order to upload a new file.`,
+            entityType: 'ORDER',
+            entityId: order.id,
+            metadata: { orderArtworkId: id },
+          },
+          tx,
+        );
+      }
+
+      return row;
     });
     res.json({ success: true, data: updated });
   }),
@@ -197,6 +262,62 @@ export const productionArtworkController = {
     const { id } = req.validatedParams as { id: string };
     const data = await productionArtworkService.getOrderArtworkInspection(id);
     res.json({ success: true, data });
+  }),
+
+  /**
+   * Vendor re-uploads a file the verifier asked them to revise. Same replace pipeline the
+   * production staff use, gated by ownership: a vendor may only replace artwork on their own
+   * order. The revision status is reset to PENDING so the verifier's queue picks it up again.
+   */
+  resubmitOrderArtworkForVendor: asyncHandler(async (req: Request, res: Response) => {
+    const file = req.file;
+    if (!file) throw ApiError.badRequest('Artwork file is required');
+
+    const { id } = req.validatedParams as { id: string };
+    const owned = await prisma.orderArtwork.findFirst({
+      where: { id, orderItem: { order: { customerId: req.user!.id } } },
+      select: { id: true, orderItem: { select: { order: { select: { id: true, orderNumber: true } } } } },
+    });
+    if (!owned) throw ApiError.notFound('Order artwork not found');
+
+    try {
+      const data = await productionArtworkService.replaceOrderArtwork(id, req.user!.id, {
+        filePath: file.path,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        notes: typeof req.body?.notes === 'string' ? req.body.notes : undefined,
+      });
+      // Vendor upload is a resubmission — clear the previous verdict so it reappears in the
+      // verification queue as pending. Notify the staff who requested the revision (if known)
+      // and post to the order's own timeline for both sides.
+      const previous = await prisma.orderArtwork.findUnique({
+        where: { id },
+        select: { approvedById: true },
+      });
+      await prisma.orderArtwork.update({
+        where: { id },
+        data: { approvalStatus: 'PENDING', adminNotes: null, approvedById: null, approvedAt: null },
+      });
+      await recordOrderEvent(owned.orderItem.order.id, {
+        eventType: 'ARTWORK_RESUBMITTED',
+        title: 'Vendor uploaded revised artwork',
+        actorId: req.user!.id,
+      });
+      if (previous?.approvedById) {
+        await notifyUser(previous.approvedById, {
+          type: 'ARTWORK_RESUBMITTED',
+          title: `${owned.orderItem.order.orderNumber}: revised artwork ready`,
+          body: 'The vendor uploaded a new file. Reopen the task to review.',
+          entityType: 'ORDER',
+          entityId: owned.orderItem.order.id,
+        });
+      }
+      res.status(201).json({ success: true, data });
+    } finally {
+      const { unlink } = await import('node:fs/promises');
+      await unlink(file.path).catch(() => undefined);
+    }
   }),
 
   replaceOrderArtwork: asyncHandler(async (req: Request, res: Response) => {
