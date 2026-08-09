@@ -42,7 +42,9 @@ export const myTasksQuerySchema = z.object({
   status: z.string().optional(),
   /** "active" (default) hides finished work; "completed" shows only what this operator has
    *  actually finished, for the Completed tab on the My tasks page. */
-  scope: z.enum(['active', 'completed']).optional(),
+  /** "active" (default) live queue; "completed" audit trail; "awaiting_changes" the verifier's
+   *  follow-up list — orders where they asked the vendor for a revision. */
+  scope: z.enum(['active', 'completed', 'awaiting_changes']).optional(),
 });
 
 export type AssignTaskBody = z.infer<typeof assignTaskSchema>;

@@ -304,8 +304,26 @@ export const productionArtworkController = {
         title: 'Vendor uploaded revised artwork',
         actorId: req.user!.id,
       });
-      if (previous?.approvedById) {
-        await notifyUser(previous.approvedById, {
+      // Notify whoever needs to look at it again: the staff member who asked for the revision,
+      // plus anyone currently assigned to a live task on this order. Using a Set means a
+      // verifier who is both doesn't get two copies.
+      const recipients = new Set<string>();
+      if (previous?.approvedById) recipients.add(previous.approvedById);
+
+      const activeAssignments = await prisma.workflowTaskAssignment.findMany({
+        where: {
+          status: 'ACTIVE',
+          workflowTask: {
+            status: { notIn: ['COMPLETED', 'CANCELLED', 'SKIPPED'] },
+            workflowInstance: { orderId: owned.orderItem.order.id },
+          },
+        },
+        select: { operatorId: true },
+      });
+      for (const assignment of activeAssignments) recipients.add(assignment.operatorId);
+
+      for (const userId of recipients) {
+        await notifyUser(userId, {
           type: 'ARTWORK_RESUBMITTED',
           title: `${owned.orderItem.order.orderNumber}: revised artwork ready`,
           body: 'The vendor uploaded a new file. Reopen the task to review.',

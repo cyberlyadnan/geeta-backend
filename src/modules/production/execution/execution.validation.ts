@@ -27,7 +27,11 @@ export const addNoteSchema = z.object({
 });
 
 export const registerAttachmentSchema = z.object({
-  fileAssetId: z.string().cuid(),
+  // fileAssetId used to be required here but the service creates the FileAsset itself from
+  // (key, publicUrl, mimeType, …), so requiring it made every upload fail validation with the
+  // client sending fields the schema didn't ask for. Kept optional in case future callers
+  // register a pre-existing asset — the service picks the raw fields regardless.
+  fileAssetId: z.string().cuid().optional(),
   category: z.nativeEnum(ProductionAttachmentCategory),
   label: z.string().max(200).optional(),
   key: z.string().min(1),

@@ -59,6 +59,12 @@ export interface OperatorDto {
 export interface MyAssignedTaskDto {
   assignmentId: string;
   taskId: string;
+  /**
+   * Where this task's artwork stands, so the verifier's list can flag work that has come back
+   * to them. "awaiting_vendor" — they asked for a revision and it hasn't arrived;
+   * "changes_made" — the vendor has resubmitted and it needs another look.
+   */
+  artworkState: 'awaiting_vendor' | 'changes_made' | 'approved' | 'pending' | 'none';
   orderNumber: string;
   orderName: string | null;
   productName: string;
@@ -204,9 +210,26 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
   const task = record.workflowTask;
   const offering = task.workflowInstance.productionOrderItem.productOfferingVersion?.productOffering;
 
+  // Artwork state for the verifier's row. "changes_made" means the vendor has resubmitted since
+  // a revision was requested — the signal that pulls a task back onto the verifier's plate.
+  const approvals = task.workflowInstance.productionOrderItem.orderArtworks.map(
+    (a) => a.approvalStatus,
+  );
+  const artworkState: MyAssignedTaskDto['artworkState'] =
+    approvals.length === 0
+      ? 'none'
+      : approvals.includes('REVISION_REQUESTED')
+        ? 'awaiting_vendor'
+        : approvals.includes('PENDING')
+          ? 'changes_made'
+          : approvals.every((a) => a === 'APPROVED')
+            ? 'approved'
+            : 'pending';
+
   return {
     assignmentId: record.id,
     taskId: record.workflowTaskId,
+    artworkState,
     orderNumber: task.workflowInstance.order.orderNumber,
     orderName: task.workflowInstance.order.orderName,
     productName: offering?.displayName ?? offering?.name ?? 'Product',

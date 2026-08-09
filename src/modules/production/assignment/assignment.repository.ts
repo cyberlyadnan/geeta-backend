@@ -95,6 +95,9 @@ export const MY_TASK_SELECT = {
                   productOffering: { select: { name: true, displayName: true } },
                 },
               },
+              // Approval status only — enough for the row to show "changes made" once a vendor
+              // has resubmitted, without loading full artwork payloads into the list.
+              orderArtworks: { select: { approvalStatus: true, updatedAt: true } },
             },
           },
         },
@@ -254,6 +257,7 @@ export class AssignmentRepository {
   async listMyTasks(operatorId: string, query: MyTasksQuery) {
     const limit = Math.min(Math.max(query.limit, 1), 100);
     const isCompleted = query.scope === 'completed';
+    const isAwaitingChanges = query.scope === 'awaiting_changes';
 
     // Active: the operator's live queue — anything they still owe work on. Completed: what
     // they finished, so both the operator and admins can audit "who verified this order" —
@@ -278,6 +282,24 @@ export class AssignmentRepository {
                   WorkflowTaskStatus.SKIPPED,
                 ],
               },
+          // "Awaiting changes" is the verifier's follow-up list: tasks where they asked the
+          // vendor for a revision. Filtering on the artwork's own status keeps this accurate
+          // whether or not the vendor has responded yet — the row itself says which.
+          ...(isAwaitingChanges
+            ? {
+                workflowInstance: {
+                  productionOrderItem: {
+                    orderArtworks: {
+                      some: {
+                        approvalStatus: {
+                          in: ['REVISION_REQUESTED', 'PENDING'],
+                        },
+                      },
+                    },
+                  },
+                },
+              }
+            : {}),
         },
       },
       take: limit + 1,
