@@ -253,27 +253,39 @@ export class AssignmentRepository {
 
   async listMyTasks(operatorId: string, query: MyTasksQuery) {
     const limit = Math.min(Math.max(query.limit, 1), 100);
+    const isCompleted = query.scope === 'completed';
+
+    // Active: the operator's live queue — anything they still owe work on. Completed: what
+    // they finished, so both the operator and admins can audit "who verified this order" —
+    // multiple staff share a department, and losing that trail was the ask.
     const statusFilter = query.status
       ? { status: query.status as WorkflowTaskAssignmentStatus }
-      : { status: WorkflowTaskAssignmentStatus.ACTIVE };
+      : isCompleted
+        ? {}
+        : { status: WorkflowTaskAssignmentStatus.ACTIVE };
 
     const items = await prisma.workflowTaskAssignment.findMany({
       where: {
         operatorId,
         ...statusFilter,
         workflowTask: {
-          status: {
-            notIn: [
-              WorkflowTaskStatus.COMPLETED,
-              WorkflowTaskStatus.CANCELLED,
-              WorkflowTaskStatus.SKIPPED,
-            ],
-          },
+          status: isCompleted
+            ? { in: [WorkflowTaskStatus.COMPLETED] }
+            : {
+                notIn: [
+                  WorkflowTaskStatus.COMPLETED,
+                  WorkflowTaskStatus.CANCELLED,
+                  WorkflowTaskStatus.SKIPPED,
+                ],
+              },
         },
       },
       take: limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
-      orderBy: [{ priority: 'desc' }, { dueAt: 'asc' }, { assignedAt: 'asc' }],
+      // Recent finishes first when reviewing completed; live queue keeps priority/due order.
+      orderBy: isCompleted
+        ? [{ workflowTask: { completedAt: 'desc' } }, { assignedAt: 'desc' }]
+        : [{ priority: 'desc' }, { dueAt: 'asc' }, { assignedAt: 'asc' }],
       select: MY_TASK_SELECT,
     });
 

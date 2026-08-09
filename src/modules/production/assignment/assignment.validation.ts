@@ -40,6 +40,9 @@ export const myTasksQuerySchema = z.object({
   cursor: z.string().cuid().optional(),
   limit: z.coerce.number().int().positive().max(100).default(50),
   status: z.string().optional(),
+  /** "active" (default) hides finished work; "completed" shows only what this operator has
+   *  actually finished, for the Completed tab on the My tasks page. */
+  scope: z.enum(['active', 'completed']).optional(),
 });
 
 export type AssignTaskBody = z.infer<typeof assignTaskSchema>;
