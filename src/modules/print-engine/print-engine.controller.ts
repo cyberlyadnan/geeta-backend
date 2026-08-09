@@ -299,6 +299,16 @@ export const productionArtworkController = {
         where: { id },
         data: { approvalStatus: 'PENDING', adminNotes: null, approvedById: null, approvedAt: null },
       });
+      // Mark any pending ARTWORK_REVISION_REQUESTED notifications for this vendor & order as read
+      await prisma.userNotification.updateMany({
+        where: {
+          userId: req.user!.id,
+          type: 'ARTWORK_REVISION_REQUESTED',
+          isRead: false,
+          entityId: owned.orderItem.order.id,
+        },
+        data: { isRead: true },
+      });
       await recordOrderEvent(owned.orderItem.order.id, {
         eventType: 'ARTWORK_RESUBMITTED',
         title: 'Vendor uploaded revised artwork',
