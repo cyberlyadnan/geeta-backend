@@ -835,6 +835,12 @@ async function mapOrderToDetailDto(order: OrderDetailRecord) {
           // approval status alone tells them something is wrong without saying what.
           verifierNote: a.adminNotes ?? null,
           approvedAt: a.approvedAt ? a.approvedAt.toISOString() : null,
+          verifier: a.approvedBy
+            ? {
+                name: `${a.approvedBy.firstName} ${a.approvedBy.lastName}`.trim(),
+                phone: a.approvedBy.phone ?? null,
+              }
+            : null,
           fileName: a.artworkFile.fileAsset.originalName,
           extension: a.artworkFile.fileAsset.extension,
           previewUrl: await resolveArtworkPreviewUrl(

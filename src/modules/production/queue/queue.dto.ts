@@ -52,6 +52,9 @@ export interface QueueTaskCardDto {
     name: string;
     businessName: string | null;
     memberCode: string | null;
+    /** Direct contact so the verifier can call the vendor without leaving the task. */
+    phone: string | null;
+    email: string | null;
   };
   product: {
     id: string | null;
@@ -201,6 +204,11 @@ export function mapQueueTaskCard(record: QueueTaskListRecord): QueueTaskCardDto 
       name: resolveVendorName(record),
       businessName: record.workflowInstance.order.customer?.vendorProfile?.businessName ?? null,
       memberCode: record.workflowInstance.order.customer?.vendorProfile?.vendorCode ?? null,
+      phone:
+        record.workflowInstance.order.customer?.phone ??
+        record.workflowInstance.order.retailCustomer?.phone ??
+        null,
+      email: record.workflowInstance.order.customer?.email ?? null,
     },
     product: {
       id: offering?.id ?? null,

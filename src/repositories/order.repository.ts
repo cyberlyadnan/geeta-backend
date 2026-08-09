@@ -54,6 +54,9 @@ export const ORDER_DETAIL_SELECT = {
           approvalStatus: true,
           adminNotes: true,
           approvedAt: true,
+          // The staff member who approved / rejected / requested changes — so the vendor can
+          // phone them about the revision without hunting through support.
+          approvedBy: { select: { firstName: true, lastName: true, phone: true } },
           artworkFile: {
             select: {
               id: true,

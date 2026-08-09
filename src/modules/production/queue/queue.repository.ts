@@ -55,10 +55,12 @@ export const QUEUE_TASK_LIST_SELECT = {
               id: true,
               firstName: true,
               lastName: true,
+              phone: true,
+              email: true,
               vendorProfile: { select: { businessName: true, vendorCode: true } },
             },
           },
-          retailCustomer: { select: { id: true, name: true } },
+          retailCustomer: { select: { id: true, name: true, phone: true } },
         },
       },
       productionOrderItem: {
