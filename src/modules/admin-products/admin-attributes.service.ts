@@ -119,7 +119,7 @@ export class AdminAttributesService {
       orderBy: { sortOrder: 'asc' },
       include: {
         options: {
-          orderBy: { sortOrder: 'asc' },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
           include: { pricing: { include: { quantityTiers: { orderBy: { quantity: 'asc' } } } } },
         },
       },
@@ -203,7 +203,7 @@ export class AdminAttributesService {
       where: { id },
       include: {
         options: {
-          orderBy: { sortOrder: 'asc' },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
           include: { pricing: { include: { quantityTiers: { orderBy: { quantity: 'asc' } } } } },
         },
         productOfferingVersion: { select: { productOfferingId: true } },

@@ -23,7 +23,7 @@ async function requireVersion(versionId: string) {
       quantityPricing: { where: { isActive: true }, orderBy: { quantity: 'asc' } },
       configurationFields: {
         orderBy: { sortOrder: 'asc' },
-        include: { options: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } },
+        include: { options: { where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] } },
       },
     },
   });

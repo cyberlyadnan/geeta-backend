@@ -49,7 +49,7 @@ const PRODUCT_DETAIL_INCLUDE = {
         orderBy: { sortOrder: 'asc' },
         include: {
           options: {
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
             include: { pricing: { include: { quantityTiers: { orderBy: { quantity: 'asc' } } } } },
           },
         },

@@ -110,7 +110,7 @@ export class AdminConfigRulesService {
           include: {
             options: {
               where: { isActive: true },
-              orderBy: { sortOrder: 'asc' },
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
               include: { pricing: { include: { quantityTiers: { orderBy: { quantity: 'asc' } } } } },
             },
           },

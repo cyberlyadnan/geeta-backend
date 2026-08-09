@@ -48,7 +48,7 @@ const VENDOR_DETAIL_INCLUDE = {
         include: {
           options: {
             where: { isActive: true },
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
             // Vendor order UI only needs pricing presence — tiers are resolved by pricing engine at preview.
             include: { pricing: true },
           },

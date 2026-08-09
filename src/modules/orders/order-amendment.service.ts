@@ -182,7 +182,7 @@ export class OrderAmendmentService {
         label: true,
         options: {
           where: { isActive: true },
-          orderBy: { sortOrder: 'asc' },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
           select: { value: true, label: true },
         },
       },
