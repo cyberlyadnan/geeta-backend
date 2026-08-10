@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 export type InvoiceLine = {
   orderNumber: string;
   description: string;
+  attributes?: string[];
   quantity: number;
   amount: number;
 };
@@ -116,10 +117,35 @@ export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array>
     // Alternating rows background
     y -= 4;
     text(line.orderNumber, left + 8, 8.5);
-    text(line.description.length > 50 ? `${line.description.slice(0, 48)}...` : line.description, left + 120, 8.5);
+    text(line.description.length > 50 ? `${line.description.slice(0, 48)}...` : line.description, left + 120, 8.5, true);
     text(String(line.quantity), left + 370, 8.5);
     rightAligned(money(line.amount), 8.5);
     y -= 12;
+
+    if (line.attributes && line.attributes.length > 0) {
+      const maxAttrWidth = 240;
+      let currentLine = "";
+      for (const attr of line.attributes) {
+        if (!attr) continue;
+        const nextPart = currentLine ? `, ${attr}` : attr;
+        const width = font.widthOfTextAtSize(currentLine + nextPart, 7.5);
+        if (width > maxAttrWidth) {
+          if (currentLine) {
+            text(currentLine, left + 120, 7.5, false, false, rgb(0.3, 0.3, 0.3));
+            y -= 10;
+          }
+          currentLine = attr;
+        } else {
+          currentLine += nextPart;
+        }
+      }
+      if (currentLine) {
+        text(currentLine, left + 120, 7.5, false, false, rgb(0.3, 0.3, 0.3));
+        y -= 10;
+      }
+      y -= 2;
+    }
+
     rule(0.25, rgb(0.9, 0.9, 0.9));
 
     if (y < 180) {

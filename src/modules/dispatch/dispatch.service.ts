@@ -441,12 +441,21 @@ export class DispatchService {
       gstNumber: invoice.gstNumber,
       shiftLabel: batch.shift.label,
       dispatchDate: batch.dispatchDate,
-      lines: batch.orders.map((link) => ({
-        orderNumber: link.order.orderNumber,
-        description: link.order.orderName ?? 'Print order',
-        quantity: link.order.items.reduce((sum, item) => sum + item.quantity, 0),
-        amount: decimalToNumber(link.order.subtotal),
-      })),
+      lines: batch.orders.map((link) => {
+        const item = link.order.items[0];
+        let attributes: string[] = [];
+        if (item) {
+          const { extractProductAttributes } = require('../../utils/product-attributes.js');
+          attributes = extractProductAttributes(item.configurationSnapshot, item.sizeSnapshot);
+        }
+        return {
+          orderNumber: link.order.orderNumber,
+          description: link.order.orderName ?? (item ? ((item.productSnapshot as any)?.displayName ?? (item.productSnapshot as any)?.name ?? 'Print order') : 'Print order'),
+          attributes,
+          quantity: item ? item.quantity : 1,
+          amount: decimalToNumber(link.order.subtotal),
+        };
+      }),
       subtotal: decimalToNumber(invoice.subtotal),
       deliveryCharge: decimalToNumber(invoice.deliveryCharge),
       gstRate: decimalToNumber(invoice.gstRate),
