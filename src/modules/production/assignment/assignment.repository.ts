@@ -82,7 +82,7 @@ export const MY_TASK_SELECT = {
       id: true,
       status: true,
       stepOrder: true,
-      workflowStep: { select: { stepCode: true, stepName: true } },
+      workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
       workflowInstance: {
         select: {
           id: true,
