@@ -24,7 +24,7 @@ export const departmentQueueQuerySchema = z.object({
   createdTo: z.string().datetime().optional(),
   dueFrom: z.string().datetime().optional(),
   dueTo: z.string().datetime().optional(),
-  lens: z.enum(['rush', 'rework', 'blocked', 'completedToday', 'delayed']).optional(),
+  lens: z.enum(['rush', 'rework', 'blocked', 'completedToday', 'delayed', 'changesRequested']).optional(),
   sortBy: z.enum(['stepOrder', 'priority', 'dueAt', 'createdAt']).default('stepOrder'),
   sortDir: z.enum(['asc', 'desc']).default('asc'),
 });

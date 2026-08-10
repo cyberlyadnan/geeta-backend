@@ -1,4 +1,5 @@
 import {
+  ArtworkApprovalStatus,
   Prisma,
   WorkflowInstanceStatus,
   WorkflowPriority,
@@ -52,6 +53,16 @@ export function buildQueueTaskWhere(
           WorkflowTaskStatus.CANCELLED,
           WorkflowTaskStatus.SKIPPED,
         ],
+      },
+    });
+  } else if (query.lens === 'changesRequested') {
+    and.push({
+      workflowInstance: {
+        productionOrderItem: {
+          orderArtworks: {
+            some: { approvalStatus: ArtworkApprovalStatus.REVISION_REQUESTED },
+          },
+        },
       },
     });
   }

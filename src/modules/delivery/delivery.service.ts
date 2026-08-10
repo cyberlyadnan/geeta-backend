@@ -17,8 +17,14 @@ import type {
 
 export class DeliveryService {
   async getVendorDeliveryContext(userId: string) {
-    const { settings, vendor: profile } =
-      await contextRepository.getVendorCheckoutContext(userId);
+    const [{ settings, vendor: profile }, shifts] = await Promise.all([
+      contextRepository.getVendorCheckoutContext(userId),
+      prisma.deliveryShift.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: 'asc' },
+        select: { id: true, label: true, cutoffTime: true, sortOrder: true },
+      }),
+    ]);
 
     const defaultAddress = formatVendorAddress(profile);
 
@@ -37,6 +43,7 @@ export class DeliveryService {
         alwaysDelivery: profile.deliveryPreference === DeliveryPreference.ALWAYS_DELIVERY_REQUIRED,
         selfPickupOnly: profile.deliveryPreference === DeliveryPreference.SELF_PICKUP_ONLY,
       },
+      shifts,
     };
   }
 
