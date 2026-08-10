@@ -892,11 +892,18 @@ async function mapOrderToDetailDto(order: OrderDetailRecord) {
       )
     : [];
 
+  const batchOrder = await prisma.dispatchBatchOrder.findUnique({
+    where: { orderId: order.id },
+    select: { dispatchBatch: { select: { invoice: { select: { id: true } } } } }
+  });
+  const hasInvoice = !!batchOrder?.dispatchBatch.invoice;
+
   return {
     id: order.id,
     orderNumber: order.orderNumber,
     orderName: order.orderName,
     status: order.status,
+    hasInvoice,
     productTotal: Number(order.subtotal),
     deliveryCharge: Number(order.deliveryCharge),
     taxAmount: Number(order.taxAmount),
