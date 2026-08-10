@@ -23,7 +23,7 @@ import { logger } from '../../logs/logger.js';
  *  client, which node:test's mock.method cannot patch (see retail-customer.service tests). */
 export type DispatchDb = Pick<
   typeof prisma,
-  'dispatchBatch' | 'deliveryShift' | 'invoice' | '$transaction'
+  'dispatchBatch' | 'deliveryShift' | 'invoice' | 'workflowTask' | '$transaction'
 >;
 
 const BATCH_DETAIL_INCLUDE = {
@@ -128,6 +128,41 @@ export class DispatchService {
 
   /** The dispatcher's working view. */
   async listBatches(query: { shiftId?: string; status?: string; dispatchDate?: string; page: number; limit: number }) {
+    try {
+      const outstandingTasks = await this.db.workflowTask.findMany({
+        where: {
+          status: { in: ['READY', 'ASSIGNED', 'IN_PROGRESS'] },
+          workflowStep: {
+            OR: [
+              { stepType: 'DISPATCH' },
+              { stepCode: 'DISPATCH' },
+            ],
+          },
+          workflowInstance: {
+            order: {
+              dispatchBatchOrder: null,
+            },
+          },
+        },
+        select: {
+          workflowInstance: {
+            select: { orderId: true },
+          },
+        },
+      });
+
+      if (outstandingTasks.length > 0) {
+        const { dispatchReadinessService } = await import('./dispatch-readiness.service.js');
+        for (const t of outstandingTasks) {
+          await dispatchReadinessService.evaluateOrder(t.workflowInstance.orderId).catch((err) => {
+            logger.error('Reconciliation check: evaluateOrder failed', { orderId: t.workflowInstance.orderId, err });
+          });
+        }
+      }
+    } catch (err) {
+      logger.error('Failed to reconcile outstanding dispatch tasks', { err });
+    }
+
     const { page, limit } = query;
     const where: Prisma.DispatchBatchWhereInput = {
       ...(query.shiftId && { shiftId: query.shiftId }),
