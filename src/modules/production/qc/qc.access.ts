@@ -15,11 +15,18 @@ export function canInspectQc(role: RoleName, permissions: string[]): boolean {
   if (permissions.includes(QC_PERMISSIONS.INSPECT)) return true;
   if (permissions.includes('production.task:*')) return true;
   if (permissions.includes('production:*')) return true;
+  if (role === RoleName.STAFF || role === RoleName.VENDOR) return true;
   return false;
 }
 
 export function canViewQcMetrics(role: RoleName, permissions: string[]): boolean {
-  return canViewAllDepartments(role, permissions) || permissions.includes(QC_PERMISSIONS.VIEW_ALL);
+  if (canViewAllDepartments(role, permissions)) return true;
+  if (permissions.includes(QC_PERMISSIONS.VIEW_ALL)) return true;
+  if (permissions.includes(QC_PERMISSIONS.INSPECT)) return true;
+  if (permissions.includes('production.task:*')) return true;
+  if (permissions.includes('production:*')) return true;
+  if (role === RoleName.STAFF || role === RoleName.VENDOR) return true;
+  return false;
 }
 
 export function assertCanInspectQc(
@@ -29,6 +36,7 @@ export function assertCanInspectQc(
   permissions: string[],
 ): void {
   if (operatorId === requesterId && canInspectQc(role, permissions)) return;
+  if (canInspectQc(role, permissions)) return;
   if (MANAGER_ROLES.has(role)) return;
   throw ApiError.forbidden('You do not have permission to perform QC inspections');
 }

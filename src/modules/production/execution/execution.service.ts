@@ -20,6 +20,7 @@ import { workflowEngine } from '../../workflow/workflow.engine.js';
 import { workflowTimelineService } from '../../workflow/workflow-timeline.service.js';
 import { productionQueueCache } from '../queue/queue.cache.js';
 import { machineService } from '../machines/machine.service.js';
+import { recordOrderEvent } from '../../orders/order-events.service.js';
 import { assertCanExecuteTask, assertCanViewDepartmentExecution } from './execution.access.js';
 import {
   mapAttachmentToDto,
@@ -441,6 +442,11 @@ export class ExecutionService {
     const totals = await this.closeActiveInterval(session, now);
     const totalDurationSeconds = computeTotalDuration(totals);
 
+    const isArtworkTask =
+      task.workflowStep.stepType === 'VERIFICATION' ||
+      task.workflowStep.stepCode === 'ARTWORK_VERIFICATION' ||
+      task.workflowStep.stepCode?.includes('ARTWORK');
+
     await prisma.$transaction(async (tx) => {
       await tx.workflowTaskExecutionSession.update({
         where: { id: session.id },
@@ -453,6 +459,45 @@ export class ExecutionService {
           activeIntervalType: null,
         },
       });
+
+      if (isArtworkTask) {
+        const instance = await tx.workflowInstance.findUnique({
+          where: { id: task.workflowInstanceId },
+          select: { productionOrderItemId: true, orderId: true },
+        });
+
+        if (instance?.productionOrderItemId) {
+          const pendingArtworks = await tx.orderArtwork.findMany({
+            where: {
+              orderItemId: instance.productionOrderItemId,
+              approvalStatus: 'PENDING',
+            },
+            select: { id: true },
+          });
+
+          for (const art of pendingArtworks) {
+            await tx.orderArtwork.update({
+              where: { id: art.id },
+              data: {
+                approvalStatus: 'APPROVED',
+                approvedById: actorId,
+                approvedAt: now,
+              },
+            });
+
+            await recordOrderEvent(
+              instance.orderId,
+              {
+                eventType: 'ARTWORK_APPROVED',
+                title: 'Artwork approved',
+                metadata: { orderArtworkId: art.id, autoApprovedOnComplete: true },
+                actorId,
+              },
+              tx,
+            );
+          }
+        }
+      }
     }, EXECUTION_TX_OPTIONS);
 
     const advanceResult = await workflowEngine.advance({

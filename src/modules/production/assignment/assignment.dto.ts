@@ -69,6 +69,9 @@ export interface MyAssignedTaskDto {
   orderName: string | null;
   productName: string;
   quantity: number;
+  configurationSnapshot?: unknown;
+  sizeSnapshot?: unknown;
+  productSnapshot?: unknown;
   department: { id: string; code: string; name: string };
   step: { code: string; name: string };
   taskStatus: string;
@@ -234,6 +237,9 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
     orderName: task.workflowInstance.order.orderName,
     productName: offering?.displayName ?? offering?.name ?? 'Product',
     quantity: task.workflowInstance.productionOrderItem.quantity,
+    configurationSnapshot: task.workflowInstance.productionOrderItem.configurationSnapshot,
+    sizeSnapshot: task.workflowInstance.productionOrderItem.sizeSnapshot,
+    productSnapshot: task.workflowInstance.productionOrderItem.productSnapshot,
     department: record.department,
     step: { code: task.workflowStep.stepCode, name: task.workflowStep.stepName },
     taskStatus: task.status,

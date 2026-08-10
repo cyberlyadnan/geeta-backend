@@ -90,6 +90,9 @@ export const MY_TASK_SELECT = {
           productionOrderItem: {
             select: {
               quantity: true,
+              configurationSnapshot: true,
+              sizeSnapshot: true,
+              productSnapshot: true,
               productOfferingVersion: {
                 select: {
                   productOffering: { select: { name: true, displayName: true } },
