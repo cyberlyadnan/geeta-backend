@@ -1,4 +1,4 @@
-import { ProductionOrderStatus, WorkflowInstanceStatus, type Prisma } from '@prisma/client';
+import { ProductionOrderStatus, WorkflowInstanceStatus, WorkflowTaskStatus, type Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { recordOrderEvent } from '../orders/order-events.service.js';
 import { shiftAssignmentService, type DispatchActor } from './shift-assignment.service.js';
@@ -6,7 +6,7 @@ import { shiftAssignmentService, type DispatchActor } from './shift-assignment.s
 /** Narrow slice of the Prisma client this service needs — injectable so tests can drive the
  *  whole flow with a hand-rolled fake instead of monkey-patching the real (proxy-based) Prisma
  *  client, which node:test's mock.method cannot patch (see retail-customer.service tests). */
-export type DispatchReadinessDb = Pick<typeof prisma, 'workflowInstance' | 'productionOrder' | '$transaction'>;
+export type DispatchReadinessDb = Pick<typeof prisma, 'workflowInstance' | 'productionOrder' | 'workflowTask' | '$transaction'>;
 
 export interface ReadinessOutcome {
   ready: boolean;
@@ -39,6 +39,24 @@ export class DispatchReadinessService {
     return this.evaluateOrder(instance.orderId);
   }
 
+  async onTaskReady(taskId: string): Promise<ReadinessOutcome> {
+    const task = await this.db.workflowTask.findUnique({
+      where: { id: taskId },
+      include: { workflowStep: true, workflowInstance: true },
+    });
+    if (!task) return { ready: false, reason: 'order-missing' };
+
+    if (
+      task.workflowStep.stepType !== 'DISPATCH' &&
+      task.workflowStep.stepCode !== 'DISPATCH' &&
+      !task.workflowStep.stepCode?.includes('DISPATCH')
+    ) {
+      return { ready: false, reason: 'wrong-status' };
+    }
+
+    return this.evaluateOrder(task.workflowInstance.orderId);
+  }
+
   async evaluateOrder(orderId: string): Promise<ReadinessOutcome> {
     const order = await this.db.productionOrder.findUnique({
       where: { id: orderId },
@@ -59,13 +77,38 @@ export class DispatchReadinessService {
       ProductionOrderStatus.QUALITY_CHECK,
       ProductionOrderStatus.CONFIRMED,
       ProductionOrderStatus.ARTWORK_APPROVED,
+      ProductionOrderStatus.READY_FOR_DISPATCH,
     ];
     if (!advanceable.includes(order.status)) return { ready: false, reason: 'wrong-status' };
 
-    const allComplete =
-      order.workflowInstances.length > 0 &&
-      order.workflowInstances.every((w) => w.status === WorkflowInstanceStatus.COMPLETED);
-    if (!allComplete) return { ready: false, reason: 'workflows-outstanding' };
+    const instances = await this.db.workflowInstance.findMany({
+      where: { orderId: order.id },
+      include: {
+        tasks: {
+          where: {
+            status: { in: [WorkflowTaskStatus.READY, WorkflowTaskStatus.ASSIGNED, WorkflowTaskStatus.IN_PROGRESS] },
+          },
+          include: { workflowStep: true },
+        },
+      },
+    });
+
+    if (instances.length === 0) return { ready: false, reason: 'workflows-outstanding' };
+
+    const readyForDispatch = instances.every((inst) => {
+      if (inst.status === WorkflowInstanceStatus.COMPLETED) return true;
+      return (
+        inst.tasks.length > 0 &&
+        inst.tasks.every(
+          (t) =>
+            t.workflowStep.stepType === 'DISPATCH' ||
+            t.workflowStep.stepCode === 'DISPATCH' ||
+            t.workflowStep.stepCode?.includes('DISPATCH')
+        )
+      );
+    });
+
+    if (!readyForDispatch) return { ready: false, reason: 'workflows-outstanding' };
 
     if (!order.deliveryRequired) {
       await this.db.$transaction(async (tx: Prisma.TransactionClient) => {

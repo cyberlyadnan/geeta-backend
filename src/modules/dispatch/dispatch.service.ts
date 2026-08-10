@@ -468,7 +468,7 @@ export class DispatchService {
     };
   }
 
-  async markDispatched(batchId: string) {
+  async markDispatched(batchId: string, dispatcherUserId = 'system') {
     const batch = await this.db.dispatchBatch.findUnique({
       where: { id: batchId },
       include: { orders: true },
@@ -504,6 +504,34 @@ export class DispatchService {
 
       return b;
     });
+
+    const orderIds = updated.orders.map((o) => o.orderId);
+    const dispatchTasks = await prisma.workflowTask.findMany({
+      where: {
+        workflowInstance: { orderId: { in: orderIds } },
+        status: { in: ['READY', 'ASSIGNED', 'IN_PROGRESS'] },
+        workflowStep: {
+          OR: [
+            { stepType: 'DISPATCH' },
+            { stepCode: 'DISPATCH' },
+          ],
+        },
+      },
+      select: { id: true, workflowInstanceId: true },
+    });
+
+    const { workflowEngine } = await import('../workflow/workflow.engine.js');
+    for (const t of dispatchTasks) {
+      await workflowEngine.advance({
+        workflowInstanceId: t.workflowInstanceId,
+        taskId: t.id,
+        action: 'complete',
+        actorId: dispatcherUserId,
+        remarks: 'Completed automatically via Dispatch Batch release',
+      }).catch((err) => {
+        logger.error('Failed to advance dispatch workflow task', { taskId: t.id, err });
+      });
+    }
 
     return this.mapBatch(updated);
   }

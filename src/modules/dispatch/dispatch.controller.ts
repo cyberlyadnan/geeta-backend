@@ -55,7 +55,7 @@ export class DispatchController {
 
   markDispatched = asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.validatedParams as { id: string };
-    const result = await dispatchService.markDispatched(id);
+    const result = await dispatchService.markDispatched(id, req.user!.id);
     return ApiResponse.success(res, result, 'Batch marked dispatched');
   });
 

@@ -9,6 +9,25 @@ import { dispatchService } from '../../modules/dispatch/dispatch.service.js';
  * the order stays completed and can be re-evaluated.
  */
 export function registerDispatchListeners(): void {
+  eventBus.on(APP_EVENTS.TASK_READY, (payload: { workflowInstanceId: string; taskId: string }) => {
+    void dispatchReadinessService
+      .onTaskReady(payload.taskId)
+      .then((outcome) => {
+        if (outcome.ready) {
+          logger.info('Order booked into dispatch batch via task ready', {
+            taskId: payload.taskId,
+            batchId: outcome.batchId,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        logger.error('Dispatch readiness task evaluation failed', {
+          taskId: payload.taskId,
+          error,
+        });
+      });
+  });
+
   eventBus.on(APP_EVENTS.WORKFLOW_COMPLETED, (payload: { workflowInstanceId: string }) => {
     void dispatchReadinessService
       .onWorkflowCompleted(payload.workflowInstanceId)
