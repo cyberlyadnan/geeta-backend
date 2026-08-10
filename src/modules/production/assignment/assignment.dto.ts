@@ -73,7 +73,7 @@ export interface MyAssignedTaskDto {
   sizeSnapshot?: unknown;
   productSnapshot?: unknown;
   department: { id: string; code: string; name: string };
-  step: { code: string; name: string };
+  step: { code: string; name: string; type: string };
   taskStatus: string;
   assignmentStatus: string;
   priority: string;
@@ -241,7 +241,7 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
     sizeSnapshot: task.workflowInstance.productionOrderItem.sizeSnapshot,
     productSnapshot: task.workflowInstance.productionOrderItem.productSnapshot,
     department: record.department,
-    step: { code: task.workflowStep.stepCode, name: task.workflowStep.stepName },
+    step: { code: task.workflowStep.stepCode, name: task.workflowStep.stepName, type: task.workflowStep.stepType },
     taskStatus: task.status,
     assignmentStatus: record.status,
     priority: record.priority,

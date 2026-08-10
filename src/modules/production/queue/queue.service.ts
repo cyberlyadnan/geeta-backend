@@ -1,27 +1,15 @@
 import type { RoleName } from '@prisma/client';
 import { ApiError } from '../../../common/errors/ApiError.js';
-import {
-  assertDepartmentAccess,
-  canViewAllDepartments,
-  getAllowedDepartmentCodes,
-} from './queue.access.js';
+import { assertDepartmentAccess } from './queue.access.js';
 import { mapDepartmentListItem, mapQueueTaskCard, mapQueueTaskDetail } from './queue.dto.js';
 import { productionQueueCache } from './queue.cache.js';
 import { queueRepository } from './queue.repository.js';
 import type { DepartmentQueueQuery } from './queue.validation.js';
 
 export class QueueService {
-  async listDepartments(role: RoleName, permissions: string[]) {
-    const allowedCodes = canViewAllDepartments(role, permissions)
-      ? undefined
-      : getAllowedDepartmentCodes(permissions);
-
-    if (!canViewAllDepartments(role, permissions) && (!allowedCodes || allowedCodes.length === 0)) {
-      throw ApiError.forbidden('No department queue access configured');
-    }
-
+  async listDepartments(_role: RoleName, _permissions: string[]) {
     return productionQueueCache.getDepartments(async () => {
-      const departments = await queueRepository.listActiveDepartments(allowedCodes);
+      const departments = await queueRepository.listActiveDepartments(undefined);
 
       const items = await Promise.all(
         departments.map(async (dept) => {
