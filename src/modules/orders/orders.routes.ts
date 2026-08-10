@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { RoleName } from '@prisma/client';
 import { ordersController } from './orders.controller.js';
 import { authenticate } from '../../middleware/authenticate.js';
@@ -68,5 +68,6 @@ router.get('/', validate(listOrdersQuerySchema, 'query'), ordersController.list)
 router.post('/', validate(createProductionOrderSchema), ordersController.create);
 router.post('/:id/reorder', validate(orderIdParamSchema, 'params'), ordersController.reorder);
 router.get('/:id', validate(orderIdParamSchema, 'params'), ordersController.getById);
+router.get('/:id/invoice', validate(orderIdParamSchema, 'params'), ordersController.downloadInvoice);
 
 export { router as ordersRoutes };

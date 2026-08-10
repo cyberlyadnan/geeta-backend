@@ -40,8 +40,14 @@ export const setDeliveryChargeSchema = z.object({
   amount: z.coerce.number().min(0).max(1_000_000),
 });
 
+export const removeOrderParamSchema = z.object({
+  id: z.string().min(1),
+  orderId: z.string().min(1),
+});
+
 export type CreateShiftInput = z.infer<typeof createShiftSchema>;
 export type UpdateShiftInput = z.infer<typeof updateShiftSchema>;
 export type ListShiftsQuery = z.infer<typeof listShiftsQuerySchema>;
 export type ListBatchesQuery = z.infer<typeof listBatchesQuerySchema>;
 export type SetDeliveryChargeInput = z.infer<typeof setDeliveryChargeSchema>;
+export type RemoveOrderParam = z.infer<typeof removeOrderParamSchema>;

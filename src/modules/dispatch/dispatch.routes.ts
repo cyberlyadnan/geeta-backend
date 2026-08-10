@@ -12,6 +12,7 @@ import {
   setDeliveryChargeSchema,
   shiftIdParamSchema,
   updateShiftSchema,
+  removeOrderParamSchema,
 } from './dispatch.validation.js';
 
 /** Dispatcher-facing: staff who physically bill and ship batches. */
@@ -33,6 +34,11 @@ dispatchRouter.post(
   '/batches/:id/dispatched',
   validate(batchIdParamSchema, 'params'),
   dispatchController.markDispatched,
+);
+dispatchRouter.delete(
+  '/batches/:id/orders/:orderId',
+  validate(removeOrderParamSchema, 'params'),
+  dispatchController.removeOrder,
 );
 dispatchRouter.get(
   '/batches/:id/invoice',

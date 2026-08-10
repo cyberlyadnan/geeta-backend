@@ -1,4 +1,4 @@
-﻿import type { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { ordersService } from './orders.service.js';
@@ -99,6 +99,14 @@ export class OrdersController {
     const { orderId } = req.validatedParams as { orderId: string };
     const result = await orderAmendmentService.listAmendments(orderId);
     return ApiResponse.success(res, result);
+  });
+
+  downloadInvoice = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await ordersService.getInvoiceForOrder(req.user!.id, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    return res.send(result.buffer);
   });
 }
 

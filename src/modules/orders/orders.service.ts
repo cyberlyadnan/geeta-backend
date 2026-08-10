@@ -717,6 +717,28 @@ export class OrdersService {
       coverageSnapshot,
     };
   }
+
+  async getInvoiceForOrder(userId: string, orderId: string) {
+    const order = await prisma.productionOrder.findUnique({
+      where: { id: orderId },
+      select: { customerId: true, retailCustomerId: true },
+    });
+    if (!order) throw ApiError.notFound('Order not found');
+    if (order.customerId !== userId) {
+      throw ApiError.forbidden('You do not have permission to access this order');
+    }
+
+    const batchOrder = await prisma.dispatchBatchOrder.findUnique({
+      where: { orderId },
+      select: { dispatchBatchId: true },
+    });
+    if (!batchOrder) {
+      throw ApiError.notFound('No invoice generated for this order yet');
+    }
+
+    const { dispatchService } = await import('../dispatch/dispatch.service.js');
+    return dispatchService.getInvoiceForBatch(batchOrder.dispatchBatchId);
+  }
 }
 
 async function resolveArtworkPreviewUrl(

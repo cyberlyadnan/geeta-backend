@@ -59,6 +59,12 @@ export class DispatchController {
     return ApiResponse.success(res, result, 'Batch marked dispatched');
   });
 
+  removeOrder = asyncHandler(async (req: Request, res: Response) => {
+    const { id, orderId } = req.validatedParams as { id: string; orderId: string };
+    const result = await dispatchService.removeOrderFromBatch(id, orderId, req.user!.id);
+    return ApiResponse.success(res, result, 'Order deferred to next shift');
+  });
+
   getInvoice = asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.validatedParams as { id: string };
     const result = await dispatchService.getInvoiceForBatch(id);

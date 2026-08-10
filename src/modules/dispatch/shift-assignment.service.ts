@@ -171,7 +171,7 @@ export class ShiftAssignmentService {
   }
 
   /** Rolls to the following shift when the natural one is already billed/dispatched. */
-  private nextShiftAfter(selection: ShiftSelection, shifts: ShiftLike[]): ShiftSelection {
+  nextShiftAfter(selection: ShiftSelection, shifts: ShiftLike[]): ShiftSelection {
     const ordered = shifts
       .map((shift) => ({ shift, minutes: parseCutoffMinutes(shift.cutoffTime) }))
       .filter((entry): entry is { shift: ShiftLike; minutes: number } => entry.minutes !== null)

@@ -11,7 +11,7 @@ import { ApiError } from '../../common/errors/ApiError.js';
 import { toDecimal, decimalToNumber } from '../../utils/money.js';
 import { DEFAULT_GST_RATE } from '../../services/delivery/delivery.types.js';
 import { walletLedgerService } from '../../services/ledger/index.js';
-import { notifyUser } from '../orders/order-events.service.js';
+import { notifyUser, recordOrderEvent } from '../orders/order-events.service.js';
 import { allocateInvoiceNumber } from './invoice-number.service.js';
 import { buildInvoicePdf, type InvoicePayload } from './invoice-pdf.service.js';
 import { storageService } from '../../services/storage/storage.service.js';
@@ -47,7 +47,14 @@ const BATCH_DETAIL_INCLUDE = {
           orderName: true,
           subtotal: true,
           totalAmount: true,
-          items: { select: { quantity: true } },
+          items: {
+            select: {
+              quantity: true,
+              productSnapshot: true,
+              configurationSnapshot: true,
+              sizeSnapshot: true,
+            },
+          },
         },
       },
     },
@@ -430,12 +437,20 @@ export class DispatchService {
       billable: actor.walletUserId !== null,
       orderCount: batch.orders.length,
       ordersSubtotal,
-      orders: batch.orders.map((link) => ({
-        id: link.order.id,
-        orderNumber: link.order.orderNumber,
-        orderName: link.order.orderName,
-        subtotal: decimalToNumber(link.order.subtotal),
-      })),
+      orders: batch.orders.map((link) => {
+        const item = link.order.items[0];
+        return {
+          id: link.order.id,
+          orderNumber: link.order.orderNumber,
+          orderName: link.order.orderName,
+          subtotal: decimalToNumber(link.order.subtotal),
+          productName: item ? ((item.productSnapshot as any)?.displayName ?? (item.productSnapshot as any)?.name ?? 'Product') : 'Product',
+          quantity: item ? item.quantity : 1,
+          configurationSnapshot: item ? item.configurationSnapshot : {},
+          sizeSnapshot: item ? item.sizeSnapshot : null,
+          productSnapshot: item ? item.productSnapshot : {},
+        };
+      }),
       deliveryCharge: batch.deliveryCharge === null ? null : decimalToNumber(batch.deliveryCharge),
       heldShortfall: batch.heldShortfall === null ? null : decimalToNumber(batch.heldShortfall),
       heldAt: batch.heldAt?.toISOString() ?? null,
@@ -454,17 +469,182 @@ export class DispatchService {
   }
 
   async markDispatched(batchId: string) {
-    const batch = await this.db.dispatchBatch.findUnique({ where: { id: batchId } });
+    const batch = await this.db.dispatchBatch.findUnique({
+      where: { id: batchId },
+      include: { orders: true },
+    });
     if (!batch) throw ApiError.notFound('Dispatch batch not found');
     if (batch.status !== 'READY') {
       throw ApiError.badRequest('Only a billed (READY) batch can be marked dispatched');
     }
-    const updated = await this.db.dispatchBatch.update({
-      where: { id: batchId },
-      data: { status: 'DISPATCHED', dispatchedAt: new Date() },
-      include: BATCH_DETAIL_INCLUDE,
+    const updated = await this.db.$transaction(async (tx) => {
+      const b = await tx.dispatchBatch.update({
+        where: { id: batchId },
+        data: { status: 'DISPATCHED', dispatchedAt: new Date() },
+        include: BATCH_DETAIL_INCLUDE,
+      });
+
+      const orderIds = b.orders.map((o) => o.orderId);
+      await tx.productionOrder.updateMany({
+        where: { id: { in: orderIds } },
+        data: { status: 'DISPATCHED', deliveryStatus: 'IN_TRANSIT' },
+      });
+
+      for (const orderId of orderIds) {
+        await recordOrderEvent(
+          orderId,
+          {
+            eventType: 'ORDER_DISPATCHED',
+            title: 'Order Dispatched',
+            description: `Order has been dispatched via shift: ${b.shift.label} on date: ${b.dispatchDate}.`,
+          },
+          tx,
+        );
+      }
+
+      return b;
     });
+
     return this.mapBatch(updated);
+  }
+
+  async removeOrderFromBatch(batchId: string, orderId: string, dispatcherUserId: string) {
+    return this.db.$transaction(async (tx) => {
+      const batchOrder = await tx.dispatchBatchOrder.findUnique({
+        where: { orderId },
+        include: { dispatchBatch: { include: { shift: true } } },
+      });
+      if (!batchOrder || batchOrder.dispatchBatchId !== batchId) {
+        throw ApiError.notFound('Order not found in this batch');
+      }
+      const batch = batchOrder.dispatchBatch;
+      if (batch.status === 'READY' || batch.status === 'DISPATCHED') {
+        throw ApiError.badRequest('Cannot defer an order from a batch that has already been billed or dispatched');
+      }
+
+      await tx.dispatchBatchOrder.delete({ where: { id: batchOrder.id } });
+
+      const remainingOrdersCount = await tx.dispatchBatchOrder.count({
+        where: { dispatchBatchId: batchId },
+      });
+
+      if (remainingOrdersCount === 0) {
+        await tx.dispatchBatch.delete({ where: { id: batchId } });
+      } else if (batch.status === 'HELD_INSUFFICIENT_BALANCE') {
+        await tx.dispatchBatch.update({
+          where: { id: batchId },
+          data: {
+            status: 'AWAITING_READY',
+            deliveryCharge: null,
+            heldShortfall: null,
+            heldAt: null,
+          },
+        });
+      }
+
+      const activeShifts = await tx.deliveryShift.findMany({
+        where: { isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { cutoffTime: 'asc' }],
+      });
+
+      const currentSelection = {
+        shift: batch.shift,
+        dispatchDate: batch.dispatchDate,
+        rolledToNextDay: false,
+      };
+
+      const { shiftAssignmentService } = await import('./shift-assignment.service.js');
+      const nextSelection = shiftAssignmentService.nextShiftAfter(currentSelection, activeShifts);
+
+      const actor = batch.vendorId
+        ? { type: 'vendor' as const, vendorId: batch.vendorId }
+        : { type: 'retail' as const, retailCustomerId: batch.retailCustomerId! };
+
+      const where =
+        actor.type === 'vendor'
+          ? {
+              vendorId_shiftId_dispatchDate: {
+                vendorId: actor.vendorId,
+                shiftId: nextSelection.shift.id,
+                dispatchDate: nextSelection.dispatchDate,
+              },
+            }
+          : {
+              retailCustomerId_shiftId_dispatchDate: {
+                retailCustomerId: actor.retailCustomerId,
+                shiftId: nextSelection.shift.id,
+                dispatchDate: nextSelection.dispatchDate,
+              },
+            };
+
+      let targetBatch = await tx.dispatchBatch.findUnique({ where });
+      let finalSelection = nextSelection;
+      if (targetBatch && targetBatch.status !== 'AWAITING_READY') {
+        const nextNextSelection = shiftAssignmentService.nextShiftAfter(nextSelection, activeShifts);
+        finalSelection = nextNextSelection;
+        const whereNext =
+          actor.type === 'vendor'
+            ? {
+                vendorId_shiftId_dispatchDate: {
+                  vendorId: actor.vendorId,
+                  shiftId: nextNextSelection.shift.id,
+                  dispatchDate: nextNextSelection.dispatchDate,
+                },
+              }
+            : {
+                retailCustomerId_shiftId_dispatchDate: {
+                  retailCustomerId: actor.retailCustomerId,
+                  shiftId: nextNextSelection.shift.id,
+                  dispatchDate: nextNextSelection.dispatchDate,
+                },
+              };
+        targetBatch = await tx.dispatchBatch.findUnique({ where: whereNext });
+        if (!targetBatch) {
+          targetBatch = await tx.dispatchBatch.create({
+            data: {
+              ...(actor.type === 'vendor' ? { vendorId: actor.vendorId } : { retailCustomerId: actor.retailCustomerId }),
+              shiftId: nextNextSelection.shift.id,
+              dispatchDate: nextNextSelection.dispatchDate,
+              status: 'AWAITING_READY',
+            },
+          });
+        }
+      } else if (!targetBatch) {
+        targetBatch = await tx.dispatchBatch.create({
+          data: {
+            ...(actor.type === 'vendor' ? { vendorId: actor.vendorId } : { retailCustomerId: actor.retailCustomerId }),
+            shiftId: nextSelection.shift.id,
+            dispatchDate: nextSelection.dispatchDate,
+            status: 'AWAITING_READY',
+          },
+        });
+      }
+
+      await tx.dispatchBatchOrder.create({
+        data: {
+          dispatchBatchId: targetBatch.id,
+          orderId,
+        },
+      });
+
+      await recordOrderEvent(
+        orderId,
+        {
+          eventType: 'ORDER_DEFERRED_DISPATCH',
+          title: 'Dispatch Deferred',
+          description: `Order deferred from shift: ${batch.shift.label} (${batch.dispatchDate}) to next shift: ${finalSelection.shift.label} (${targetBatch.dispatchDate}) by dispatcher.`,
+          actorId: dispatcherUserId,
+        },
+        tx,
+      );
+
+      return {
+        success: true,
+        newBatchId: targetBatch.id,
+        newDispatchDate: targetBatch.dispatchDate,
+        newShiftLabel: finalSelection.shift.label,
+      };
+    });
   }
 }
 
