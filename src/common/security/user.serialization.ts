@@ -42,18 +42,39 @@ export const VENDOR_PROFILE_PUBLIC_SELECT = {
 
 export const VENDOR_PROFILE_AUTH_SELECT = VENDOR_PROFILE_PUBLIC_SELECT;
 
-/** Login only — password hash used server-side, never serialized to clients */
 export const USER_LOGIN_SELECT = {
   ...USER_PUBLIC_SELECT,
   passwordHash: true,
   role: { select: ROLE_PUBLIC_SELECT },
   vendorProfile: { select: VENDOR_PROFILE_AUTH_SELECT },
+  departmentAssignments: {
+    select: {
+      department: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      },
+    },
+  },
 } as const satisfies Prisma.UserSelect;
 
 export const USER_SESSION_SELECT = {
   ...USER_PUBLIC_SELECT,
   role: { select: ROLE_PUBLIC_SELECT },
   vendorProfile: { select: VENDOR_PROFILE_AUTH_SELECT },
+  departmentAssignments: {
+    select: {
+      department: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      },
+    },
+  },
 } as const satisfies Prisma.UserSelect;
 
 export type UserPublicRecord = Prisma.UserGetPayload<{ select: typeof USER_PUBLIC_SELECT }>;
@@ -99,6 +120,7 @@ export interface SafeAuthUserDto {
   status: string;
   permissions: string[];
   vendorProfile: SafeVendorProfileSummaryDto | null;
+  departments: Array<{ id: string; code: string; name: string }>;
 }
 
 const FORBIDDEN_USER_RESPONSE_KEYS = new Set([
@@ -172,5 +194,10 @@ export function mapUserSessionToAuthDto(user: UserSessionRecord): SafeAuthUserDt
     status: user.status,
     permissions: extractPermissions(user.role),
     vendorProfile: mapVendorProfileSummaryToDto(user.vendorProfile),
+    departments: user.departmentAssignments?.map((da) => ({
+      id: da.department.id,
+      code: da.department.code,
+      name: da.department.name,
+    })) ?? [],
   };
 }
