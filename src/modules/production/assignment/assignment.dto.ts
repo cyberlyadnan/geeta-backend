@@ -74,6 +74,7 @@ export interface MyAssignedTaskDto {
   productSnapshot?: unknown;
   department: { id: string; code: string; name: string };
   step: { code: string; name: string; type: string };
+  workflowSteps: Array<{ id: string; status: string; stepOrder: number; stepType: string; stepName: string }>;
   taskStatus: string;
   assignmentStatus: string;
   priority: string;
@@ -242,6 +243,13 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
     productSnapshot: task.workflowInstance.productionOrderItem.productSnapshot,
     department: record.department,
     step: { code: task.workflowStep.stepCode, name: task.workflowStep.stepName, type: task.workflowStep.stepType },
+    workflowSteps: task.workflowInstance.tasks.map((t) => ({
+      id: t.id,
+      status: t.status,
+      stepOrder: t.stepOrder,
+      stepType: t.workflowStep.stepType,
+      stepName: t.workflowStep.stepName,
+    })),
     taskStatus: task.status,
     assignmentStatus: record.status,
     priority: record.priority,

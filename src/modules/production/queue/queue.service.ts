@@ -57,11 +57,25 @@ export class QueueService {
     taskId: string,
     role: RoleName,
     permissions: string[],
+    requesterId?: string,
   ) {
     const department = await queueRepository.findDepartmentById(departmentId);
     if (!department) throw ApiError.notFound('Department not found');
 
-    assertDepartmentAccess(department.code, role, permissions);
+    let hasAccess = false;
+    try {
+      assertDepartmentAccess(department.code, role, permissions);
+      hasAccess = true;
+    } catch {
+      // If department access fails, check if the user is assigned to this task
+      if (requesterId) {
+        const isAssigned = await queueRepository.isTaskAssignedToUser(taskId, requesterId);
+        if (isAssigned) hasAccess = true;
+      }
+    }
+    if (!hasAccess) {
+      throw ApiError.forbidden('You do not have access to this department queue');
+    }
 
     const task = await queueRepository.findQueueTaskDetail(departmentId, taskId);
     if (!task) throw ApiError.notFound('Queue task not found');

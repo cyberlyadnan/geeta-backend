@@ -26,6 +26,7 @@ export class QueueController {
       req.params['taskId'] as string,
       req.user!.role,
       req.user!.permissions,
+      req.user!.id,
     );
     return ApiResponse.success(res, result);
   });

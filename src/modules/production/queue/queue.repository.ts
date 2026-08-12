@@ -328,6 +328,14 @@ export class QueueRepository {
       select: QUEUE_TASK_DETAIL_SELECT,
     });
   }
+
+  async isTaskAssignedToUser(taskId: string, userId: string): Promise<boolean> {
+    const assignment = await prisma.workflowTaskAssignment.findFirst({
+      where: { workflowTaskId: taskId, operatorId: userId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    return assignment !== null;
+  }
 }
 
 export const queueRepository = new QueueRepository();

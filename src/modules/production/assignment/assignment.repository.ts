@@ -86,6 +86,15 @@ export const MY_TASK_SELECT = {
       workflowInstance: {
         select: {
           id: true,
+          tasks: {
+            select: {
+              id: true,
+              status: true,
+              stepOrder: true,
+              workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
+            },
+            orderBy: { stepOrder: 'asc' as const },
+          },
           order: { select: { orderNumber: true, orderName: true } },
           productionOrderItem: {
             select: {

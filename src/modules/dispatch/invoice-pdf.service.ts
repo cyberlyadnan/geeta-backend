@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type RGB } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type RGB } from 'pdf-lib';
 
 export type InvoiceLine = {
   orderNumber: string;
@@ -77,8 +77,6 @@ const HEADER_BG = rgb(0.05, 0.12, 0.25);
 const ROW_ALT = rgb(0.97, 0.97, 0.98);
 const ACCENT = rgb(0.15, 0.35, 0.55);
 const BORDER = rgb(0.75, 0.78, 0.82);
-const LIGHT_BG = rgb(0.96, 0.97, 0.99);
-
 export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   let page = pdf.addPage([595, 842]);
@@ -106,22 +104,12 @@ export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array>
     page.drawText(value, { x: right - width, y, size, font: selectedFont, color });
   };
 
-  const centeredText = (value: string, size = 9, bold = false, color: RGB = DARK_TEXT) => {
-    const selectedFont = bold ? fontBold : font;
-    const width = selectedFont.widthOfTextAtSize(value, size);
-    page.drawText(value, { x: left + (tableWidth - width) / 2, y, size, font: selectedFont, color });
-  };
-
   const drawRect = (x: number, yPos: number, width: number, height: number, color: RGB = ROW_ALT) => {
     page.drawRectangle({ x, y: yPos, width, height, color });
   };
 
   const hLine = (yPos: number, thickness = 0.5, color: RGB = BORDER) => {
     page.drawLine({ start: { x: left, y: yPos }, end: { x: right, y: yPos }, thickness, color });
-  };
-
-  const vLine = (x: number, y1: number, y2: number, thickness = 0.5, color: RGB = BORDER) => {
-    page.drawLine({ start: { x, y: y1 }, end: { x, y: y2 }, thickness, color });
   };
 
   // ── OUTER BORDER ──
@@ -218,7 +206,6 @@ export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array>
   y -= 18;
 
   // Table rows
-  const tableTopY = y;
   for (let i = 0; i < data.lines.length; i++) {
     const line = data.lines[i]!;
     const isAlt = i % 2 === 1;
@@ -334,7 +321,6 @@ export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array>
 
   // Single classification row (printing products = HSN 4911)
   const taxableAmt = data.subtotal + data.deliveryCharge;
-  const gstVal = (v: number) => { const s = money(v); const w = font.widthOfTextAtSize(s, 7); return { s, w }; };
   page.drawText('4911', { x: gstColX.hsn, y, size: 7, font: font, color: DARK_TEXT });
   page.drawText(money(taxableAmt), { x: gstColX.taxable, y, size: 7, font: font, color: DARK_TEXT });
   page.drawText(halfGstRate, { x: gstColX.cgstR, y, size: 7, font: font, color: DARK_TEXT });
