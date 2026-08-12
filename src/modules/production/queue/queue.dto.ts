@@ -35,6 +35,7 @@ export interface QueueWorkflowProgressStepDto {
   stepOrder: number;
   stepCode: string;
   stepName: string;
+  stepType: string;
   status: string;
   isCurrent: boolean;
   isCompleted: boolean;
@@ -90,6 +91,7 @@ export interface QueueTaskDetailDto extends QueueTaskCardDto {
   instructions: string | null;
   metadata: unknown;
   estimatedCompletionAt: string | null;
+  deliveryAddress: string | null;
   configuration: unknown;
   sizeSnapshot: unknown;
   productSnapshot: unknown;
@@ -108,8 +110,8 @@ export interface QueueTaskDetailDto extends QueueTaskCardDto {
     fileUrl: string | null;
     originalName: string | null;
   }>;
-  previousTask: { id: string; stepCode: string; stepName: string; status: string } | null;
-  nextTask: { id: string; stepCode: string; stepName: string; status: string } | null;
+  previousTask: { id: string; stepCode: string; stepName: string; stepType: string; status: string } | null;
+  nextTask: { id: string; stepCode: string; stepName: string; stepType: string; status: string } | null;
   workflowSteps: QueueWorkflowProgressStepDto[];
   dependencies: Array<{ id: string; dependsOnTaskId: string; dependencyType: string }>;
   timeline: Array<{
@@ -246,6 +248,7 @@ export function mapQueueTaskDetail(record: QueueTaskDetailRecord): QueueTaskDeta
       stepOrder: step.stepOrder,
       stepCode: step.workflowStep.stepCode,
       stepName: step.workflowStep.stepName,
+      stepType: step.workflowStep.stepType,
       status: step.status,
       isCurrent,
       isCompleted,
@@ -260,6 +263,7 @@ export function mapQueueTaskDetail(record: QueueTaskDetailRecord): QueueTaskDeta
     instructions: record.instructions,
     metadata: record.metadata,
     estimatedCompletionAt: toIso(record.workflowInstance.order.estimatedCompletionAt),
+    deliveryAddress: record.workflowInstance.order.deliveryAddress ?? null,
     configuration: item.configurationSnapshot,
     sizeSnapshot: item.sizeSnapshot,
     productSnapshot: item.productSnapshot,
@@ -307,6 +311,7 @@ export function mapQueueTaskDetail(record: QueueTaskDetailRecord): QueueTaskDeta
           id: previous.id,
           stepCode: previous.workflowStep.stepCode,
           stepName: previous.workflowStep.stepName,
+          stepType: previous.workflowStep.stepType,
           status: previous.status,
         }
       : null,
@@ -315,6 +320,7 @@ export function mapQueueTaskDetail(record: QueueTaskDetailRecord): QueueTaskDeta
           id: next.id,
           stepCode: next.workflowStep.stepCode,
           stepName: next.workflowStep.stepName,
+          stepType: next.workflowStep.stepType,
           status: next.status,
         }
       : null,

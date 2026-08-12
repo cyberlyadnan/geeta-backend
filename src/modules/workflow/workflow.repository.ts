@@ -28,6 +28,7 @@ export const WORKFLOW_TEMPLATE_WITH_STEPS = {
       allowSkip: true,
       isMandatory: true,
       locksAmendmentsOnStart: true,
+      skipWhen: true,
       instructions: true,
       metadata: true,
       dependencies: {
@@ -237,7 +238,7 @@ export class WorkflowRepository {
   }
 
   async updateTaskStatuses(
-    updates: Array<{ id: string; status: WorkflowTaskStatus; queuedAt?: Date }>,
+    updates: Array<{ id: string; status: WorkflowTaskStatus; queuedAt?: Date; completedAt?: Date }>,
     tx: Prisma.TransactionClient,
   ) {
     await Promise.all(
@@ -247,6 +248,7 @@ export class WorkflowRepository {
           data: {
             status: update.status,
             ...(update.queuedAt ? { queuedAt: update.queuedAt } : {}),
+            ...(update.completedAt ? { completedAt: update.completedAt } : {}),
           },
         }),
       ),

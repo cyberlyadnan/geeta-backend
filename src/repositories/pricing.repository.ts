@@ -4,8 +4,9 @@ import { ApiError } from '../common/errors/ApiError.js';
 import { TtlCache } from '../common/cache/ttl-cache.js';
 import { CacheTtl } from '../common/cache/cache-keys.js';
 import { loadOncePerRequest } from '../common/cache/request-cache-accessor.js';
-import { calculatePriceFromBundle } from '../services/pricing-engine/pricing.calculator.js';
-import type { PriceCalculationInput, PriceCalculationResult } from '../services/pricing-engine/pricing.types.js';
+import { calculatePriceFromBundle, type CalculatorBaseOverride } from '../services/pricing-engine/pricing.calculator.js';
+import { resolveMatrixPrice, applyPriceModifierRules } from '../services/pricing-engine/matrix-pricing.resolver.js';
+import type { PriceBreakdownLine, PriceCalculationInput, PriceCalculationResult } from '../services/pricing-engine/pricing.types.js';
 
 export const VERSION_PRICING_INCLUDE = {
   quantityPricing: { where: { isActive: true }, orderBy: { quantity: 'asc' } },
@@ -69,15 +70,70 @@ export type VersionPricingBundle = NonNullable<Awaited<ReturnType<typeof fetchVe
  * pricing through the matrix/flex engines the moment it's tagged, with no data migration.
  */
 export function resolvePricingStrategyKey(bundle: VersionPricingBundle): string {
-  return (
+  const explicit =
     // A tagged product type profile states the strategy outright, so it wins. Safe to put first:
     // nothing created before Phase 4 has a profile, so no existing product changes strategy.
     bundle.productTypeProfile?.pricingStrategyKey ??
     bundle.productPrintConfig?.pricingStrategyKey ??
     bundle.printProcess?.pricingStrategyKey ??
     bundle.pricingProfileKey ??
-    'quantity_pricing'
+    null;
+
+  if (explicit) return explicit;
+
+  // Auto-detect: if the product has matrix cells with prices, use the matrix strategy
+  // even when no explicit key is configured. This avoids requiring admins to manually
+  // tag a strategy after building a pricing table.
+  if (bundle.priceMatrixCells?.some((c: { price?: unknown }) => c.price != null)) {
+    return 'matrix';
+  }
+
+  return 'quantity_pricing';
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function calculateWithStrategy(
+  bundle: VersionPricingBundle,
+  input: PriceCalculationInput,
+): PriceCalculationResult {
+  const strategyKey = resolvePricingStrategyKey(bundle);
+
+  if (strategyKey !== 'matrix') {
+    return calculatePriceFromBundle(bundle, input);
+  }
+
+  const matrix = resolveMatrixPrice(
+    bundle.priceMatrixCells,
+    bundle.quantityPricing,
+    input.selections,
+    input.quantity,
   );
+
+  if (!matrix.valid || matrix.price == null) {
+    return calculatePriceFromBundle(bundle, input);
+  }
+
+  const qty = Math.max(1, input.quantity);
+  const band = matrix.qtyBand ?? 'default';
+  const perUnit = (amount: number, label: string): string =>
+    qty > 1 ? `${label} (₹${String(amount)} × ${String(qty)})` : label;
+
+  const { lines } = applyPriceModifierRules(matrix.price, bundle.priceModifierRules, input.selections);
+  const baseOverride: CalculatorBaseOverride = {
+    amount: round2(matrix.price * qty),
+    label: perUnit(matrix.price, `Matrix price (${band})`),
+    tierQuantity: band,
+    preAdjustmentLines: lines.map((line: PriceBreakdownLine) => ({
+      ...line,
+      amount: round2(line.amount * qty),
+      label: perUnit(line.amount, line.label),
+    })),
+  };
+
+  return calculatePriceFromBundle(bundle, input, baseOverride);
 }
 
 export class PricingRepository {
@@ -92,7 +148,7 @@ export class PricingRepository {
     if (!bundle) {
       throw ApiError.notFound('Product version not found');
     }
-    return calculatePriceFromBundle(bundle, input);
+    return calculateWithStrategy(bundle, input);
   }
 
   invalidateVersion(versionId: string): void {

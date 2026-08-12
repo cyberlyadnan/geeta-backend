@@ -186,7 +186,7 @@ export class AdminAttributesService {
       }
 
       return created;
-    });
+    }, { timeout: 30_000 });
 
     await catalogAuditService.logProductActivity({
       action: ActivityAction.PRODUCT_ATTRIBUTE_ADDED,
@@ -296,7 +296,7 @@ export class AdminAttributesService {
           },
         });
       }
-    });
+    }, { timeout: 30_000 });
 
     await catalogAuditService.logProductActivity({
       action: ActivityAction.PRODUCT_UPDATED,

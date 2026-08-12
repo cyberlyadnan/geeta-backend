@@ -77,6 +77,7 @@ export class SystemWorkflowsService {
             allowSkip: true,
             isMandatory: true,
             locksAmendmentsOnStart: true,
+            skipWhen: true,
             instructions: true,
             metadata: true,
             department: { select: { id: true, code: true, name: true } },
@@ -189,6 +190,46 @@ export class SystemWorkflowsService {
     return this.update(templateId, { status: WorkflowStatus.ARCHIVED, isDefault: false });
   }
 
+  async getConfigFields(templateId: string) {
+    const links = await prisma.productOfferingWorkflow.findMany({
+      where: { workflowTemplateId: templateId },
+      select: { productOfferingVersionId: true },
+    });
+
+    if (links.length === 0) return [];
+
+    const versionIds = links.map((l) => l.productOfferingVersionId);
+
+    const fields = await prisma.configurationField.findMany({
+      where: { productOfferingVersionId: { in: versionIds } },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        code: true,
+        label: true,
+        options: {
+          orderBy: { sortOrder: 'asc' },
+          select: { label: true, value: true },
+        },
+      },
+    });
+
+    const seen = new Map<string, { code: string; label: string; options: { label: string; value: string }[] }>();
+    for (const f of fields) {
+      const existing = seen.get(f.code);
+      if (!existing) {
+        seen.set(f.code, { code: f.code, label: f.label, options: [...f.options] });
+      } else {
+        for (const opt of f.options) {
+          if (!existing.options.some((o) => o.value === opt.value)) {
+            existing.options.push(opt);
+          }
+        }
+      }
+    }
+
+    return [...seen.values()];
+  }
+
   async saveSteps(templateId: string, input: SaveWorkflowStepsInput) {
     const template = await prisma.workflowTemplate.findUnique({ where: { id: templateId } });
     if (!template) throw ApiError.notFound('Workflow template not found');
@@ -248,6 +289,9 @@ export class SystemWorkflowsService {
             locksAmendmentsOnStart: step.locksAmendmentsOnStart ?? false,
             instructions: step.instructions?.trim() ? step.instructions.trim() : null,
             metadata: (step.metadata ?? {}) as Prisma.InputJsonValue,
+            skipWhen: step.skipWhen !== undefined
+              ? (step.skipWhen as Prisma.InputJsonValue ?? Prisma.DbNull)
+              : undefined,
           };
 
           const record = step.id

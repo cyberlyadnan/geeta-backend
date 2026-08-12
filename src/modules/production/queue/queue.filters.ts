@@ -31,6 +31,7 @@ export function buildQueueTaskWhere(
     // They would otherwise sit in a department queue as un-actionable clutter that no operator
     // can ever complete. The vendor portal surfaces them instead.
     { workflowStep: { stepType: { not: WorkflowStepType.VENDOR_APPROVAL } } },
+    { status: { not: WorkflowTaskStatus.SKIPPED } },
   ];
 
   if (query.lens === 'rush') {

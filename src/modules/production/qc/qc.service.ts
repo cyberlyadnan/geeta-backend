@@ -350,7 +350,7 @@ export class QcService {
           ],
           tx,
         );
-      });
+      }, { maxWait: 10_000, timeout: 30_000 });
     }
 
     this.afterQcMutation(activityMap[body.result], eventMap[body.result], {

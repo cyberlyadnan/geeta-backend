@@ -113,6 +113,23 @@ export const workflowStepSchema = z.object({
   locksAmendmentsOnStart: z.boolean().optional(),
   instructions: z.string().max(5000).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
+  skipWhen: z
+    .union([
+      z.object({
+        field: z.string().min(1).max(80),
+        operator: z.enum(['in', 'eq', 'not_in', 'neq', 'empty', 'not_empty']),
+        values: z.array(z.string()).optional(),
+      }),
+      z.array(
+        z.object({
+          field: z.string().min(1).max(80),
+          operator: z.enum(['in', 'eq', 'not_in', 'neq', 'empty', 'not_empty']),
+          values: z.array(z.string()).optional(),
+        }),
+      ),
+    ])
+    .nullable()
+    .optional(),
   sla: z
     .object({
       warningAfterMinutes: z.coerce.number().int().min(1),

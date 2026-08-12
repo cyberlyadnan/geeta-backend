@@ -416,6 +416,7 @@ export class OrdersService {
           productOfferingVersionId: computed.versionId,
           createdById: eventActorId,
           metadata: { orderNumber },
+          orderSelections: input.selections,
         },
         tx,
       );

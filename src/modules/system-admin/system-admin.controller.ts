@@ -151,6 +151,12 @@ export class SystemAdminController {
     return ApiResponse.success(res, result);
   });
 
+  getWorkflowConfigFields = asyncHandler(async (req: Request, res: Response) => {
+    requireSuperAdmin(req);
+    const result = await systemWorkflowsService.getConfigFields(req.params['id'] as string);
+    return ApiResponse.success(res, result);
+  });
+
   // Product workflows
   listProductWorkflows = asyncHandler(async (req: Request, res: Response) => {
     requireSuperAdmin(req);

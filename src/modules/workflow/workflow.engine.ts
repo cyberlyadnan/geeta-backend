@@ -19,6 +19,7 @@ import {
 import { taskGeneratorService } from './task-generator.service.js';
 import { workflowTimelineService } from './workflow-timeline.service.js';
 import { workflowRepository } from './workflow.repository.js';
+import { resolveSkippedStepIds } from './step-skip-evaluator.js';
 
 export interface CreateWorkflowForOrderInput {
   orderId: string;
@@ -26,6 +27,7 @@ export interface CreateWorkflowForOrderInput {
   productOfferingVersionId: string;
   createdById?: string;
   metadata?: Prisma.InputJsonValue;
+  orderSelections?: Record<string, string>;
 }
 
 export interface WorkflowCreationResult {
@@ -116,6 +118,29 @@ export class WorkflowEngine {
       select: { id: true, workflowTemplateStepId: true, stepOrder: true, status: true },
     });
 
+    const selections = input.orderSelections ?? {};
+    const skippedStepIds = resolveSkippedStepIds(
+      template.steps.map((s) => ({ id: s.id, skipWhen: s.skipWhen })),
+      selections,
+    );
+
+    const autoSkippedTaskIds: string[] = [];
+    if (skippedStepIds.size > 0) {
+      const now = new Date();
+      for (const task of createdTasks) {
+        if (skippedStepIds.has(task.workflowTemplateStepId)) {
+          autoSkippedTaskIds.push(task.id);
+          task.status = WorkflowTaskStatus.SKIPPED;
+        }
+      }
+      if (autoSkippedTaskIds.length > 0) {
+        await workflowRepository.updateTaskStatuses(
+          autoSkippedTaskIds.map((id) => ({ id, status: WorkflowTaskStatus.SKIPPED, completedAt: now })),
+          tx,
+        );
+      }
+    }
+
     const taskDependencies = taskGeneratorService.resolveDependencies(template, createdTasks);
 
     if (taskDependencies.length > 0) {
@@ -131,8 +156,13 @@ export class WorkflowEngine {
     await tx.workflowTaskHistory.createMany({
       data: createdTasks.map((task) => ({
         taskId: task.id,
-        action: WorkflowHistoryAction.CREATED,
+        action: autoSkippedTaskIds.includes(task.id)
+          ? WorkflowHistoryAction.SKIPPED
+          : WorkflowHistoryAction.CREATED,
         performedById: input.createdById,
+        remarks: autoSkippedTaskIds.includes(task.id)
+          ? 'Auto-skipped: order configuration does not require this step'
+          : undefined,
       })),
     });
 
@@ -443,7 +473,7 @@ export class WorkflowEngine {
         workflowStatus,
         workflowCompleted,
       };
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
 
     for (const readyId of result.newlyReadyTaskIds) {
       eventBus.emitEvent(APP_EVENTS.TASK_READY, {

@@ -1697,6 +1697,11 @@ model WorkflowTemplateStep {
   /// Order amendments are blocked once a task for this step has started (left BLOCKED/PENDING/
   /// WAITING/READY/ASSIGNED) — e.g. flag the "Printing" step. Per-template, not a global status list.
   locksAmendmentsOnStart Boolean          @default(false) @map("locks_amendments_on_start")
+  /// JSON skip-condition evaluated against the order's configurationSnapshot.selections at workflow
+  /// creation time. When the condition matches, the task is created with SKIPPED status so it never
+  /// appears in the department queue. Format: { "field": "<configFieldCode>", "operator": "in"|"eq"|"not_in"|"neq", "values": ["v1","v2"] }
+  /// Multiple conditions can be AND-ed: [{ ... }, { ... }] — all must match to skip.
+  skipWhen               Json?            @map("skip_when")
   createdAt              DateTime         @default(now()) @map("created_at")
   updatedAt              DateTime         @updatedAt @map("updated_at")
 

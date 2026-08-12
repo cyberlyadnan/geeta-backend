@@ -61,6 +61,7 @@ router.post(
 );
 router.post('/workflows/:id/archive', validate(idParamSchema, 'params'), systemAdminController.archiveWorkflow);
 router.put('/workflows/:id/steps', validate(idParamSchema, 'params'), validate(saveWorkflowStepsSchema), systemAdminController.saveWorkflowSteps);
+router.get('/workflows/:id/config-fields', validate(idParamSchema, 'params'), systemAdminController.getWorkflowConfigFields);
 
 // Product workflows
 router.get('/product-workflows', validate(cursorQuerySchema.extend({ unlinkedOnly: z.coerce.boolean().optional() }), 'query'), systemAdminController.listProductWorkflows);

@@ -114,6 +114,7 @@ export const QUEUE_TASK_DETAIL_SELECT = {
         select: {
           ...QUEUE_TASK_LIST_SELECT.workflowInstance.select.order.select,
           estimatedCompletionAt: true,
+          deliveryAddress: true,
         },
       },
       productionOrderItem: {
@@ -185,7 +186,7 @@ export const QUEUE_TASK_DETAIL_SELECT = {
           id: true,
           stepOrder: true,
           status: true,
-          workflowStep: { select: { stepCode: true, stepName: true } },
+          workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
         },
         orderBy: { stepOrder: 'asc' as const },
       },

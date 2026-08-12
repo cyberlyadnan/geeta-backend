@@ -73,6 +73,7 @@ export class DispatchReadinessService {
 
     // Terminal or already-dispatched orders must not be re-batched by a late event.
     const advanceable: ProductionOrderStatus[] = [
+      ProductionOrderStatus.ORDER_PLACED,
       ProductionOrderStatus.IN_PRODUCTION,
       ProductionOrderStatus.QUALITY_CHECK,
       ProductionOrderStatus.CONFIRMED,

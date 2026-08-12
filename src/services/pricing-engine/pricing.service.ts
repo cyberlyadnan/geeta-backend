@@ -2,7 +2,6 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { decimalToNumber, toDecimal } from '../../utils/money.js';
-import { calculatePriceFromBundle } from './pricing.calculator.js';
 import { pricingRepository, VERSION_PRICING_INCLUDE } from '../../repositories/pricing.repository.js';
 import type { PriceCalculationInput, PriceCalculationResult } from './pricing.types.js';
 
@@ -33,7 +32,7 @@ export class PricingEngineService {
         versions: {
           where: { isCurrent: true, deletedAt: null },
           take: 1,
-          include: VERSION_PRICING_INCLUDE,
+          select: { id: true },
         },
       },
     });
@@ -42,7 +41,7 @@ export class PricingEngineService {
       throw ApiError.notFound('Product not found or has no published version');
     }
 
-    return calculatePriceFromBundle(offering.versions[0], {
+    return pricingRepository.calculate({
       versionId: offering.versions[0].id,
       quantity,
       selections,

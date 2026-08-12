@@ -17,6 +17,7 @@ import { buildInvoicePdf, type InvoicePayload } from './invoice-pdf.service.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import { STORAGE_FOLDERS } from '../../services/storage/storage.types.js';
 import { logger } from '../../logs/logger.js';
+import { extractProductAttributes } from '../../utils/product-attributes.js';
 
 /** Narrow slice of the Prisma client this service needs — injectable so tests can drive the
  *  whole flow with a hand-rolled fake instead of monkey-patching the real (proxy-based) Prisma
@@ -293,7 +294,7 @@ export class DispatchService {
       });
 
       return { held: false as const, batch: billed, invoice, amountDueNow };
-    });
+    }, { maxWait: 10000, timeout: 20000 });
 
     // The PDF is rendered and uploaded after the transaction commits — holding a database
     // transaction open across object-storage I/O would pin a connection for the length of a
@@ -445,7 +446,6 @@ export class DispatchService {
         const item = link.order.items[0];
         let attributes: string[] = [];
         if (item) {
-          const { extractProductAttributes } = require('../../utils/product-attributes.js');
           attributes = extractProductAttributes(item.configurationSnapshot, item.sizeSnapshot);
         }
         return {
