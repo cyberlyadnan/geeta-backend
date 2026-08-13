@@ -118,7 +118,7 @@ async function resolveCheckoutContext(actor: OrderActor): Promise<OrderCheckoutC
 export class OrdersService {
   async findAll(userId: string, query: ListOrdersQuery) {
     const { page, limit, search, status, fromDate, toDate } = query;
-    const safeLimit = Math.min(Math.max(limit, 1), 50);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
     const skip = (page - 1) * safeLimit;
 
     const [orders, total] = await orderRepository.findManyByCustomer(userId, skip, safeLimit, {
@@ -132,6 +132,17 @@ export class OrdersService {
       items: orders.map(mapOrderToListDto),
       meta: { page, limit: safeLimit, total, totalPages: Math.ceil(total / safeLimit) || 1 },
     };
+  }
+
+  async countByStatus(userId: string) {
+    const groups = await orderRepository.countByStatus(userId);
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const g of groups) {
+      counts[g.status] = g._count.status;
+      total += g._count.status;
+    }
+    return { counts, total };
   }
 
   async findById(userId: string, id: string) {

@@ -757,6 +757,7 @@ model User {
   vendorComplianceReviewed        VendorComplianceRequest[]       @relation("VendorComplianceReviewedBy")
   vendorComplianceItemReviewed    VendorComplianceResponse[]      @relation("VendorComplianceResponseReviewedBy")
   deliverySettingsUpdated         DeliverySettings[]              @relation("DeliverySettingsUpdatedBy")
+  companyProfileUpdated           CompanyProfile[]                @relation("CompanyProfileUpdatedBy")
   artworkFiles                    ArtworkFile[]                   @relation("ArtworkFileOwner")
   artworkApprovals                OrderArtwork[]                  @relation("OrderArtworkApprover")
   sheetSizesCreated               SheetSize[]                     @relation("SheetSizeCreatedBy")
@@ -891,6 +892,35 @@ model DeliverySettings {
   updatedBy User? @relation("DeliverySettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@map("delivery_settings")
+}
+
+model CompanyProfile {
+  id          String  @id @default("default")
+  companyName String  @default("") @map("company_name")
+  tagline     String  @default("") @map("tagline")
+  address     String  @default("") @map("address")
+  city        String  @default("") @map("city")
+  state       String  @default("") @map("state")
+  stateCode   String  @default("") @map("state_code")
+  pincode     String  @default("") @map("pincode")
+  phone       String  @default("") @map("phone")
+  email       String  @default("") @map("email")
+  website     String  @default("") @map("website")
+  gstin       String  @default("") @map("gstin")
+  pan         String  @default("") @map("pan")
+  cin         String  @default("") @map("cin")
+  bankName    String  @default("") @map("bank_name")
+  bankAccount String  @default("") @map("bank_account")
+  bankIfsc    String  @default("") @map("bank_ifsc")
+  bankBranch  String  @default("") @map("bank_branch")
+  terms       String  @default("") @map("terms") @db.Text
+  updatedById String? @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("CompanyProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("company_profile")
 }
 
 // =====================================================

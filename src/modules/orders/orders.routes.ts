@@ -64,6 +64,7 @@ router.get('/drafts', ordersController.listDrafts);
 router.post('/drafts', validate(saveDraftSchema), ordersController.saveDraft);
 router.delete('/drafts/:draftId', validate(draftIdParamSchema, 'params'), ordersController.deleteDraft);
 
+router.get('/status-counts', ordersController.statusCounts);
 router.get('/', validate(listOrdersQuerySchema, 'query'), ordersController.list);
 router.post('/', validate(createProductionOrderSchema), ordersController.create);
 router.post('/:id/reorder', validate(orderIdParamSchema, 'params'), ordersController.reorder);

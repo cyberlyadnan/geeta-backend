@@ -201,6 +201,14 @@ export class OrderRepository {
       select: ORDER_DETAIL_SELECT,
     });
   }
+
+  countByStatus(customerId: string) {
+    return prisma.productionOrder.groupBy({
+      by: ['status'],
+      where: { customerId },
+      _count: { status: true },
+    });
+  }
 }
 
 export const orderRepository = new OrderRepository();

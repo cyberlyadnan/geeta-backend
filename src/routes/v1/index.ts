@@ -32,6 +32,7 @@ import {
 } from '../../modules/admin-products/index.js';
 import { publicCatalogRoutes } from '../../modules/products/public-products.routes.js';
 import { deliveryRoutes, adminDeliveryRoutes } from '../../modules/delivery/index.js';
+import { companyProfileRoutes } from '../../modules/company-profile/index.js';
 import { adminMonitoringRoutes } from '../../modules/admin-monitoring/index.js';
 import {
   printJobRoutes,
@@ -80,6 +81,7 @@ v1Router.use('/dashboard', dashboardRoutes);
 v1Router.use('/settings', settingsRoutes);
 v1Router.use('/delivery', deliveryRoutes);
 v1Router.use('/admin/delivery', adminDeliveryRoutes);
+v1Router.use('/admin/company-profile', companyProfileRoutes);
 v1Router.use('/contact', contactRoutes);
 v1Router.use('/vendors', vendorsRoutes);
 v1Router.use('/vendor', vendorCatalogRoutes);

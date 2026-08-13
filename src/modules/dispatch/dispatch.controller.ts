@@ -3,6 +3,8 @@ import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { dispatchService } from './dispatch.service.js';
 import type {
+  AddOrderInput,
+  ChangeBatchShiftInput,
   CreateShiftInput,
   ListBatchesQuery,
   ListShiftsQuery,
@@ -71,6 +73,26 @@ export class DispatchController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     return res.send(result.buffer);
+  });
+
+  addOrder = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const { orderId } = req.body as AddOrderInput;
+    const result = await dispatchService.addOrderToBatch(id, orderId, req.user!.id);
+    return ApiResponse.success(res, result, 'Order added to batch');
+  });
+
+  changeBatchShift = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const { shiftId, dispatchDate } = req.body as ChangeBatchShiftInput;
+    const result = await dispatchService.changeBatchShift(id, shiftId, dispatchDate, req.user!.id);
+    return ApiResponse.success(res, result, result.merged ? 'Batch merged into existing batch' : 'Batch shift updated');
+  });
+
+  listAvailableOrders = asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.validatedParams as { id: string };
+    const result = await dispatchService.listAvailableOrders(id);
+    return ApiResponse.success(res, { items: result });
   });
 }
 

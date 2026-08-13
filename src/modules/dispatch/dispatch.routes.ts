@@ -5,7 +5,9 @@ import { authorize } from '../../middleware/authorize.js';
 import { validate } from '../../validators/validate.js';
 import { dispatchController } from './dispatch.controller.js';
 import {
+  addOrderSchema,
   batchIdParamSchema,
+  changeBatchShiftSchema,
   createShiftSchema,
   listBatchesQuerySchema,
   listShiftsQuerySchema,
@@ -44,6 +46,23 @@ dispatchRouter.get(
   '/batches/:id/invoice',
   validate(batchIdParamSchema, 'params'),
   dispatchController.getInvoice,
+);
+dispatchRouter.post(
+  '/batches/:id/orders',
+  validate(batchIdParamSchema, 'params'),
+  validate(addOrderSchema),
+  dispatchController.addOrder,
+);
+dispatchRouter.patch(
+  '/batches/:id/shift',
+  validate(batchIdParamSchema, 'params'),
+  validate(changeBatchShiftSchema),
+  dispatchController.changeBatchShift,
+);
+dispatchRouter.get(
+  '/batches/:id/available-orders',
+  validate(batchIdParamSchema, 'params'),
+  dispatchController.listAvailableOrders,
 );
 
 /** Shift masters are configuration — admin/manager only, not general dispatch staff. */

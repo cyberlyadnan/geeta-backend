@@ -1,6 +1,7 @@
 import {
   ArtworkApprovalStatus,
   Prisma,
+  ProductionOrderStatus,
   WorkflowInstanceStatus,
   WorkflowPriority,
   WorkflowStepType,
@@ -27,11 +28,16 @@ export function buildQueueTaskWhere(
 ): Prisma.WorkflowTaskWhereInput {
   const and: Prisma.WorkflowTaskWhereInput[] = [
     { departmentId },
-    // VENDOR_APPROVAL tasks are gates the customer closes, not work anyone on the floor can do.
-    // They would otherwise sit in a department queue as un-actionable clutter that no operator
-    // can ever complete. The vendor portal surfaces them instead.
     { workflowStep: { stepType: { not: WorkflowStepType.VENDOR_APPROVAL } } },
     { status: { not: WorkflowTaskStatus.SKIPPED } },
+    // DISPATCH tasks are only actionable once the order reaches READY_FOR_DISPATCH.
+    // Showing them earlier confuses operators because the batch won't contain those orders.
+    {
+      OR: [
+        { workflowStep: { stepType: { not: WorkflowStepType.DISPATCH } } },
+        { workflowInstance: { order: { status: ProductionOrderStatus.READY_FOR_DISPATCH } } },
+      ],
+    },
   ];
 
   if (query.lens === 'rush') {

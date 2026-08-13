@@ -45,9 +45,20 @@ export const removeOrderParamSchema = z.object({
   orderId: z.string().min(1),
 });
 
+export const addOrderSchema = z.object({
+  orderId: z.string().min(1),
+});
+
+export const changeBatchShiftSchema = z.object({
+  shiftId: z.string().min(1),
+  dispatchDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
 export type CreateShiftInput = z.infer<typeof createShiftSchema>;
 export type UpdateShiftInput = z.infer<typeof updateShiftSchema>;
 export type ListShiftsQuery = z.infer<typeof listShiftsQuerySchema>;
 export type ListBatchesQuery = z.infer<typeof listBatchesQuerySchema>;
 export type SetDeliveryChargeInput = z.infer<typeof setDeliveryChargeSchema>;
 export type RemoveOrderParam = z.infer<typeof removeOrderParamSchema>;
+export type AddOrderInput = z.infer<typeof addOrderSchema>;
+export type ChangeBatchShiftInput = z.infer<typeof changeBatchShiftSchema>;

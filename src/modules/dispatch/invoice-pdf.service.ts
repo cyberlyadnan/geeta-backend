@@ -9,6 +9,24 @@ export type InvoiceLine = {
   hsnCode?: string;
 };
 
+export type CompanyInfo = {
+  companyName: string;
+  tagline: string;
+  address: string;
+  phone: string;
+  email: string;
+  gstin: string;
+  state: string;
+  stateCode: string;
+  pan: string;
+  cin: string;
+  bankName: string;
+  bankAccount: string;
+  bankIfsc: string;
+  bankBranch: string;
+  terms: string;
+};
+
 export type InvoicePayload = {
   invoiceNumber: string;
   invoiceDate: string;
@@ -28,6 +46,7 @@ export type InvoicePayload = {
   total: number;
   eWayBillNo?: string;
   packedBy?: string;
+  company?: CompanyInfo;
 };
 
 /**
@@ -116,9 +135,21 @@ export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array>
   page.drawRectangle({ x: left - 2, y: 28, width: tableWidth + 4, height: 790, borderWidth: 1.5, borderColor: NAVY, color: rgb(1, 1, 1) });
 
   // ── HEADER ──
+  const co = data.company;
+  const coName = co?.companyName || 'GEETA PRINTERS';
+  const coTagline = co?.tagline || 'Premium Commercial Printing & Packaging Solutions';
+  const coAddress = co?.address || 'Plot No. 42, Okhla Industrial Area, Phase-III, New Delhi - 110020';
+  const coCin = co?.cin || '';
+  const coEmail = co?.email || 'billing@geetaprinters.in';
+  const coPhone = co?.phone || '+91 11 4987 6543';
+  const coGstin = co?.gstin || '07AAAAA1234A1Z1';
+  const coState = co?.state || 'Delhi';
+  const coStateCode = co?.stateCode || '07';
+  const coPan = co?.pan || 'AAAAA1234A';
+
   drawRect(left, y - 6, tableWidth, 30, HEADER_BG);
   y -= 0;
-  text('GEETA PRINTERS', left + 10, 16, true, false, WHITE);
+  text(coName.toUpperCase(), left + 10, 16, true, false, WHITE);
   const taxLabel = 'TAX INVOICE';
   const taxW = fontBold.widthOfTextAtSize(taxLabel, 13);
   page.drawText(taxLabel, { x: right - taxW - 10, y: y - 2, size: 13, font: fontBold, color: WHITE });
@@ -126,15 +157,15 @@ export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array>
 
   // ── SUB-HEADER ──
   y -= 6;
-  text('Premium Commercial Printing & Packaging Solutions', left + 10, 7.5, false, true, LIGHT_TEXT);
+  text(coTagline, left + 10, 7.5, false, true, LIGHT_TEXT);
   y -= 10;
-  text('Plot No. 42, Okhla Industrial Area, Phase-III, New Delhi - 110020', left + 10, 7.5, false, false, MED_TEXT);
-  rightAligned(`CIN: U22219DL2020PTC123456`, 7.5, false, false, MED_TEXT);
+  text(coAddress, left + 10, 7.5, false, false, MED_TEXT);
+  if (coCin) rightAligned(`CIN: ${coCin}`, 7.5, false, false, MED_TEXT);
   y -= 9;
-  text('Email: billing@geetaprinters.in  |  Tel: +91 11 4987 6543', left + 10, 7.5, false, false, MED_TEXT);
+  text(`Email: ${coEmail}  |  Tel: ${coPhone}`, left + 10, 7.5, false, false, MED_TEXT);
   y -= 9;
-  text('GSTIN: 07AAAAA1234A1Z1  |  State: Delhi (07)', left + 10, 8, true, false, DARK_TEXT);
-  rightAligned('PAN: AAAAA1234A', 8, false, false, MED_TEXT);
+  text(`GSTIN: ${coGstin}  |  State: ${coState} (${coStateCode})`, left + 10, 8, true, false, DARK_TEXT);
+  if (coPan) rightAligned(`PAN: ${coPan}`, 8, false, false, MED_TEXT);
   y -= 12;
 
   hLine(y + 4, 1.2, NAVY);
@@ -351,22 +382,19 @@ export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array>
 
   // Terms on right side
   const termsY = y;
-  const terms = [
-    '1. Goods once sold will not be taken back.',
-    '2. Subject to Delhi jurisdiction only.',
-    '3. Interest @ 18% p.a. on delayed payments.',
-    '4. Computer-generated invoice, no signature required.',
-  ];
+  const termsStr = co?.terms || '1. Goods once sold will not be taken back.\n2. Subject to Delhi jurisdiction only.\n3. Interest @ 18% p.a. on delayed payments.\n4. Computer-generated invoice, no signature required.';
+  const termsLines = termsStr.split('\n').filter(Boolean);
   let ty = termsY;
-  for (const term of terms) {
-    page.drawText(term, { x: termsX, y: ty, size: 6.5, font: font, color: LIGHT_TEXT });
+  for (const term of termsLines) {
+    const trimmed = term.length > 60 ? `${term.slice(0, 58)}...` : term;
+    page.drawText(trimmed, { x: termsX, y: ty, size: 6.5, font: font, color: LIGHT_TEXT });
     ty -= 8;
   }
 
-  bankLine('Bank:', 'State Bank of India');
-  bankLine('A/C No:', '1234 5678 9012 3456');
-  bankLine('IFSC:', 'SBIN0012345');
-  bankLine('Branch:', 'Okhla Industrial Area');
+  bankLine('Bank:', co?.bankName || 'State Bank of India');
+  bankLine('A/C No:', co?.bankAccount || '1234 5678 9012 3456');
+  bankLine('IFSC:', co?.bankIfsc || 'SBIN0012345');
+  bankLine('Branch:', co?.bankBranch || 'Okhla Industrial Area');
 
   y -= 4;
 
@@ -380,7 +408,7 @@ export async function buildInvoicePdf(data: InvoicePayload): Promise<Uint8Array>
   hLine(y + 4, 0.8, NAVY);
   y -= 10;
   text('This is a system-generated tax invoice.', left + 8, 7, false, true, LIGHT_TEXT);
-  rightAligned('For GEETA PRINTERS', 8.5, true, false, NAVY);
+  rightAligned(`For ${coName.toUpperCase()}`, 8.5, true, false, NAVY);
   y -= 10;
   rightAligned('(Authorized Signatory)', 7, false, true, LIGHT_TEXT);
 

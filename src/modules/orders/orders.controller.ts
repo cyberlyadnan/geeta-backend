@@ -19,6 +19,11 @@ export class OrdersController {
     return ApiResponse.success(res, result);
   });
 
+  statusCounts = asyncHandler(async (req: Request, res: Response) => {
+    const result = await ordersService.countByStatus(req.user!.id);
+    return ApiResponse.success(res, result);
+  });
+
   getById = asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.validatedParams as { id: string };
     const result = await ordersService.findById(req.user!.id, id);

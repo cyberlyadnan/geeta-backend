@@ -18,6 +18,7 @@ import { storageService } from '../../services/storage/storage.service.js';
 import { STORAGE_FOLDERS } from '../../services/storage/storage.types.js';
 import { logger } from '../../logs/logger.js';
 import { extractProductAttributes } from '../../utils/product-attributes.js';
+import { companyProfileRepository } from '../../repositories/company-profile.repository.js';
 
 /** Narrow slice of the Prisma client this service needs — injectable so tests can drive the
  *  whole flow with a hand-rolled fake instead of monkey-patching the real (proxy-based) Prisma
@@ -361,7 +362,11 @@ export class DispatchService {
     if (!batch) throw ApiError.notFound('Dispatch batch not found');
     if (!batch.invoice) throw ApiError.notFound('This batch has not been billed yet');
 
-    const payload = this.buildInvoicePayload(batch, batch.invoice);
+    const [payload, company] = await Promise.all([
+      Promise.resolve(this.buildInvoicePayload(batch, batch.invoice)),
+      companyProfileRepository.getOrCreate(),
+    ]);
+    payload.company = company;
     const bytes = await buildInvoicePdf(payload);
     return {
       invoice: batch.invoice,
@@ -411,7 +416,9 @@ export class DispatchService {
     });
     if (!invoice) return;
 
-    const bytes = await buildInvoicePdf(this.buildInvoicePayload(invoice.dispatchBatch, invoice));
+    const payload = this.buildInvoicePayload(invoice.dispatchBatch, invoice);
+    payload.company = await companyProfileRepository.getOrCreate();
+    const bytes = await buildInvoicePdf(payload);
     const upload = await storageService.uploadPdfFromBuffer({
       folder: STORAGE_FOLDERS.INVOICES,
       buffer: Buffer.from(bytes),
@@ -715,6 +722,246 @@ export class DispatchService {
         newBatchId: targetBatch.id,
         newDispatchDate: targetBatch.dispatchDate,
         newShiftLabel: finalSelection.shift.label,
+      };
+    });
+  }
+  /**
+   * Move an order into a batch. The order must belong to the same vendor/customer as the batch
+   * and the target batch must be AWAITING_READY. If the order is already in another unbilled
+   * batch, it is removed from that batch first (cleaning up empty batches).
+   */
+  async addOrderToBatch(batchId: string, orderId: string, dispatcherUserId: string) {
+    return this.db.$transaction(async (tx) => {
+      const batch = await tx.dispatchBatch.findUnique({
+        where: { id: batchId },
+        include: { shift: true },
+      });
+      if (!batch) throw ApiError.notFound('Dispatch batch not found');
+      if (batch.status !== 'AWAITING_READY') {
+        throw ApiError.badRequest('Can only add orders to an unbilled batch');
+      }
+
+      const order = await tx.productionOrder.findUnique({
+        where: { id: orderId },
+        select: { id: true, orderNumber: true, customerId: true, retailCustomerId: true, status: true },
+      });
+      if (!order) throw ApiError.notFound('Order not found');
+
+      if (batch.vendorId && order.customerId !== batch.vendorId) {
+        throw ApiError.badRequest('Order belongs to a different vendor than this batch');
+      }
+      if (batch.retailCustomerId && order.retailCustomerId !== batch.retailCustomerId) {
+        throw ApiError.badRequest('Order belongs to a different customer than this batch');
+      }
+
+      const existingLink = await tx.dispatchBatchOrder.findUnique({
+        where: { orderId },
+        include: { dispatchBatch: true },
+      });
+
+      if (existingLink) {
+        if (existingLink.dispatchBatchId === batchId) {
+          return { success: true, alreadyInBatch: true };
+        }
+        const sourceBatch = existingLink.dispatchBatch;
+        if (sourceBatch.status === 'READY' || sourceBatch.status === 'DISPATCHED') {
+          throw ApiError.badRequest('Cannot move an order from a batch that has already been billed or dispatched');
+        }
+
+        await tx.dispatchBatchOrder.delete({ where: { id: existingLink.id } });
+
+        const remaining = await tx.dispatchBatchOrder.count({
+          where: { dispatchBatchId: sourceBatch.id },
+        });
+        if (remaining === 0) {
+          await tx.dispatchBatch.delete({ where: { id: sourceBatch.id } });
+        } else if (sourceBatch.status === 'HELD_INSUFFICIENT_BALANCE') {
+          await tx.dispatchBatch.update({
+            where: { id: sourceBatch.id },
+            data: { status: 'AWAITING_READY', deliveryCharge: null, heldShortfall: null, heldAt: null },
+          });
+        }
+      }
+
+      await tx.dispatchBatchOrder.create({
+        data: { dispatchBatchId: batchId, orderId },
+      });
+
+      await recordOrderEvent(
+        orderId,
+        {
+          eventType: 'ORDER_BATCH_CHANGED',
+          title: 'Batch Changed',
+          description: `Order moved to batch for shift: ${batch.shift.label} (${batch.dispatchDate}) by dispatcher.`,
+          actorId: dispatcherUserId,
+        },
+        tx,
+      );
+
+      return { success: true, alreadyInBatch: false };
+    });
+  }
+
+  /**
+   * Change which shift and/or date a batch is scheduled for. If an AWAITING_READY batch already
+   * exists for this vendor+shift+date, all orders are merged into it and the original is deleted.
+   */
+  async changeBatchShift(batchId: string, shiftId: string, dispatchDate: string, dispatcherUserId: string) {
+    return this.db.$transaction(async (tx) => {
+      const batch = await tx.dispatchBatch.findUnique({
+        where: { id: batchId },
+        include: { shift: true, orders: true },
+      });
+      if (!batch) throw ApiError.notFound('Dispatch batch not found');
+      if (batch.status === 'READY' || batch.status === 'DISPATCHED') {
+        throw ApiError.badRequest('Cannot change shift of a billed or dispatched batch');
+      }
+
+      const shift = await tx.deliveryShift.findUnique({ where: { id: shiftId } });
+      if (!shift) throw ApiError.notFound('Delivery shift not found');
+
+      if (batch.shiftId === shiftId && batch.dispatchDate === dispatchDate) {
+        return { success: true, merged: false, batchId };
+      }
+
+      const actor = batch.vendorId
+        ? { type: 'vendor' as const, vendorId: batch.vendorId }
+        : { type: 'retail' as const, retailCustomerId: batch.retailCustomerId! };
+
+      const existingWhere =
+        actor.type === 'vendor'
+          ? { vendorId_shiftId_dispatchDate: { vendorId: actor.vendorId, shiftId, dispatchDate } }
+          : { retailCustomerId_shiftId_dispatchDate: { retailCustomerId: actor.retailCustomerId, shiftId, dispatchDate } };
+
+      const existingTarget = await tx.dispatchBatch.findUnique({ where: existingWhere });
+
+      if (existingTarget && existingTarget.id !== batchId) {
+        if (existingTarget.status !== 'AWAITING_READY') {
+          throw ApiError.badRequest('Target shift already has a billed batch for this vendor — choose a different shift');
+        }
+
+        await tx.dispatchBatchOrder.updateMany({
+          where: { dispatchBatchId: batchId },
+          data: { dispatchBatchId: existingTarget.id },
+        });
+
+        await tx.dispatchBatch.delete({ where: { id: batchId } });
+
+        for (const link of batch.orders) {
+          await recordOrderEvent(
+            link.orderId,
+            {
+              eventType: 'ORDER_BATCH_CHANGED',
+              title: 'Shift Changed',
+              description: `Batch shift changed from ${batch.shift.label} (${batch.dispatchDate}) to ${shift.label} (${dispatchDate}), merged into existing batch.`,
+              actorId: dispatcherUserId,
+            },
+            tx,
+          );
+        }
+
+        return { success: true, merged: true, batchId: existingTarget.id };
+      }
+
+      await tx.dispatchBatch.update({
+        where: { id: batchId },
+        data: {
+          shiftId,
+          dispatchDate,
+          status: 'AWAITING_READY',
+          deliveryCharge: null,
+          heldShortfall: null,
+          heldAt: null,
+        },
+      });
+
+      for (const link of batch.orders) {
+        await recordOrderEvent(
+          link.orderId,
+          {
+            eventType: 'ORDER_BATCH_CHANGED',
+            title: 'Shift Changed',
+            description: `Batch shift changed from ${batch.shift.label} (${batch.dispatchDate}) to ${shift.label} (${dispatchDate}).`,
+            actorId: dispatcherUserId,
+          },
+          tx,
+        );
+      }
+
+      return { success: true, merged: false, batchId };
+    });
+  }
+
+  /**
+   * List orders for the same vendor/customer that are ready for dispatch but not in this batch.
+   * Used by the "Add Order" dialog on the dispatch board.
+   */
+  async listAvailableOrders(batchId: string) {
+    const batch = await this.db.dispatchBatch.findUnique({
+      where: { id: batchId },
+      select: { id: true, vendorId: true, retailCustomerId: true },
+    });
+    if (!batch) throw ApiError.notFound('Dispatch batch not found');
+
+    const actorFilter = batch.vendorId
+      ? { customerId: batch.vendorId }
+      : { retailCustomerId: batch.retailCustomerId! };
+
+    // Orders ready for dispatch that are either unbatched or in another unbilled batch
+    const orders = await prisma.productionOrder.findMany({
+      where: {
+        ...actorFilter,
+        status: 'READY_FOR_DISPATCH',
+        OR: [
+          { dispatchBatchOrder: null },
+          {
+            dispatchBatchOrder: {
+              dispatchBatchId: { not: batchId },
+              dispatchBatch: { status: { in: ['AWAITING_READY', 'HELD_INSUFFICIENT_BALANCE'] } },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        orderName: true,
+        subtotal: true,
+        items: {
+          select: {
+            quantity: true,
+            productSnapshot: true,
+            configurationSnapshot: true,
+            sizeSnapshot: true,
+          },
+        },
+        dispatchBatchOrder: {
+          select: {
+            dispatchBatchId: true,
+            dispatchBatch: { select: { dispatchDate: true, shift: { select: { label: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+    });
+
+    return orders.map((order) => {
+      const item = order.items[0];
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderName: order.orderName,
+        subtotal: decimalToNumber(order.subtotal),
+        productName: item ? ((item.productSnapshot as any)?.displayName ?? (item.productSnapshot as any)?.name ?? 'Product') : 'Product',
+        quantity: item ? item.quantity : 1,
+        currentBatch: order.dispatchBatchOrder
+          ? {
+              batchId: order.dispatchBatchOrder.dispatchBatchId,
+              shiftLabel: order.dispatchBatchOrder.dispatchBatch.shift.label,
+              dispatchDate: order.dispatchBatchOrder.dispatchBatch.dispatchDate,
+            }
+          : null,
       };
     });
   }
