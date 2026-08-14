@@ -270,6 +270,18 @@ export class SystemWorkflowsService {
 
         // 2. Delete steps no longer present in incoming list
         if (toDelete.length > 0) {
+          // Check if any of these steps are already in use by active/past workflow tasks
+          const inUse = await tx.workflowTask.findFirst({
+            where: { workflowTemplateStepId: { in: toDelete } },
+            select: { id: true },
+          });
+
+          if (inUse) {
+            throw ApiError.badRequest(
+              "Cannot delete workflow steps that are already being used by active or past production orders. Please duplicate this workflow template to make structural changes."
+            );
+          }
+
           await tx.workflowTemplateStep.deleteMany({ where: { id: { in: toDelete } } });
         }
 
