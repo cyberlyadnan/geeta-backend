@@ -43,6 +43,11 @@ export class AdminWorkflowController {
     return ApiResponse.success(res, result);
   });
 
+  deleteWorkflow = asyncHandler(async (req: Request, res: Response) => {
+    const result = await systemWorkflowsService.delete(req.params['id'] as string);
+    return ApiResponse.success(res, result);
+  });
+
   saveWorkflowSteps = asyncHandler(async (req: Request, res: Response) => {
     const result = await systemWorkflowsService.saveSteps(req.params['id'] as string, req.body);
     return ApiResponse.success(res, result);

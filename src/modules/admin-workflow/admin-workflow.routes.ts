@@ -36,6 +36,7 @@ router.post(
   adminWorkflowController.duplicateWorkflow,
 );
 router.post('/templates/:id/archive', validate(idParamSchema, 'params'), adminWorkflowController.archiveWorkflow);
+router.delete('/templates/:id', validate(idParamSchema, 'params'), adminWorkflowController.deleteWorkflow);
 router.put(
   '/templates/:id/steps',
   validate(idParamSchema, 'params'),

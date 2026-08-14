@@ -190,6 +190,40 @@ export class SystemWorkflowsService {
     return this.update(templateId, { status: WorkflowStatus.ARCHIVED, isDefault: false });
   }
 
+  async delete(templateId: string) {
+    const template = await prisma.workflowTemplate.findUnique({
+      where: { id: templateId },
+      include: {
+        _count: {
+          select: {
+            workflowInstances: true,
+            productOfferingWorkflows: true,
+          },
+        },
+      },
+    });
+
+    if (!template) throw ApiError.notFound('Workflow template not found');
+    
+    if (template._count.workflowInstances > 0 || template._count.productOfferingWorkflows > 0) {
+      throw ApiError.badRequest('Cannot delete workflow template because it has associated products or active orders. Please archive it instead.');
+    }
+
+    if (template.isDefault) {
+      throw ApiError.badRequest('Cannot delete the default workflow template.');
+    }
+
+    await prisma.$transaction([
+      prisma.workflowSlaPolicy.deleteMany({ where: { workflowTemplateStep: { workflowTemplateId: templateId } } }),
+      prisma.workflowTemplateStepDependency.deleteMany({ where: { workflowTemplateStep: { workflowTemplateId: templateId } } }),
+      prisma.workflowTemplateStep.deleteMany({ where: { workflowTemplateId: templateId } }),
+      prisma.workflowTemplate.delete({ where: { id: templateId } })
+    ]);
+
+    await workflowTemplateCache.invalidateTemplate(templateId);
+    return { success: true };
+  }
+
   async getConfigFields(templateId: string) {
     const links = await prisma.productOfferingWorkflow.findMany({
       where: { workflowTemplateId: templateId },
