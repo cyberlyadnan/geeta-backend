@@ -33,6 +33,9 @@ export interface CreateDesignTaskInput {
   /** True when the vendor supplied print-ready artwork — no design work is needed. */
   hasArtwork: boolean;
   matterContent?: string | null;
+  /** Snapshotted onto DesignTask.price. Null/undefined means no fee is charged for design on
+   *  this order (e.g. no default configured and no override entered). */
+  price?: number | null;
 }
 
 export interface SubmitProofInput {
@@ -76,6 +79,7 @@ export class DesignApprovalService {
         source: DesignTaskSource.VENDOR_MATTER,
         matterContent: input.matterContent ?? null,
         status: DesignTaskStatus.PENDING,
+        price: input.price ?? null,
       },
       select: { id: true, source: true },
     });

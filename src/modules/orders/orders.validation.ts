@@ -58,6 +58,14 @@ export const createProductionOrderSchema = z.object({
    * design team to create the artwork rather than uploading their own.
    */
   designMatter: z.string().max(10_000).optional(),
+  /**
+   * Staff-facing override for local/counter orders: forces a DesignTask regardless of the
+   * product's own ProductTypeProfile.requiresDesignApproval. Undefined defers to the product's
+   * own flag (the existing vendor self-serve behavior, unchanged).
+   */
+  designRequired: z.boolean().optional(),
+  /** Per-order design fee override — staff-entered, takes precedence over the product's default. */
+  designPriceOverride: z.coerce.number().nonnegative().optional(),
 });
 
 export const orderIdParamSchema = z.object({

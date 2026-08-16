@@ -218,7 +218,7 @@ export class OrdersService {
 
     const orderResult = await prisma.$transaction(
       async (tx) => {
-      const orderNumber = await allocateOrderNumber(tx);
+      const orderNumber = await allocateOrderNumber(tx, actor.type === 'retail' ? 'RC' : 'GP');
 
       const snapshot = await tx.priceSnapshot.create({
         data: {
@@ -409,12 +409,18 @@ export class OrdersService {
       // Phase 4 — products whose type profile requires design approval get a DesignTask, unless
       // the vendor supplied print-ready artwork (then there is nothing to design). The wallet was
       // already debited above: design revisions never re-charge, however many rounds happen.
-      if (computed.requiresDesignApproval) {
+      // `designRequired` lets staff force this on local/counter orders regardless of the
+      // product's own profile flag (e.g. a generic product where this specific customer wants
+      // custom design work).
+      const hasArtwork = Boolean(input.artworks?.length);
+      const needsDesignTask = input.designRequired ?? computed.requiresDesignApproval;
+      if (needsDesignTask) {
         await designApprovalService.createForOrder(
           {
             orderId: created.id,
-            hasArtwork: Boolean(input.artworks?.length),
+            hasArtwork,
             matterContent: input.designMatter ?? input.specialRemark ?? null,
+            price: input.designPriceOverride ?? computed.defaultDesignPrice?.toNumber() ?? null,
           },
           tx,
         );
@@ -427,7 +433,11 @@ export class OrdersService {
           productOfferingVersionId: computed.versionId,
           createdById: eventActorId,
           metadata: { orderNumber },
-          orderSelections: input.selections,
+          // Synthetic signal alongside the vendor's real config selections — lets a template's
+          // DESIGN/PROOF_APPROVAL steps opt into skipWhen: { field: "_has_artwork", ... } for
+          // products where design is conditional. Never set on the wedding-card template, so
+          // wedding-card orders always go through Design regardless of this flag.
+          orderSelections: { ...input.selections, _has_artwork: hasArtwork ? 'true' : 'false' },
         },
         tx,
       );
@@ -709,6 +719,9 @@ export class OrdersService {
       /** Phase 4 — drives whether placement creates a DesignTask. */
       requiresDesignApproval:
         printContextResolved.version.productTypeProfile?.requiresDesignApproval ?? false,
+      /** Snapshotted onto DesignTask.price at creation — never re-read from here afterward, so a
+       *  later catalog change never alters an already-placed order's design fee. */
+      defaultDesignPrice: printContextResolved.version.productTypeProfile?.defaultDesignPrice ?? null,
       productSnapshot: {
         productId: offering.id,
         name: offering.displayName ?? offering.name,

@@ -19,6 +19,13 @@ export const PRODUCTION_DEPARTMENTS: DepartmentDef[] = [
     sortOrder: 5,
   },
   {
+    code: 'DESIGN',
+    name: 'Design',
+    description: 'Original design work and vendor proof/sample approval gates',
+    color: '#EC4899',
+    sortOrder: 7,
+  },
+  {
     code: 'ARTWORK',
     name: 'Artwork',
     description: 'Prepress, artwork verification, and file preparation',

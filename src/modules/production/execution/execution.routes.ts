@@ -10,10 +10,12 @@ import {
   departmentExecutionQuerySchema,
   departmentIdParamSchema,
   executionActionSchema,
+  flagForCorrectionSchema,
   holdTaskSchema,
   listNotesQuerySchema,
   presignAttachmentSchema,
   registerAttachmentSchema,
+  resolveCorrectionSchema,
   taskIdParamSchema,
 } from './execution.validation.js';
 
@@ -89,6 +91,22 @@ router.post(
   validate(taskIdParamSchema, 'params'),
   validate(executionActionSchema),
   executionController.complete,
+);
+
+router.post(
+  '/tasks/:taskId/flag-improper',
+  authorize(...executionRoles),
+  validate(taskIdParamSchema, 'params'),
+  validate(flagForCorrectionSchema),
+  executionController.flagForCorrection,
+);
+
+router.post(
+  '/tasks/:taskId/resolve-correction',
+  authorize(...executionRoles),
+  validate(taskIdParamSchema, 'params'),
+  validate(resolveCorrectionSchema),
+  executionController.resolveCorrection,
 );
 
 router.get(

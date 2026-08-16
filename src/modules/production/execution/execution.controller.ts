@@ -85,6 +85,30 @@ export class ExecutionController {
     return ApiResponse.success(res, result);
   });
 
+  flagForCorrection = asyncHandler(async (req: Request, res: Response) => {
+    const { actorId, role, permissions } = actorContext(req);
+    const result = await executionService.flagForCorrection(
+      req.params['taskId'] as string,
+      actorId,
+      role,
+      permissions,
+      req.body,
+    );
+    return ApiResponse.success(res, result);
+  });
+
+  resolveCorrection = asyncHandler(async (req: Request, res: Response) => {
+    const { actorId, role, permissions } = actorContext(req);
+    const result = await executionService.resolveCorrection(
+      req.params['taskId'] as string,
+      actorId,
+      role,
+      permissions,
+      req.body,
+    );
+    return ApiResponse.success(res, result);
+  });
+
   getExecution = asyncHandler(async (req: Request, res: Response) => {
     const result = await executionService.getExecution(req.params['taskId'] as string);
     return ApiResponse.success(res, result);

@@ -20,6 +20,8 @@ import { taskGeneratorService } from './task-generator.service.js';
 import { workflowTimelineService } from './workflow-timeline.service.js';
 import { workflowRepository } from './workflow.repository.js';
 import { resolveSkippedStepIds } from './step-skip-evaluator.js';
+import { recordOrderEvent } from '../orders/order-events.service.js';
+import { syncOrderStatusForOrder } from '../orders/order-status-sync.service.js';
 
 export interface CreateWorkflowForOrderInput {
   orderId: string;
@@ -1028,6 +1030,157 @@ export class WorkflowEngine {
         reworkRequestId: reworkRequest.id,
       };
     });
+  }
+
+  /**
+   * Under Review (Verification) staff flags an order as needing correction — bad artwork, missing
+   * info, wrong file, etc. Unlike QC-rework/vendor-rejection, there is no earlier step to route
+   * back to (Verification is step 1), so the task simply goes BLOCKED in place: it drops out of
+   * the department queue and the order surfaces as IMPROPER_ORDER (via order-status-sync) until
+   * resolveTaskCorrection() brings it back to READY.
+   */
+  async flagTaskForCorrection(input: {
+    taskId: string;
+    actorId: string;
+    reason: string;
+  }): Promise<{ taskId: string; workflowInstanceId: string; orderId: string }> {
+    const result = await prisma.$transaction(async (tx) => {
+      const task = await tx.workflowTask.findUnique({
+        where: { id: input.taskId },
+        select: {
+          id: true,
+          status: true,
+          workflowInstanceId: true,
+          workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
+          workflowInstance: { select: { orderId: true } },
+        },
+      });
+      if (!task) throw ApiError.notFound('Workflow task not found');
+      if (task.workflowStep.stepType !== WorkflowStepType.VERIFICATION) {
+        throw ApiError.badRequest('Only Under Review (Verification) tasks can be flagged for correction');
+      }
+      assertTaskTransition(task.status, WorkflowTaskStatus.BLOCKED);
+
+      await tx.workflowTask.update({
+        where: { id: task.id },
+        data: { status: WorkflowTaskStatus.BLOCKED, remarks: input.reason },
+      });
+
+      await tx.workflowTaskHistory.create({
+        data: {
+          taskId: task.id,
+          action: WorkflowHistoryAction.BLOCKED,
+          remarks: input.reason,
+          performedById: input.actorId,
+        },
+      });
+
+      await workflowTimelineService.recordEvents(
+        [
+          workflowTimelineService.orderFlaggedImproper({
+            workflowInstanceId: task.workflowInstanceId,
+            taskId: task.id,
+            stepName: task.workflowStep.stepName,
+            reason: input.reason,
+            actorId: input.actorId,
+          }),
+        ],
+        tx,
+      );
+
+      await recordOrderEvent(
+        task.workflowInstance.orderId,
+        {
+          eventType: 'ORDER_FLAGGED_IMPROPER',
+          title: 'Order flagged for correction',
+          description: input.reason,
+          actorId: input.actorId,
+        },
+        tx,
+      );
+
+      return { taskId: task.id, workflowInstanceId: task.workflowInstanceId, orderId: task.workflowInstance.orderId };
+    });
+
+    await syncOrderStatusForOrder(result.orderId);
+    return result;
+  }
+
+  /**
+   * The flagged issue was fixed (vendor re-uploaded artwork, staff corrected the info, etc) —
+   * brings the Verification task back to READY so it re-enters the department queue. Order status
+   * naturally re-ranks to UNDER_ARTWORK_REVIEW on the next sync, exactly like any other active
+   * Verification task; no separate "un-flag" write is needed.
+   */
+  async resolveTaskCorrection(input: {
+    taskId: string;
+    actorId: string;
+    remarks?: string;
+  }): Promise<{ taskId: string; workflowInstanceId: string; orderId: string }> {
+    const result = await prisma.$transaction(async (tx) => {
+      const task = await tx.workflowTask.findUnique({
+        where: { id: input.taskId },
+        select: {
+          id: true,
+          status: true,
+          workflowInstanceId: true,
+          workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
+          workflowInstance: { select: { orderId: true } },
+        },
+      });
+      if (!task) throw ApiError.notFound('Workflow task not found');
+      if (task.status !== WorkflowTaskStatus.BLOCKED) {
+        throw ApiError.conflict('Task is not currently flagged for correction');
+      }
+      assertTaskTransition(task.status, WorkflowTaskStatus.READY);
+
+      await tx.workflowTask.update({
+        where: { id: task.id },
+        data: { status: WorkflowTaskStatus.READY, queuedAt: new Date(), remarks: null },
+      });
+
+      await tx.workflowTaskHistory.create({
+        data: {
+          taskId: task.id,
+          action: WorkflowHistoryAction.UNBLOCKED,
+          remarks: input.remarks,
+          performedById: input.actorId,
+        },
+      });
+
+      await workflowTimelineService.recordEvents(
+        [
+          workflowTimelineService.orderCorrectionResolved({
+            workflowInstanceId: task.workflowInstanceId,
+            taskId: task.id,
+            stepName: task.workflowStep.stepName,
+            actorId: input.actorId,
+            remarks: input.remarks,
+          }),
+        ],
+        tx,
+      );
+
+      await recordOrderEvent(
+        task.workflowInstance.orderId,
+        {
+          eventType: 'ORDER_CORRECTION_RESOLVED',
+          title: 'Order correction resolved',
+          description: input.remarks ?? 'Order resubmitted for review',
+          actorId: input.actorId,
+        },
+        tx,
+      );
+
+      return { taskId: task.id, workflowInstanceId: task.workflowInstanceId, orderId: task.workflowInstance.orderId };
+    });
+
+    eventBus.emitEvent(APP_EVENTS.TASK_READY, {
+      workflowInstanceId: result.workflowInstanceId,
+      taskId: result.taskId,
+    });
+    await syncOrderStatusForOrder(result.orderId);
+    return result;
   }
 
   private async resolveReworkTargetTaskId(

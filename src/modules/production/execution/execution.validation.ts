@@ -21,6 +21,14 @@ export const holdTaskSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
+export const flagForCorrectionSchema = z.object({
+  reason: z.string().min(1).max(2000),
+});
+
+export const resolveCorrectionSchema = z.object({
+  remarks: z.string().max(2000).optional(),
+});
+
 export const addNoteSchema = z.object({
   text: z.string().min(1).max(5000),
   fileAssetId: z.string().cuid().optional(),
@@ -65,6 +73,8 @@ export const listNotesQuerySchema = z.object({
 
 export type ExecutionActionBody = z.infer<typeof executionActionSchema>;
 export type HoldTaskBody = z.infer<typeof holdTaskSchema>;
+export type FlagForCorrectionBody = z.infer<typeof flagForCorrectionSchema>;
+export type ResolveCorrectionBody = z.infer<typeof resolveCorrectionSchema>;
 export type AddNoteBody = z.infer<typeof addNoteSchema>;
 export type RegisterAttachmentBody = z.infer<typeof registerAttachmentSchema>;
 export type PresignAttachmentBody = z.infer<typeof presignAttachmentSchema>;

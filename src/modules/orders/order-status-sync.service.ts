@@ -6,6 +6,11 @@ import {
 import { prisma } from '../../config/database.js';
 import { logger } from '../../logs/logger.js';
 
+/** Department code that identifies design work, independent of step type — a VENDOR_APPROVAL
+ *  gate is design-stage work when it belongs to Design (proof/sample approval) but review-stage
+ *  work when it belongs elsewhere, so step type alone can't disambiguate. */
+const DESIGN_DEPARTMENT_CODE = 'DESIGN';
+
 const STEP_TYPE_TO_ORDER_STATUS: Partial<Record<WorkflowStepType, ProductionOrderStatus>> = {
   [WorkflowStepType.VERIFICATION]: ProductionOrderStatus.UNDER_ARTWORK_REVIEW,
   [WorkflowStepType.VENDOR_APPROVAL]: ProductionOrderStatus.UNDER_ARTWORK_REVIEW,
@@ -23,17 +28,20 @@ const STEP_TYPE_TO_ORDER_STATUS: Partial<Record<WorkflowStepType, ProductionOrde
 const STATUS_RANK: Record<string, number> = {
   [ProductionOrderStatus.ORDER_PLACED]: 0,
   [ProductionOrderStatus.PENDING_PAYMENT]: 1,
-  [ProductionOrderStatus.UNDER_ARTWORK_REVIEW]: 2,
-  [ProductionOrderStatus.ARTWORK_APPROVED]: 3,
-  [ProductionOrderStatus.CONFIRMED]: 4,
-  [ProductionOrderStatus.IN_PRODUCTION]: 5,
-  [ProductionOrderStatus.QUALITY_CHECK]: 6,
-  [ProductionOrderStatus.READY_FOR_DISPATCH]: 7,
+  [ProductionOrderStatus.DESIGN]: 2,
+  [ProductionOrderStatus.UNDER_ARTWORK_REVIEW]: 3,
+  [ProductionOrderStatus.ARTWORK_APPROVED]: 4,
+  [ProductionOrderStatus.CONFIRMED]: 5,
+  [ProductionOrderStatus.IN_PRODUCTION]: 6,
+  [ProductionOrderStatus.QUALITY_CHECK]: 7,
+  [ProductionOrderStatus.READY_FOR_DISPATCH]: 8,
 };
 
 const SYNCABLE_STATUSES = new Set<ProductionOrderStatus>([
   ProductionOrderStatus.ORDER_PLACED,
+  ProductionOrderStatus.DESIGN,
   ProductionOrderStatus.UNDER_ARTWORK_REVIEW,
+  ProductionOrderStatus.IMPROPER_ORDER,
   ProductionOrderStatus.ARTWORK_APPROVED,
   ProductionOrderStatus.CONFIRMED,
   ProductionOrderStatus.IN_PRODUCTION,
@@ -41,13 +49,20 @@ const SYNCABLE_STATUSES = new Set<ProductionOrderStatus>([
 ]);
 
 /**
- * After a workflow task completes, derive the order's production stage from the
- * highest-priority active (READY/ASSIGNED/IN_PROGRESS) task across all workflow
- * instances. This keeps the vendor-facing order status in sync with actual
+ * After a workflow task changes, derive the order's production stage from its active tasks
+ * across all workflow instances. This keeps the vendor-facing order status in sync with actual
  * production progress.
  *
- * Only advances status forward — never rolls it back (except via rework, which
- * is handled separately by dispatch-readiness).
+ * Two things take priority over the normal forward-only ranking:
+ *  - A VERIFICATION-step task sitting BLOCKED means Under Review staff flagged the order for
+ *    correction — the order is IMPROPER_ORDER regardless of what rank that would otherwise be.
+ *  - Otherwise, advances forward only (never rolls back) using the highest-ranked active task,
+ *    with VENDOR_APPROVAL/CUSTOM tasks in the DESIGN department reported as DESIGN rather than
+ *    the generic UNDER_ARTWORK_REVIEW/IN_PRODUCTION step-type mapping.
+ *
+ * Once the flagged task moves back to READY (via resolveTaskCorrection), a later call naturally
+ * re-ranks it as UNDER_ARTWORK_REVIEW like any other active Verification task — no special
+ * "un-flag" step needed here.
  */
 export async function syncOrderStatusFromWorkflow(workflowInstanceId: string): Promise<void> {
   const instance = await prisma.workflowInstance.findUnique({
@@ -55,9 +70,12 @@ export async function syncOrderStatusFromWorkflow(workflowInstanceId: string): P
     select: { orderId: true },
   });
   if (!instance) return;
+  await syncOrderStatusForOrder(instance.orderId);
+}
 
+export async function syncOrderStatusForOrder(orderId: string): Promise<void> {
   const order = await prisma.productionOrder.findUnique({
-    where: { id: instance.orderId },
+    where: { id: orderId },
     select: { id: true, status: true },
   });
   if (!order) return;
@@ -73,42 +91,68 @@ export async function syncOrderStatusFromWorkflow(workflowInstanceId: string): P
           WorkflowTaskStatus.ASSIGNED,
           WorkflowTaskStatus.IN_PROGRESS,
           WorkflowTaskStatus.REWORK,
+          WorkflowTaskStatus.BLOCKED,
         ],
       },
     },
     select: {
+      status: true,
       workflowStep: { select: { stepType: true } },
+      department: { select: { code: true } },
     },
   });
 
   if (activeTasks.length === 0) return;
 
-  let highestStatus: ProductionOrderStatus | null = null;
-  let highestRank = -1;
+  const flaggedForCorrection = activeTasks.some(
+    (t) => t.status === WorkflowTaskStatus.BLOCKED && t.workflowStep.stepType === WorkflowStepType.VERIFICATION,
+  );
 
-  for (const task of activeTasks) {
-    const mapped = STEP_TYPE_TO_ORDER_STATUS[task.workflowStep.stepType];
-    if (!mapped) continue;
-    const rank = STATUS_RANK[mapped] ?? -1;
-    if (rank > highestRank) {
-      highestRank = rank;
-      highestStatus = mapped;
+  let nextStatus: ProductionOrderStatus | null = null;
+
+  if (flaggedForCorrection) {
+    nextStatus = ProductionOrderStatus.IMPROPER_ORDER;
+  } else {
+    let highestRank = -1;
+    for (const task of activeTasks) {
+      if (task.status === WorkflowTaskStatus.BLOCKED) continue; // BLOCKED elsewhere is someone else's rework wait, not a stage signal here
+      const isDesignWork =
+        task.department.code === DESIGN_DEPARTMENT_CODE &&
+        (task.workflowStep.stepType === WorkflowStepType.VENDOR_APPROVAL ||
+          task.workflowStep.stepType === WorkflowStepType.CUSTOM);
+      const mapped = isDesignWork
+        ? ProductionOrderStatus.DESIGN
+        : STEP_TYPE_TO_ORDER_STATUS[task.workflowStep.stepType];
+      if (!mapped) continue;
+      const rank = STATUS_RANK[mapped] ?? -1;
+      if (rank > highestRank) {
+        highestRank = rank;
+        nextStatus = mapped;
+      }
     }
   }
 
-  if (!highestStatus) return;
+  if (!nextStatus || nextStatus === order.status) return;
 
   const currentRank = STATUS_RANK[order.status] ?? -1;
-  if (highestRank <= currentRank) return;
+  const nextRank = STATUS_RANK[nextStatus] ?? -1;
+  // IMPROPER_ORDER is a hold state, not a forward step — allowed to interrupt the normal
+  // forward-only rule. Recovering from it (nextStatus rank <= currentRank once un-flagged) is
+  // also allowed since IMPROPER_ORDER itself is exempt from ranking.
+  const isTransitionAllowed =
+    nextStatus === ProductionOrderStatus.IMPROPER_ORDER ||
+    order.status === ProductionOrderStatus.IMPROPER_ORDER ||
+    nextRank > currentRank;
+  if (!isTransitionAllowed) return;
 
   await prisma.productionOrder.update({
     where: { id: order.id },
-    data: { status: highestStatus },
+    data: { status: nextStatus },
   });
 
   logger.info('Order status synced from workflow', {
     orderId: order.id,
     from: order.status,
-    to: highestStatus,
+    to: nextStatus,
   });
 }

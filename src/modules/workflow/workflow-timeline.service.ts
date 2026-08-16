@@ -381,6 +381,43 @@ export class WorkflowTimelineService {
       actorId: input.actorId,
     };
   }
+
+  orderFlaggedImproper(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    stepName: string;
+    reason: string;
+    actorId?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.ORDER_FLAGGED_IMPROPER,
+      title: 'Order flagged for correction',
+      description: input.reason,
+      metadata: { stepName: input.stepName, reason: input.reason },
+      actorId: input.actorId,
+    };
+  }
+
+  orderCorrectionResolved(input: {
+    workflowInstanceId: string;
+    taskId: string;
+    stepName: string;
+    actorId?: string;
+    remarks?: string;
+  }): TimelineEventInput {
+    return {
+      workflowInstanceId: input.workflowInstanceId,
+      entityType: 'WORKFLOW_TASK',
+      entityId: input.taskId,
+      eventType: WORKFLOW_TIMELINE_EVENTS.ORDER_CORRECTION_RESOLVED,
+      title: 'Order correction resolved',
+      description: input.remarks ?? `${input.stepName} resubmitted for review`,
+      actorId: input.actorId,
+    };
+  }
 }
 
 export const workflowTimelineService = new WorkflowTimelineService();

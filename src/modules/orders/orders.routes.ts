@@ -13,6 +13,8 @@ import {
   saveDraftSchema,
 } from './orders.validation.js';
 import { amendmentOrderIdParamSchema, requestAmendmentSchema } from './order-amendment.validation.js';
+import { orderPaymentController } from './order-payment.controller.js';
+import { orderPaymentParamSchema, recordOrderPaymentSchema } from './order-payment.validation.js';
 
 const router = Router();
 
@@ -56,6 +58,20 @@ router.get(
   authorize(...amendmentStaffRoles),
   validate(amendmentOrderIdParamSchema, 'params'),
   ordersController.listAmendments,
+);
+
+router.get(
+  '/:orderId/payments',
+  authorize(...amendmentStaffRoles),
+  validate(orderPaymentParamSchema, 'params'),
+  orderPaymentController.getSummary,
+);
+router.post(
+  '/:orderId/payments',
+  authorize(...amendmentStaffRoles),
+  validate(orderPaymentParamSchema, 'params'),
+  validate(recordOrderPaymentSchema),
+  orderPaymentController.recordPayment,
 );
 
 router.post('/preview', validate(orderPreviewSchema), ordersController.preview);

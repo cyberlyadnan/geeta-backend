@@ -21,7 +21,7 @@ import { workflowTimelineService } from '../../workflow/workflow-timeline.servic
 import { productionQueueCache } from '../queue/queue.cache.js';
 import { machineService } from '../machines/machine.service.js';
 import { recordOrderEvent } from '../../orders/order-events.service.js';
-import { assertCanExecuteTask, assertCanViewDepartmentExecution } from './execution.access.js';
+import { assertCanExecuteTask, assertCanViewDepartmentExecution, canExecuteTasks } from './execution.access.js';
 import {
   mapAttachmentToDto,
   mapDepartmentExecutionItem,
@@ -529,6 +529,78 @@ export class ExecutionService {
         newlyReadyTaskIds: advanceResult.newlyReadyTaskIds,
       },
     };
+  }
+
+  /**
+   * Under Review (Verification) staff decides the order needs correction instead of approving
+   * it — the counterpart to completeTask's "approve" path. Closes out the review session the same
+   * way completeTask does, then hands the actual task-status change to workflowEngine, which is
+   * also what surfaces the order as IMPROPER_ORDER.
+   */
+  async flagForCorrection(
+    taskId: string,
+    actorId: string,
+    role: RoleName,
+    permissions: string[],
+    body: { reason: string },
+  ) {
+    const { task, session } = await this.loadActiveExecution(taskId, actorId, role, permissions);
+    if (task.workflowStep.stepType !== 'VERIFICATION') {
+      throw ApiError.badRequest('Only Under Review (Verification) tasks can be flagged for correction');
+    }
+
+    const now = new Date();
+    const totals = await this.closeActiveInterval(session, now);
+
+    await prisma.workflowTaskExecutionSession.update({
+      where: { id: session.id },
+      data: {
+        status: WorkflowTaskExecutionSessionStatus.COMPLETED,
+        completedAt: now,
+        ...totals,
+        totalDurationSeconds: computeTotalDuration(totals),
+        activeIntervalStartedAt: null,
+        activeIntervalType: null,
+      },
+    });
+
+    const result = await workflowEngine.flagTaskForCorrection({
+      taskId,
+      actorId,
+      reason: body.reason,
+    });
+
+    this.afterExecutionMutation(ActivityAction.TASK_HELD, APP_EVENTS.TASK_HELD, {
+      taskId,
+      sessionId: session.id,
+      actorId,
+      reason: body.reason,
+    });
+
+    return { session: await this.getExecution(taskId), workflow: result };
+  }
+
+  /**
+   * Whatever was wrong has been fixed — brings the flagged Verification task back into the
+   * department queue. Not tied to a review session (there is nothing active to close; the task
+   * has been sitting BLOCKED since it was flagged), so this only needs execute permission.
+   */
+  async resolveCorrection(
+    taskId: string,
+    actorId: string,
+    role: RoleName,
+    permissions: string[],
+    body: { remarks?: string },
+  ) {
+    if (!canExecuteTasks(role, permissions)) {
+      throw ApiError.forbidden('You do not have permission to resolve this order correction');
+    }
+    const result = await workflowEngine.resolveTaskCorrection({
+      taskId,
+      actorId,
+      remarks: body.remarks,
+    });
+    return { workflow: result };
   }
 
   async addNote(

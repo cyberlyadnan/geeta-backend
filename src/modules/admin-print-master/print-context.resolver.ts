@@ -116,7 +116,13 @@ export class PrintContextResolver {
         // Phase 4 — order placement reads requiresDesignApproval off this to decide whether the
         // order needs a DesignTask.
         productTypeProfile: {
-          select: { key: true, wizardStepsKey: true, requiresDesignApproval: true, sizeMode: true },
+          select: {
+            key: true,
+            wizardStepsKey: true,
+            requiresDesignApproval: true,
+            sizeMode: true,
+            defaultDesignPrice: true,
+          },
         },
         printProcess: true,
         sizeTemplate: {
