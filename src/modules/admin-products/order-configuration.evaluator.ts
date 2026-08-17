@@ -109,6 +109,23 @@ export function resolveOrderQuestions(
   });
 }
 
+/**
+ * Fields the vendor must actively pick a value for but hasn't yet — a required field with no
+ * selection (or a blank/whitespace one) counts as missing; hidden/disabled fields are exempt
+ * since the vendor never got a chance to answer them.
+ */
+export function findMissingRequiredFields(
+  questions: Array<{ code: string; label: string }>,
+  resolved: ResolvedQuestionState[],
+  selections: Record<string, string>,
+): Array<{ code: string; label: string }> {
+  const labelByCode = new Map(questions.map((q) => [q.code, q.label]));
+  return resolved
+    .filter((r) => r.required && r.visible && !r.disabled)
+    .filter((r) => !selections[r.code]?.toString().trim())
+    .map((r) => ({ code: r.code, label: labelByCode.get(r.code) ?? r.code }));
+}
+
 export function filterVisibleSelections(
   selections: Record<string, string>,
   resolved: ResolvedQuestionState[],

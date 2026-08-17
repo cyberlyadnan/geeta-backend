@@ -7,8 +7,7 @@ coverage/
 .env.*.local
 !.env.example
 !.env.local.example
-*.log
-logs/*.log
+logs/*
 !logs/.keep
 .DS_Store
 Thumbs.db

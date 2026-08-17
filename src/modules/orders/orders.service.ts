@@ -35,6 +35,11 @@ import { activityLogService } from '../../services/activity/activity-log.service
 import { allocateOrderNumber } from './order-number.service.js';
 import { notifyUser, recordOrderEvent } from './order-events.service.js';
 import { workflowEngine } from '../workflow/workflow.engine.js';
+import {
+  findMissingRequiredFields,
+  resolveOrderQuestions,
+  type OrderConfigRule,
+} from '../admin-products/order-configuration.evaluator.js';
 import { designApprovalService } from '../design-approval/design-approval.service.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import { isPreviewableArtwork } from '../../services/storage/storage.utils.js';
@@ -530,6 +535,47 @@ export class OrdersService {
     };
   }
 
+  /**
+   * Server-side mirror of the admin "Required" flag on ConfigurationField (with REQUIRE rules
+   * layered on top, same as the vendor wizard evaluates client-side). A field with no default
+   * option and isRequired=true stays unfilled until the vendor explicitly picks a value; this is
+   * the actual enforcement point — the wizard's red-outline validation is UX only.
+   */
+  private async assertRequiredSelectionsFilled(versionId: string, selections: Record<string, string>) {
+    const fields = await prisma.configurationField.findMany({
+      where: { productOfferingVersionId: versionId },
+      select: { id: true, code: true, label: true, isRequired: true, isVisible: true },
+    });
+    if (fields.length === 0) return;
+
+    const ruleRows = await prisma.configurationRule.findMany({
+      where: { productOfferingVersionId: versionId },
+      orderBy: { sortOrder: 'asc' },
+      include: { targetField: { select: { code: true } } },
+    });
+    const rules: OrderConfigRule[] = ruleRows.map((r) => ({
+      id: r.id,
+      targetFieldId: r.targetFieldId,
+      targetFieldCode: r.targetField.code,
+      ruleType: r.ruleType,
+      condition: r.condition as Record<string, unknown>,
+      sortOrder: r.sortOrder,
+    }));
+
+    const resolved = resolveOrderQuestions(fields, rules, selections);
+    const missing = findMissingRequiredFields(fields, resolved, selections);
+    if (missing.length > 0) {
+      throw new ApiError(
+        StatusCodes.BAD_REQUEST,
+        `Please select: ${missing.map((m) => m.label).join(', ')}`,
+        true,
+        undefined,
+        'MISSING_REQUIRED_SELECTIONS',
+        { fields: missing },
+      );
+    }
+  }
+
   private async computeOrderTotals(
     actor: OrderActor,
     input: CreateProductionOrderInput | OrderPreviewInput,
@@ -545,6 +591,13 @@ export class OrdersService {
 
     if (!printContextResolved) {
       throw ApiError.notFound('Product version not found');
+    }
+
+    // Mirrors the wizard's own required-field check so a stale client or a direct API call can't
+    // place an order that skips an attribute the admin marked mandatory (e.g. no default option
+    // set). Preview calls are exempt — the vendor is still filling the form at that point.
+    if (!options.forPreview) {
+      await this.assertRequiredSelectionsFilled(versionId, input.selections);
     }
 
     const pricingContext = buildOrderPricingInputContext(input, printContextResolved);
@@ -617,10 +670,11 @@ export class OrdersService {
     // UV option adds its own, all from admin configuration. Enforced here and not only in the
     // wizard: the browser decides what to show, the server decides what is acceptable, so a stale
     // client or a direct API call cannot place an order missing artwork production needs.
-    // Placement only. Preview runs continuously while the vendor is still choosing options, long
-    // before any file is attached — enforcing here made every preview fail, which surfaced as a
-    // missing-artwork warning next to a ₹0 total.
-    if (!options.forPreview && input.fileOption !== 'email') {
+    const isDesignWorkflow = Boolean(
+      ('designRequired' in input && input.designRequired) ||
+        printContextResolved.version.productTypeProfile?.requiresDesignApproval,
+    );
+    if (!options.forPreview && input.fileOption !== 'email' && !isDesignWorkflow) {
       const requiredCodes = resolveRequiredSlotCodes(fileRequirements, input.selections);
       const supplied = new Set((input.artworks ?? []).map((a) => a.requirementCode));
       const missing = requiredCodes.filter((code) => !supplied.has(code));
