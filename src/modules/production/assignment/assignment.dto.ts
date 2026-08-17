@@ -3,6 +3,7 @@ import type {
   AssignmentRecord,
   MyAssignedTaskRecord,
 } from './assignment.repository.js';
+import { buildConfigurationEntries, type ConfigurationEntry } from '../configuration-highlight.util.js';
 
 export interface AssignmentDto {
   id: string;
@@ -70,6 +71,7 @@ export interface MyAssignedTaskDto {
   productName: string;
   quantity: number;
   configurationSnapshot?: unknown;
+  configurationEntries: ConfigurationEntry[];
   sizeSnapshot?: unknown;
   productSnapshot?: unknown;
   department: { id: string; code: string; name: string };
@@ -239,6 +241,15 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
     productName: offering?.displayName ?? offering?.name ?? 'Product',
     quantity: task.workflowInstance.productionOrderItem.quantity,
     configurationSnapshot: task.workflowInstance.productionOrderItem.configurationSnapshot,
+    configurationEntries: buildConfigurationEntries(
+      task.workflowInstance.productionOrderItem.productOfferingVersion?.configurationFields ?? [],
+      (
+        task.workflowInstance.productionOrderItem.configurationSnapshot as
+          | { selections?: Record<string, unknown> }
+          | null
+      )?.selections,
+      task.workflowStep.stepType,
+    ),
     sizeSnapshot: task.workflowInstance.productionOrderItem.sizeSnapshot,
     productSnapshot: task.workflowInstance.productionOrderItem.productSnapshot,
     department: record.department,

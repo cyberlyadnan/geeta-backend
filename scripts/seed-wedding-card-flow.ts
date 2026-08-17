@@ -5,10 +5,21 @@
  *   - the Design department
  *   - the three ProductTypeProfile rows
  *   - the wedding-card workflow template, whose two VENDOR_APPROVAL gates are the whole point
+ *   - a first sellable Wedding Cards product (Category -> Family -> Series -> Offering ->
+ *     Version), bound to that template, so the catalog gallery has something real to show
  *
  * Run with: npm run seed:wedding-card
  */
-import { PrismaClient, WorkflowStatus, WorkflowStepType, ProductSizeMode } from '@prisma/client';
+import {
+  PrismaClient,
+  WorkflowStatus,
+  WorkflowStepType,
+  ProductSizeMode,
+  ProductStatus,
+  ProductVisibility,
+  ProductOfferingVersionStatus,
+  ConfigurationFieldType,
+} from '@prisma/client';
 import {
   DESIGN_DEPARTMENT_CODE,
   DESIGN_STEP_CODES,
@@ -198,6 +209,159 @@ async function ensureWeddingCardTemplate(facilityId: string, departments: Record
   return template.id;
 }
 
+/**
+ * The example spec sheet the client walked through: MOQ 50, order code 1201, 6x8, both-side
+ * cover, single-side 2-leaf inner, velvet lamination, die cut, poly pack, address sticker
+ * included, ₹38+, GST 18% extra. Modeled as plain ConfigurationField/Option rows — the same
+ * dynamic attribute system every other product uses — so a future Birthday/Anniversary card
+ * needs only a new row set here (or via the admin catalog UI), never a code change.
+ */
+async function ensureWeddingCardProduct(workflowTemplateId: string): Promise<void> {
+  const category = await prisma.category.upsert({
+    where: { slug: 'wedding-cards' },
+    update: {},
+    create: {
+      name: 'Wedding Cards',
+      slug: 'wedding-cards',
+      description: 'Invitation cards for weddings and other celebrations.',
+      sortOrder: 20,
+    },
+    select: { id: true },
+  });
+
+  const family = await prisma.productFamily.upsert({
+    where: { slug: 'wedding-cards-classic' },
+    update: {},
+    create: {
+      categoryId: category.id,
+      name: 'Classic Collection',
+      slug: 'wedding-cards-classic',
+      description: 'Ready-made wedding card designs, ordered by picking a design rather than configuring options.',
+      status: ProductStatus.ACTIVE,
+    },
+    select: { id: true },
+  });
+
+  const series = await prisma.productSeries.upsert({
+    where: { slug: 'wedding-cards-classic-velvet' },
+    update: {},
+    create: {
+      familyId: family.id,
+      name: 'Velvet Laminated',
+      slug: 'wedding-cards-classic-velvet',
+      status: ProductStatus.ACTIVE,
+    },
+    select: { id: true },
+  });
+
+  const catalogProfile = await prisma.productTypeProfile.findUniqueOrThrow({
+    where: { key: 'CATALOG_DESIGN_APPROVAL' },
+    select: { id: true },
+  });
+
+  const offering = await prisma.productOffering.upsert({
+    where: { slug: 'wedding-card-1201' },
+    update: {},
+    create: {
+      seriesId: series.id,
+      name: 'Wedding Invitation Card — 1201',
+      slug: 'wedding-card-1201',
+      displayName: 'Royal Velvet Wedding Card',
+      shortDescription: 'Velvet-laminated wedding invitation with a die-cut edge and matching address sticker.',
+      description:
+        'A classic wedding invitation printed both sides on the cover with a single-side, ' +
+        '2-leaf inner insert. Finished with velvet lamination and a precise die cut, and ' +
+        'comes with a matching address sticker for the envelope.',
+      sku: '1201',
+      visibility: ProductVisibility.PUBLIC,
+      status: ProductStatus.ACTIVE,
+      isFeatured: true,
+    },
+    select: { id: true },
+  });
+
+  const existingVersion = await prisma.productOfferingVersion.findFirst({
+    where: { productOfferingId: offering.id, isCurrent: true },
+    select: { id: true },
+  });
+  if (existingVersion) {
+    console.log('✔ wedding card product already has a current version — left untouched');
+    return;
+  }
+
+  const version = await prisma.productOfferingVersion.create({
+    data: {
+      productOfferingId: offering.id,
+      versionNumber: 1,
+      versionLabel: 'v1',
+      status: ProductOfferingVersionStatus.ACTIVE,
+      isCurrent: true,
+      publishedAt: new Date(),
+      productTypeProfileId: catalogProfile.id,
+      fixedPrice: 38,
+    },
+    select: { id: true },
+  });
+
+  const group = await prisma.configurationGroup.create({
+    data: {
+      productOfferingVersionId: version.id,
+      name: 'Specifications',
+      code: 'specifications',
+      sortOrder: 1,
+    },
+    select: { id: true },
+  });
+
+  const specs: Array<{ code: string; label: string; value: string; sortOrder: number }> = [
+    { code: 'moq', label: 'Minimum Order Quantity', value: '50', sortOrder: 1 },
+    { code: 'size', label: 'Size', value: '6 x 8 inch', sortOrder: 2 },
+    { code: 'cover', label: 'Cover', value: 'Both Side Printing', sortOrder: 3 },
+    { code: 'inner', label: 'Inner', value: 'Single Side Printing - 2 Leaf', sortOrder: 4 },
+    { code: 'lamination', label: 'Lamination', value: 'Velvet', sortOrder: 5 },
+    { code: 'cutting', label: 'Cutting', value: 'Die Cut', sortOrder: 6 },
+    { code: 'packaging', label: 'Packaging', value: 'Poly Pack', sortOrder: 7 },
+    { code: 'address_sticker', label: 'Address Sticker', value: 'Included', sortOrder: 8 },
+    { code: 'gst', label: 'GST', value: '18% extra', sortOrder: 9 },
+  ];
+
+  for (const spec of specs) {
+    const field = await prisma.configurationField.create({
+      data: {
+        productOfferingVersionId: version.id,
+        groupId: group.id,
+        code: spec.code,
+        label: spec.label,
+        fieldType: ConfigurationFieldType.DROPDOWN,
+        isRequired: false,
+        isVisible: true,
+        sortOrder: spec.sortOrder,
+      },
+      select: { id: true },
+    });
+    await prisma.configurationOption.create({
+      data: {
+        fieldId: field.id,
+        label: spec.value,
+        value: spec.value,
+        isDefault: true,
+        sortOrder: 1,
+      },
+    });
+  }
+
+  await prisma.productOfferingWorkflow.create({
+    data: {
+      productOfferingVersionId: version.id,
+      workflowTemplateId,
+      isDefault: true,
+    },
+  });
+
+  console.log('✔ wedding card product "Royal Velvet Wedding Card" (order code 1201) with 9 specs, bound to the design-approval workflow');
+  console.log('  No photos attached yet — add real product photography via the admin catalog UI (Products > this offering > Images).');
+}
+
 async function main() {
   const facilityId = await ensureFacility();
 
@@ -208,10 +372,11 @@ async function main() {
   console.log('✔ departments');
 
   await ensureProfiles();
-  await ensureWeddingCardTemplate(facilityId, departments);
+  const workflowTemplateId = await ensureWeddingCardTemplate(facilityId, departments);
+  await ensureWeddingCardProduct(workflowTemplateId);
 
   console.log('\nPhase 4 setup complete.');
-  console.log('To make a product use this flow, set its version\'s productTypeProfileId to the');
+  console.log('To make another product use this flow, set its version\'s productTypeProfileId to the');
   console.log('CATALOG_DESIGN_APPROVAL profile and give it a fixedPrice.');
 }
 

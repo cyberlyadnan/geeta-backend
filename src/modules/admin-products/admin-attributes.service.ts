@@ -135,6 +135,7 @@ export class AdminAttributesService {
       isRequired: f.isRequired,
       isVisible: f.isVisible,
       isPrimary: f.isPrimary,
+      relevantStepTypes: f.relevantStepTypes,
       sortOrder: f.sortOrder,
       values: f.options.map((o) => ({
         id: o.id,
@@ -165,6 +166,7 @@ export class AdminAttributesService {
           isRequired: input.isRequired ?? false,
           isVisible: input.isVisible ?? true,
           isPrimary: input.isPrimary ?? false,
+          relevantStepTypes: input.relevantStepTypes ?? [],
           description: input.description,
           placeholder: input.placeholder,
           sortOrder: input.sortOrder ?? 0,
@@ -249,6 +251,7 @@ export class AdminAttributesService {
           ...(input.isRequired != null && { isRequired: input.isRequired }),
           ...(input.isVisible != null && { isVisible: input.isVisible }),
           ...(input.isPrimary != null && { isPrimary: input.isPrimary }),
+          ...(input.relevantStepTypes != null && { relevantStepTypes: input.relevantStepTypes }),
           ...(input.description !== undefined && { description: input.description }),
           ...(input.placeholder !== undefined && { placeholder: input.placeholder }),
           ...(input.sortOrder != null && { sortOrder: input.sortOrder }),

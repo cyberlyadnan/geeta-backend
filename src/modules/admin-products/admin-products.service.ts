@@ -85,6 +85,9 @@ const PRODUCT_DETAIL_INCLUDE = {
         },
       },
       workflow: { include: { workflowTemplate: { select: { id: true, code: true, name: true } } } },
+      productTypeProfile: {
+        select: { requiresDesignApproval: true, defaultDesignPrice: true },
+      },
     },
   },
   images: { orderBy: { sortOrder: 'asc' } },

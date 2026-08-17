@@ -4,6 +4,7 @@ import type {
   QueueTaskListRecord,
 } from './queue.repository.js';
 import { mapQueueAssignmentSummary } from '../assignment/assignment.dto.js';
+import { buildConfigurationEntries, type ConfigurationEntry } from '../configuration-highlight.util.js';
 
 export interface DepartmentQueueCountsDto {
   ready: number;
@@ -93,6 +94,9 @@ export interface QueueTaskDetailDto extends QueueTaskCardDto {
   estimatedCompletionAt: string | null;
   deliveryAddress: string | null;
   configuration: unknown;
+  /** Same selections as `configuration`, but labeled and flagged by relevance to this task's
+   *  production step — e.g. "Lamination: Velvet" called out on a LAMINATION task. */
+  configurationEntries: ConfigurationEntry[];
   sizeSnapshot: unknown;
   productSnapshot: unknown;
   artworkFiles: Array<{
@@ -265,6 +269,11 @@ export function mapQueueTaskDetail(record: QueueTaskDetailRecord): QueueTaskDeta
     estimatedCompletionAt: toIso(record.workflowInstance.order.estimatedCompletionAt),
     deliveryAddress: record.workflowInstance.order.deliveryAddress ?? null,
     configuration: item.configurationSnapshot,
+    configurationEntries: buildConfigurationEntries(
+      item.productOfferingVersion?.configurationFields ?? [],
+      (item.configurationSnapshot as { selections?: Record<string, unknown> } | null)?.selections,
+      record.workflowStep.stepType,
+    ),
     sizeSnapshot: item.sizeSnapshot,
     productSnapshot: item.productSnapshot,
     artworkFiles: item.orderArtworks.map((art) => {

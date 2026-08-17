@@ -129,6 +129,14 @@ export const QUEUE_TASK_DETAIL_SELECT = {
               productOffering: {
                 select: { id: true, name: true, displayName: true },
               },
+              configurationFields: {
+                select: {
+                  code: true,
+                  label: true,
+                  relevantStepTypes: true,
+                  options: { select: { value: true, label: true } },
+                },
+              },
             },
           },
           orderArtworks: {

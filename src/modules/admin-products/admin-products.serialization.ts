@@ -43,6 +43,7 @@ type ProductDetailRow = Prisma.ProductOfferingGetPayload<{
           };
         };
         workflow: { include: { workflowTemplate: { select: { id: true; code: true; name: true } } } };
+        productTypeProfile: { select: { requiresDesignApproval: true; defaultDesignPrice: true } };
       };
     };
     images: true;
@@ -138,6 +139,11 @@ export function mapProductDetailToDto(product: ProductDetailRow) {
             basePrice: decimalToNumber(t.basePrice),
             isActive: t.isActive,
           })),
+          requiresDesignApproval: currentVersion.productTypeProfile?.requiresDesignApproval ?? false,
+          defaultDesignPrice:
+            currentVersion.productTypeProfile?.defaultDesignPrice != null
+              ? decimalToNumber(currentVersion.productTypeProfile.defaultDesignPrice)
+              : null,
           attributes: currentVersion.configurationFields.map((field) => ({
             id: field.id,
             code: field.code,

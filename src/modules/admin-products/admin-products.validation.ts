@@ -7,6 +7,7 @@ import {
   ConfigurationRuleType,
   PricingRuleStatus,
   OptionPricingStrategy,
+  WorkflowStepType,
 } from '@prisma/client';
 
 export const listProductsQuerySchema = z.object({
@@ -128,6 +129,9 @@ export const createAttributeSchema = z.object({
   isVisible: z.boolean().optional(),
   /** Marks this question as the one shown in place of the product name when ordering. */
   isPrimary: z.boolean().optional(),
+  /** Which production steps this field's answer matters to — drives task-detail highlighting
+   *  for whichever department is doing that step. See configuration-highlight.util.ts. */
+  relevantStepTypes: z.array(z.nativeEnum(WorkflowStepType)).optional(),
   sortOrder: z.number().int().optional(),
   values: z.array(attributeValueSchema).optional(),
 });

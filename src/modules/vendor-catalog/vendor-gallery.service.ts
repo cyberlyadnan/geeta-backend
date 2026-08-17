@@ -75,6 +75,7 @@ export class VendorGalleryService {
         shortDescription: true,
         description: true,
         thumbnailUrl: true,
+        sku: true,
         images: {
           orderBy: { sortOrder: 'asc' },
           select: { id: true, imageUrl: true, altText: true, isThumbnail: true },
@@ -86,6 +87,23 @@ export class VendorGalleryService {
             id: true,
             fixedPrice: true,
             productTypeProfile: { select: { requiresDesignApproval: true } },
+            // Catalogue designs skip the configuration wizard (price is fixed), so these fields
+            // are read-only spec sheet entries rather than interactive choices — each one's
+            // default option is simply "what this design comes with" (size, cover, lamination,
+            // MOQ, etc). Fully data-driven: a new spec is a new field row, never a code change.
+            configurationFields: {
+              where: { isVisible: true },
+              orderBy: { sortOrder: 'asc' },
+              select: {
+                label: true,
+                options: {
+                  where: { isActive: true },
+                  orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }],
+                  take: 1,
+                  select: { label: true },
+                },
+              },
+            },
           },
         },
       },
@@ -100,6 +118,7 @@ export class VendorGalleryService {
       name: product.displayName ?? product.name,
       shortDescription: product.shortDescription,
       description: product.description,
+      orderCode: product.sku,
       images: product.images.map((i) => ({
         id: i.id,
         url: i.imageUrl,
@@ -108,6 +127,9 @@ export class VendorGalleryService {
       versionId: version.id,
       fixedPrice: version.fixedPrice != null ? decimalToNumber(version.fixedPrice) : null,
       requiresDesignApproval: version.productTypeProfile?.requiresDesignApproval ?? false,
+      specs: version.configurationFields
+        .filter((f) => f.options[0])
+        .map((f) => ({ label: f.label, value: f.options[0]!.label })),
     };
   }
 }

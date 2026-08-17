@@ -105,6 +105,14 @@ export const MY_TASK_SELECT = {
               productOfferingVersion: {
                 select: {
                   productOffering: { select: { name: true, displayName: true } },
+                  configurationFields: {
+                    select: {
+                      code: true,
+                      label: true,
+                      relevantStepTypes: true,
+                      options: { select: { value: true, label: true } },
+                    },
+                  },
                 },
               },
               // Approval status only — enough for the row to show "changes made" once a vendor

@@ -1322,6 +1322,12 @@ model ConfigurationField {
   /// name when a vendor picks what to order — a catalogue that used to be one product per GSM
   /// still reads as "pick a GSM" now that GSM is an option on a single product.
   isPrimary                Boolean                @default(false) @map("is_primary")
+  /// Which production steps this field's chosen value matters to — e.g. a "lamination" field
+  /// tags WorkflowStepType.LAMINATION. Drives task-detail highlighting: an operator on a
+  /// LAMINATION task sees this attribute called out, an operator on DIE_CUTTING doesn't. Purely
+  /// data — the highlighting code never hardcodes a field code or department, so a brand new
+  /// product or department needs only this column tagged, never a code change.
+  relevantStepTypes        WorkflowStepType[]     @default([]) @map("relevant_step_types")
   sortOrder                Int                    @default(0) @map("sort_order")
   createdAt                DateTime               @default(now()) @map("created_at")
   updatedAt                DateTime               @updatedAt @map("updated_at")
