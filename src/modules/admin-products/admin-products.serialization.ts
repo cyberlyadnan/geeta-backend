@@ -43,7 +43,7 @@ type ProductDetailRow = Prisma.ProductOfferingGetPayload<{
           };
         };
         workflow: { include: { workflowTemplate: { select: { id: true; code: true; name: true } } } };
-        productTypeProfile: { select: { requiresDesignApproval: true; defaultDesignPrice: true } };
+        productTypeProfile: { select: { designServiceMode: true; defaultDesignPrice: true } };
       };
     };
     images: true;
@@ -139,7 +139,10 @@ export function mapProductDetailToDto(product: ProductDetailRow) {
             basePrice: decimalToNumber(t.basePrice),
             isActive: t.isActive,
           })),
-          requiresDesignApproval: currentVersion.productTypeProfile?.requiresDesignApproval ?? false,
+          designServiceMode: currentVersion.productTypeProfile?.designServiceMode ?? 'NOT_OFFERED',
+          /** Null means this version has no ProductTypeProfile linked — the design-service
+           *  fields above are just their NOT_OFFERED/null defaults, not an editable setting. */
+          productTypeProfileId: currentVersion.productTypeProfileId,
           defaultDesignPrice:
             currentVersion.productTypeProfile?.defaultDesignPrice != null
               ? decimalToNumber(currentVersion.productTypeProfile.defaultDesignPrice)
@@ -154,6 +157,7 @@ export function mapProductDetailToDto(product: ProductDetailRow) {
             isRequired: field.isRequired,
             isVisible: field.isVisible,
             isPrimary: field.isPrimary,
+            relevantStepTypes: field.relevantStepTypes,
             sortOrder: field.sortOrder,
             values: field.options.map((opt) => ({
               id: opt.id,

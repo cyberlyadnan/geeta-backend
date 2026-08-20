@@ -58,10 +58,20 @@ export const createProductionOrderSchema = z.object({
    * design team to create the artwork rather than uploading their own.
    */
   designMatter: z.string().max(10_000).optional(),
+  /** Pre-uploaded reference material (photos, logos, existing artwork to redo) for the design
+   *  team — file ids from the design-attachments presign/register flow, owned by this vendor. */
+  designAttachments: z.array(z.string().min(1)).optional(),
+  /**
+   * Vendor's choice when the product's designServiceMode is OPTIONAL: true asks for design help
+   * (matter/attachments are used, no print-ready-artwork question), false/undefined means the
+   * vendor is supplying their own finished artwork. Ignored when the mode is NOT_OFFERED or
+   * REQUIRED — REQUIRED always routes through design regardless of this flag.
+   */
+  needsDesignHelp: z.boolean().optional(),
   /**
    * Staff-facing override for local/counter orders: forces a DesignTask regardless of the
-   * product's own ProductTypeProfile.requiresDesignApproval. Undefined defers to the product's
-   * own flag (the existing vendor self-serve behavior, unchanged).
+   * product's own ProductTypeProfile.designServiceMode. Undefined defers to the product's own
+   * mode (the existing vendor self-serve behavior, unchanged).
    */
   designRequired: z.boolean().optional(),
   /** Per-order design fee override — staff-entered, takes precedence over the product's default. */

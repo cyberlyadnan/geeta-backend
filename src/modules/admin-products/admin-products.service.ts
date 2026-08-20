@@ -10,11 +10,12 @@ import { ApiError } from '../../common/errors/ApiError.js';
 import { catalogAuditService } from '../../services/catalog/catalog-audit.service.js';
 import { pricingEngineService } from '../../services/pricing-engine/index.js';
 import { uniqueSlug } from '../../utils/slug.js';
-import { toDecimal } from '../../utils/money.js';
+import { decimalToNumber, toDecimal } from '../../utils/money.js';
 import type {
   CalculatePriceInput,
   CreateProductInput,
   ListProductsQuery,
+  UpdateDesignServiceInput,
   UpdateProductInput,
 } from './admin-products.validation.js';
 import { mapProductDetailToDto, mapProductListItemToDto } from './admin-products.serialization.js';
@@ -86,7 +87,7 @@ const PRODUCT_DETAIL_INCLUDE = {
       },
       workflow: { include: { workflowTemplate: { select: { id: true, code: true, name: true } } } },
       productTypeProfile: {
-        select: { requiresDesignApproval: true, defaultDesignPrice: true },
+        select: { designServiceMode: true, defaultDesignPrice: true },
       },
     },
   },
@@ -636,6 +637,54 @@ export class AdminProductsService {
     };
   }
 
+  /**
+   * Only edits a version's design-service settings when it already has a ProductTypeProfile
+   * linked — most versions (pre-Phase-4) don't. Deliberately does NOT auto-create one: a fresh
+   * profile needs a correct sizeMode/pricingStrategyKey too, and a wrong guess there would
+   * silently change how this product prices (ProductTypeProfile.pricingStrategyKey takes
+   * priority over the version's own print-config strategy). Assigning a profile to a
+   * previously-unprofiled product is an engineering task, not an admin form field, until that
+   * inference is built out separately.
+   */
+  async updateDesignService(versionId: string, input: UpdateDesignServiceInput) {
+    const version = await prisma.productOfferingVersion.findFirst({
+      where: { id: versionId, deletedAt: null },
+      select: { id: true, productTypeProfileId: true },
+    });
+    if (!version) throw ApiError.notFound('Product version not found');
+    if (!version.productTypeProfileId) {
+      throw ApiError.badRequest(
+        'This product has no flow profile assigned yet, so design-service settings cannot be edited here.',
+      );
+    }
+
+    // A profile can be shared across versions (e.g. every GSM variant of one design). Editing it
+    // from a single product's screen would silently change every other product using it too —
+    // block rather than guess whether that fan-out is intended.
+    const sharedCount = await prisma.productOfferingVersion.count({
+      where: { productTypeProfileId: version.productTypeProfileId, deletedAt: null },
+    });
+    if (sharedCount > 1) {
+      throw ApiError.badRequest(
+        'This product shares its flow profile with other product versions — editing design-service settings here would change all of them. Contact engineering.',
+      );
+    }
+
+    const profile = await prisma.productTypeProfile.update({
+      where: { id: version.productTypeProfileId },
+      data: {
+        designServiceMode: input.designServiceMode,
+        defaultDesignPrice: input.defaultDesignPrice != null ? toDecimal(input.defaultDesignPrice) : null,
+      },
+      select: { designServiceMode: true, defaultDesignPrice: true },
+    });
+
+    return {
+      designServiceMode: profile.designServiceMode,
+      defaultDesignPrice:
+        profile.defaultDesignPrice != null ? decimalToNumber(profile.defaultDesignPrice) : null,
+    };
+  }
 }
 
 export const adminProductsService = new AdminProductsService();

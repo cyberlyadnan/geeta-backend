@@ -69,6 +69,9 @@ export class VendorBootstrapService {
         sortOrder: family.sortOrder,
         seriesCount: family.series.length,
         productCount,
+        /** Which step-3 screen the order wizard shows after this family is picked. See
+         *  frontend/src/features/vendor-orders/config/step3-templates.tsx for the registry. */
+        step3TemplateKey: family.step3TemplateKey,
       };
     });
   }

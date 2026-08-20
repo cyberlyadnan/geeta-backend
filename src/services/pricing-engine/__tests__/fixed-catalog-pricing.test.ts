@@ -18,7 +18,7 @@ function catalogBundle(fixedPrice: number | null) {
       key: 'CATALOG_DESIGN_APPROVAL',
       pricingStrategyKey: 'fixed_catalog',
       wizardStepsKey: 'CATALOG_DESIGN_APPROVAL',
-      requiresDesignApproval: true,
+      designServiceMode: 'REQUIRED',
     },
     quantityPricing: [],
     configurationFields: [],

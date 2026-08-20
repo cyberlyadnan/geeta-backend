@@ -278,6 +278,81 @@ export class StorageService {
       expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
     }));
   }
+
+  /** Design reference material (photos, logos, existing artwork to redo) a vendor uploads before
+   *  the order carrying them exists yet — keyed by vendor, not by order or design task. */
+  createPresignedDesignAttachmentUpload(
+    vendorUserId: string,
+    fileName: string,
+    contentType: string,
+    fileSize: number,
+  ): Promise<PresignedUploadResult> {
+    const normalized = normalizeVendorDocumentContentType(contentType);
+    assertValidVendorDocumentUpload(normalized, fileSize);
+    const config = assertR2Config();
+    const key = buildObjectKey(STORAGE_FOLDERS.DESIGN, `${vendorUserId}/${fileName}`, normalized);
+    const publicUrl = buildPublicUrl(config.publicUrl, key);
+
+    const command = new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: key,
+      ContentType: normalized,
+    });
+
+    const client = getPresignS3Client();
+
+    return getSignedUrl(client, command, {
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
+      signableHeaders: new Set(['content-type']),
+    }).then((uploadUrl) => ({
+      uploadUrl,
+      key,
+      publicUrl,
+      contentType: normalized,
+      uploadHeaders: { 'Content-Type': normalized },
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
+    }));
+  }
+
+  /** A design proof/finished artwork the design team uploads straight to a design task —
+   *  keyed by task, not by vendor, since it belongs to the order rather than to whoever
+   *  designed it. Reuses the DESIGN folder that reference-material attachments also use. */
+  createPresignedDesignProofUpload(
+    designTaskId: string,
+    fileName: string,
+    contentType: string,
+    fileSize: number,
+  ): Promise<PresignedUploadResult> {
+    const normalized = normalizeVendorDocumentContentType(contentType);
+    assertValidVendorDocumentUpload(normalized, fileSize);
+    const config = assertR2Config();
+    const key = buildObjectKey(
+      STORAGE_FOLDERS.DESIGN,
+      `proofs/${designTaskId}/${fileName}`,
+      normalized,
+    );
+    const publicUrl = buildPublicUrl(config.publicUrl, key);
+
+    const command = new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: key,
+      ContentType: normalized,
+    });
+
+    const client = getPresignS3Client();
+
+    return getSignedUrl(client, command, {
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
+      signableHeaders: new Set(['content-type']),
+    }).then((uploadUrl) => ({
+      uploadUrl,
+      key,
+      publicUrl,
+      contentType: normalized,
+      uploadHeaders: { 'Content-Type': normalized },
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
+    }));
+  }
 }
 
 export const storageService = new StorageService();

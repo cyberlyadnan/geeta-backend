@@ -28,6 +28,7 @@ function mapFamily(row: {
   series?: Array<{ _count: { offerings: number } }>;
   imageUrl?: string | null;
   imageKey?: string | null;
+  step3TemplateKey?: string;
 }) {
   const productCount =
     row.series?.reduce((sum, s) => sum + s._count.offerings, 0) ?? 0;
@@ -47,6 +48,7 @@ function mapFamily(row: {
     category: row.category,
     seriesCount: row._count?.series ?? 0,
     productCount,
+    step3TemplateKey: row.step3TemplateKey ?? 'DEFAULT',
   };
 }
 
@@ -183,6 +185,7 @@ export class AdminCatalogService {
         sortOrder: input.sortOrder ?? 0,
         status: input.status ?? ProductStatus.ACTIVE,
         isActive: input.status !== ProductStatus.ARCHIVED && input.status !== ProductStatus.INACTIVE,
+        ...(input.step3TemplateKey !== undefined ? { step3TemplateKey: input.step3TemplateKey } : {}),
       },
       include: {
         category: { select: { id: true, name: true, slug: true } },
@@ -224,6 +227,7 @@ export class AdminCatalogService {
         ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
         ...(input.imageKey !== undefined ? { imageKey: input.imageKey } : {}),
         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+        ...(input.step3TemplateKey !== undefined ? { step3TemplateKey: input.step3TemplateKey } : {}),
         ...(input.status !== undefined
           ? {
               status,

@@ -7,6 +7,7 @@ import { ApiError } from '../../common/errors/ApiError.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import { productionArtworkService } from '../production/artwork/production-artwork.service.js';
 import { notifyUser, recordOrderEvent } from '../orders/order-events.service.js';
+import { workflowEngine } from '../workflow/workflow.engine.js';
 
 export const printJobController = {
   getContext: asyncHandler(async (req: Request, res: Response) => {
@@ -280,6 +281,16 @@ export const productionArtworkController = {
     });
     if (!owned) throw ApiError.notFound('Order artwork not found');
 
+    const orderId = owned.orderItem.order.id;
+    const orderNumber = owned.orderItem.order.orderNumber;
+
+    // Capture before replace — replaceOrderArtwork clears approvedById, and that id is who
+    // we need to ping when the vendor sends a corrected file.
+    const previous = await prisma.orderArtwork.findUnique({
+      where: { id },
+      select: { approvedById: true },
+    });
+
     try {
       const data = await productionArtworkService.replaceOrderArtwork(id, req.user!.id, {
         filePath: file.path,
@@ -287,17 +298,6 @@ export const productionArtworkController = {
         mimeType: file.mimetype,
         fileSize: file.size,
         notes: typeof req.body?.notes === 'string' ? req.body.notes : undefined,
-      });
-      // Vendor upload is a resubmission — clear the previous verdict so it reappears in the
-      // verification queue as pending. Notify the staff who requested the revision (if known)
-      // and post to the order's own timeline for both sides.
-      const previous = await prisma.orderArtwork.findUnique({
-        where: { id },
-        select: { approvedById: true },
-      });
-      await prisma.orderArtwork.update({
-        where: { id },
-        data: { approvalStatus: 'PENDING', adminNotes: null, approvedById: null, approvedAt: null },
       });
       // Mark any pending ARTWORK_REVISION_REQUESTED notifications for this vendor & order as read
       await prisma.userNotification.updateMany({
@@ -309,11 +309,32 @@ export const productionArtworkController = {
         },
         data: { isRead: true },
       });
-      await recordOrderEvent(owned.orderItem.order.id, {
+      await recordOrderEvent(orderId, {
         eventType: 'ARTWORK_RESUBMITTED',
         title: 'Vendor uploaded revised artwork',
         actorId: req.user!.id,
       });
+
+      const verificationTask = await prisma.workflowTask.findFirst({
+        where: {
+          workflowStep: { stepType: 'VERIFICATION' },
+          workflowInstance: { orderId },
+          status: { notIn: ['COMPLETED', 'CANCELLED', 'SKIPPED'] },
+        },
+        select: { id: true, status: true },
+        orderBy: { stepOrder: 'desc' },
+      });
+
+      // If the verifier flagged this order for correction the task sits BLOCKED — bring it
+      // back to READY automatically when the vendor uploads a fix.
+      if (verificationTask?.status === 'BLOCKED') {
+        await workflowEngine.resolveTaskCorrection({
+          taskId: verificationTask.id,
+          actorId: req.user!.id,
+          remarks: 'Vendor uploaded revised artwork',
+        });
+      }
+
       // Notify whoever needs to look at it again: the staff member who asked for the revision,
       // plus anyone currently assigned to a live task on this order. Using a Set means a
       // verifier who is both doesn't get two copies.
@@ -325,7 +346,7 @@ export const productionArtworkController = {
           status: 'ACTIVE',
           workflowTask: {
             status: { notIn: ['COMPLETED', 'CANCELLED', 'SKIPPED'] },
-            workflowInstance: { orderId: owned.orderItem.order.id },
+            workflowInstance: { orderId },
           },
         },
         select: { operatorId: true },
@@ -335,10 +356,11 @@ export const productionArtworkController = {
       for (const userId of recipients) {
         await notifyUser(userId, {
           type: 'ARTWORK_RESUBMITTED',
-          title: `${owned.orderItem.order.orderNumber}: revised artwork ready`,
-          body: 'The vendor uploaded a new file. Reopen the task to review.',
-          entityType: 'ORDER',
-          entityId: owned.orderItem.order.id,
+          title: `${orderNumber}: revised artwork ready`,
+          body: 'The vendor uploaded a new file. Open the task to review and approve.',
+          entityType: verificationTask ? 'workflow_task' : 'ORDER',
+          entityId: verificationTask?.id ?? orderId,
+          metadata: { orderId },
         });
       }
       res.status(201).json({ success: true, data });

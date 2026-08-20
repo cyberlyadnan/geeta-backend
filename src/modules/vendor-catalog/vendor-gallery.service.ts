@@ -17,12 +17,17 @@ const CURRENT_CATALOG_VERSION = {
 } as const;
 
 export class VendorGalleryService {
-  /** The browse grid: every catalogue design with its cover image and price. */
-  async list(search?: string) {
+  /**
+   * The browse grid: every catalogue design with its cover image and price. `familyId` scopes
+   * this to one family's designs — used when the gallery is embedded as an order-wizard step
+   * rather than browsed as the standalone /vendor/catalogue page.
+   */
+  async list(search?: string, familyId?: string) {
     const products = await prisma.productOffering.findMany({
       where: {
         ...vendorVisibilityFilter(),
         versions: { some: CURRENT_CATALOG_VERSION },
+        ...(familyId ? { series: { familyId } } : {}),
         ...(search
           ? {
               OR: [
@@ -86,7 +91,7 @@ export class VendorGalleryService {
           select: {
             id: true,
             fixedPrice: true,
-            productTypeProfile: { select: { requiresDesignApproval: true } },
+            productTypeProfile: { select: { designServiceMode: true } },
             // Catalogue designs skip the configuration wizard (price is fixed), so these fields
             // are read-only spec sheet entries rather than interactive choices — each one's
             // default option is simply "what this design comes with" (size, cover, lamination,
@@ -126,7 +131,7 @@ export class VendorGalleryService {
       })),
       versionId: version.id,
       fixedPrice: version.fixedPrice != null ? decimalToNumber(version.fixedPrice) : null,
-      requiresDesignApproval: version.productTypeProfile?.requiresDesignApproval ?? false,
+      designServiceMode: version.productTypeProfile?.designServiceMode ?? 'NOT_OFFERED',
       specs: version.configurationFields
         .filter((f) => f.options[0])
         .map((f) => ({ label: f.label, value: f.options[0]!.label })),

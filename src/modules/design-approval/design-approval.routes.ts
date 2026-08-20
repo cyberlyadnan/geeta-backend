@@ -8,6 +8,9 @@ import {
   designTaskIdParamSchema,
   listDesignQueueQuerySchema,
   orderIdParamSchema,
+  presignDesignAttachmentSchema,
+  presignDesignProofSchema,
+  registerDesignAttachmentSchema,
   submitProofSchema,
   vendorDecisionSchema,
 } from './design-approval.validation.js';
@@ -26,10 +29,26 @@ designTasksRouter.get(
   designApprovalController.listQueue,
 );
 designTasksRouter.post(
+  '/:id/start',
+  validate(designTaskIdParamSchema, 'params'),
+  designApprovalController.startTask,
+);
+designTasksRouter.post(
+  '/:id/proof/presign',
+  validate(designTaskIdParamSchema, 'params'),
+  validate(presignDesignProofSchema),
+  designApprovalController.presignProof,
+);
+designTasksRouter.post(
   '/:id/proof',
   validate(designTaskIdParamSchema, 'params'),
   validate(submitProofSchema),
   designApprovalController.submitProof,
+);
+designTasksRouter.post(
+  '/:id/approve',
+  validate(designTaskIdParamSchema, 'params'),
+  designApprovalController.approveOnBehalf,
 );
 
 /**
@@ -53,4 +72,27 @@ orderDesignRouter.post(
   designApprovalController.recordDecision,
 );
 
-export { designTasksRouter as designTaskRoutes, orderDesignRouter as orderDesignApprovalRoutes };
+/**
+ * Vendor side — reference-material uploads. Standalone (not under /orders): the vendor is still
+ * filling out the order form, so no order or DesignTask exists yet to scope these to.
+ */
+const designAttachmentsRouter = Router();
+
+designAttachmentsRouter.use(authenticate);
+
+designAttachmentsRouter.post(
+  '/presign',
+  validate(presignDesignAttachmentSchema),
+  designApprovalController.presignAttachment,
+);
+designAttachmentsRouter.post(
+  '/register',
+  validate(registerDesignAttachmentSchema),
+  designApprovalController.registerAttachment,
+);
+
+export {
+  designTasksRouter as designTaskRoutes,
+  orderDesignRouter as orderDesignApprovalRoutes,
+  designAttachmentsRouter as designAttachmentRoutes,
+};

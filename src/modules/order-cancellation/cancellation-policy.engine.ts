@@ -23,7 +23,13 @@ const STAGE_FROM_STATUS: Partial<Record<ProductionOrderStatus, CancellationStage
   DRAFT: CancellationStageKey.VERIFICATION,
   ORDER_PLACED: CancellationStageKey.VERIFICATION,
   PENDING_PAYMENT: CancellationStageKey.VERIFICATION,
+  // Design work and the artwork-review sit before real production starts — nothing has been
+  // printed yet, so both use the same pre-production (VERIFICATION) cancellation policy. Design
+  // used to fall through to the PRODUCTION default below, which wrongly gave it whatever
+  // cancellation policy staff configured for actual in-production orders.
+  DESIGN: CancellationStageKey.VERIFICATION,
   UNDER_ARTWORK_REVIEW: CancellationStageKey.VERIFICATION,
+  IMPROPER_ORDER: CancellationStageKey.VERIFICATION,
   ARTWORK_APPROVED: CancellationStageKey.ARTWORK_APPROVED,
   CONFIRMED: CancellationStageKey.ARTWORK_APPROVED,
   IN_PRODUCTION: CancellationStageKey.PRODUCTION,

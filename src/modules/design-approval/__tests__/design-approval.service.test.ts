@@ -4,6 +4,7 @@ import { DesignApprovalService, type DesignApprovalDb } from '../design-approval
 import { workflowEngine } from '../../workflow/workflow.engine.js';
 import { NotificationDispatchService } from '../../../services/notifications/index.js';
 import { DESIGN_STEP_CODES } from '../design-approval.constants.js';
+import * as orderEvents from '../../orders/order-events.service.js';
 
 interface FakeState {
   designTask: {
@@ -143,16 +144,6 @@ describe('createForOrder — DesignTask is created only when there is design wor
     assert.equal(calls.designTaskCreates[0]!.source, 'VENDOR_MATTER');
     assert.equal(calls.designTaskCreates[0]!.status, 'PENDING');
     assert.equal(calls.designTaskCreates[0]!.matterContent, 'Bride: Anita, Groom: Ravi, 12 Feb');
-  });
-
-  it('skips the design task entirely when artwork was supplied', async () => {
-    const { db, calls } = createFakeDb();
-    const service = new DesignApprovalService(db);
-
-    const task = await service.createForOrder({ orderId: 'order-1', hasArtwork: true });
-
-    assert.equal(task, null);
-    assert.equal(calls.designTaskCreates.length, 0, 'no design task for a print-ready order');
   });
 });
 
@@ -462,3 +453,39 @@ describe('guards', () => {
     );
   });
 });
+
+describe('staffApproveOnBehalf — confirming design approval over WhatsApp/phone', () => {
+  it('marks the design approved and completes the gate on behalf of the customer', async (t) => {
+    const { db, state } = createFakeDb({
+      designTask: { id: 'design-1', status: 'AWAITING_VENDOR_APPROVAL', proofUrl: 'v1', revisionCount: 0, proofCount: 1 },
+    });
+
+    t.mock.method(workflowEngine, 'advance', async () => ({
+      workflowInstanceId: 'wf-1',
+      advancedTaskId: 'task-gate',
+      newStatus: 'COMPLETED',
+      newlyReadyTaskIds: ['task-production'],
+      newlyBlockedTaskIds: [],
+    }));
+
+    const service = new DesignApprovalService(db);
+    t.mock.method(service as unknown as { findActiveDesignWorkflowTask: () => Promise<unknown> }, 'findActiveDesignWorkflowTask', async () => null);
+
+    const result = await service.staffApproveOnBehalf('design-1', 'staff-1');
+    assert.equal(result.approved, true);
+    assert.equal(state.designTask!.status, 'APPROVED');
+  });
+
+  it('rejects approving a design task that is already approved', async () => {
+    const { db } = createFakeDb({
+      designTask: { id: 'design-1', status: 'APPROVED', proofUrl: 'v1', revisionCount: 0, proofCount: 1 },
+    });
+
+    const service = new DesignApprovalService(db);
+    await assert.rejects(
+      () => service.staffApproveOnBehalf('design-1', 'staff-1'),
+      /already been approved/,
+    );
+  });
+});
+

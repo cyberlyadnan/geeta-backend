@@ -219,8 +219,13 @@ export class AdminAttributesService {
       productId: field.productOfferingVersion.productOfferingId,
       code: field.code,
       label: field.label,
+      description: field.description,
       fieldType: field.fieldType,
+      placeholder: field.placeholder,
       isRequired: field.isRequired,
+      isVisible: field.isVisible,
+      isPrimary: field.isPrimary,
+      relevantStepTypes: field.relevantStepTypes,
       sortOrder: field.sortOrder,
       values: field.options.map((o) => ({
         id: o.id,

@@ -45,7 +45,8 @@ export class VendorCatalogController {
   /** Catalogue designs (fixed-price products) as a browsable gallery. */
   galleryList = asyncHandler(async (req: Request, res: Response) => {
     const search = typeof req.query['search'] === 'string' ? req.query['search'] : undefined;
-    const result = await vendorGalleryService.list(search);
+    const familyId = typeof req.query['familyId'] === 'string' ? req.query['familyId'] : undefined;
+    const result = await vendorGalleryService.list(search, familyId);
     return ApiResponse.success(res, result);
   });
 

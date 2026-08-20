@@ -36,6 +36,7 @@ import type {
   CreateSeriesInput,
   UpdateSeriesInput,
   ReorderCatalogInput,
+  UpdateDesignServiceInput,
 } from './admin-products.validation.js';
 import type { AddProductImageInput } from './admin-categories.service.js';
 
@@ -111,6 +112,15 @@ export class AdminProductsController {
   previewPrice = asyncHandler(async (req: Request, res: Response) => {
     const result = await adminProductsService.previewPrice(req.body as CalculatePriceInput);
     return ApiResponse.success(res, result);
+  });
+
+  updateDesignService = asyncHandler(async (req: Request, res: Response) => {
+    const { versionId } = req.validatedParams as { versionId: string };
+    const result = await adminProductsService.updateDesignService(
+      versionId,
+      req.body as UpdateDesignServiceInput,
+    );
+    return ApiResponse.success(res, result, 'Design service settings updated');
   });
 
   addImage = asyncHandler(async (req: Request, res: Response) => {

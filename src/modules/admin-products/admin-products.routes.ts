@@ -26,6 +26,8 @@ import {
   productIdParamSchema,
   reorderCatalogSchema,
   seriesIdParamSchema,
+  updateDesignServiceSchema,
+  versionIdParamSchema,
   updateAttributeSchema,
   updateCategorySchema,
   updateConfigRuleSchema,
@@ -49,6 +51,12 @@ router.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MANAGER));
 router.get('/', validate(listProductsQuerySchema, 'query'), adminProductsController.list);
 router.post('/', validate(createProductSchema), adminProductsController.create);
 router.post('/calculate-price', validate(calculatePriceSchema), adminProductsController.previewPrice);
+router.patch(
+  '/versions/:versionId/design-service',
+  validate(versionIdParamSchema, 'params'),
+  validate(updateDesignServiceSchema),
+  adminProductsController.updateDesignService,
+);
 
 router.get('/:id', validate(productIdParamSchema, 'params'), adminProductsController.getById);
 router.patch('/:id', validate(productIdParamSchema, 'params'), validate(updateProductSchema), adminProductsController.update);

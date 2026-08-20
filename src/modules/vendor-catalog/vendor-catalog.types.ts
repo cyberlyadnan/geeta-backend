@@ -37,6 +37,7 @@ export interface VendorBootstrapFamilyDto {
   sortOrder: number;
   seriesCount: number;
   productCount: number;
+  step3TemplateKey: string;
 }
 
 export interface VendorBootstrapSeriesDto {

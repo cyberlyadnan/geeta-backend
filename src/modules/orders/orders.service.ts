@@ -7,6 +7,7 @@ import {
   FinancialReferenceType,
   ProductionOrderStatus,
   WalletTransactionType,
+  WorkflowStepType,
   type Prisma,
 } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
@@ -411,21 +412,17 @@ export class OrdersService {
         await tx.vendorOrderDraft.deleteMany({ where: { id: input.draftId, userId: actor.vendorUserId } });
       }
 
-      // Phase 4 — products whose type profile requires design approval get a DesignTask, unless
-      // the vendor supplied print-ready artwork (then there is nothing to design). The wallet was
+      // Phase 4 — whether this order routes through the design team (computed once in
+      // computeOrderTotals, as computed.needsDesignTask — see the comment there). The wallet was
       // already debited above: design revisions never re-charge, however many rounds happen.
-      // `designRequired` lets staff force this on local/counter orders regardless of the
-      // product's own profile flag (e.g. a generic product where this specific customer wants
-      // custom design work).
       const hasArtwork = Boolean(input.artworks?.length);
-      const needsDesignTask = input.designRequired ?? computed.requiresDesignApproval;
-      if (needsDesignTask) {
+      if (computed.needsDesignTask) {
         await designApprovalService.createForOrder(
           {
             orderId: created.id,
-            hasArtwork,
             matterContent: input.designMatter ?? input.specialRemark ?? null,
             price: input.designPriceOverride ?? computed.defaultDesignPrice?.toNumber() ?? null,
+            attachmentFileAssetIds: computed.verifiedDesignAttachmentIds,
           },
           tx,
         );
@@ -666,15 +663,24 @@ export class OrdersService {
     const printContext = printContextResolved?.context;
     const fileRequirements = printContext?.fileRequirements ?? [];
 
+    // Single source of truth for "does this order route through the design team rather than a
+    // vendor-supplied print-ready file" — REQUIRED products always do, OPTIONAL products do when
+    // the vendor asked for help, and staff can force it either way (true or false) for a
+    // local/counter order regardless of the product's own mode. Used both to decide whether
+    // artwork is required below and, in create(), whether to open a DesignTask — one decision,
+    // computed once, so the two can never disagree.
+    const designServiceMode = printContextResolved.version.productTypeProfile?.designServiceMode ?? 'NOT_OFFERED';
+    const vendorWantsDesignHelp =
+      designServiceMode === 'OPTIONAL' && 'needsDesignHelp' in input && Boolean(input.needsDesignHelp);
+    const staffDesignOverride = 'designRequired' in input ? input.designRequired : undefined;
+    const needsDesignTask =
+      staffDesignOverride ?? (designServiceMode === 'REQUIRED' || vendorWantsDesignHelp);
+
     // Which slots this configuration actually asks for — both-sides printing adds a back file, a
     // UV option adds its own, all from admin configuration. Enforced here and not only in the
     // wizard: the browser decides what to show, the server decides what is acceptable, so a stale
     // client or a direct API call cannot place an order missing artwork production needs.
-    const isDesignWorkflow = Boolean(
-      ('designRequired' in input && input.designRequired) ||
-        printContextResolved.version.productTypeProfile?.requiresDesignApproval,
-    );
-    if (!options.forPreview && input.fileOption !== 'email' && !isDesignWorkflow) {
+    if (!options.forPreview && input.fileOption !== 'email' && !needsDesignTask) {
       const requiredCodes = resolveRequiredSlotCodes(fileRequirements, input.selections);
       const supplied = new Set((input.artworks ?? []).map((a) => a.requirementCode));
       const missing = requiredCodes.filter((code) => !supplied.has(code));
@@ -759,6 +765,22 @@ export class OrdersService {
       coverageSnapshot = { results: input.coverageResults };
     }
 
+    let verifiedDesignAttachmentIds: string[] = [];
+    const designAttachmentIds = 'designAttachments' in input ? input.designAttachments : undefined;
+    if (!options.forPreview && designAttachmentIds?.length) {
+      if (actor.type === 'retail') {
+        throw ApiError.badRequest('Design attachments are not yet supported for retail-customer orders');
+      }
+      const owned = await prisma.fileAsset.findMany({
+        where: { id: { in: designAttachmentIds }, uploadedById: actor.vendorUserId },
+        select: { id: true },
+      });
+      if (owned.length !== designAttachmentIds.length) {
+        throw ApiError.badRequest('One or more design attachments could not be found');
+      }
+      verifiedDesignAttachmentIds = owned.map((f) => f.id);
+    }
+
     const offering = printContextResolved.version.productOffering;
 
     return {
@@ -770,9 +792,11 @@ export class OrdersService {
       resolution,
       configEntries,
       fileRequirements,
-      /** Phase 4 — drives whether placement creates a DesignTask. */
-      requiresDesignApproval:
-        printContextResolved.version.productTypeProfile?.requiresDesignApproval ?? false,
+      /** Phase 4 — the single decision of whether this order routes through the design team;
+       *  see the comment above where it's computed. */
+      designServiceMode,
+      needsDesignTask,
+      verifiedDesignAttachmentIds,
       /** Snapshotted onto DesignTask.price at creation — never re-read from here afterward, so a
        *  later catalog change never alters an already-placed order's design fee. */
       defaultDesignPrice: printContextResolved.version.productTypeProfile?.defaultDesignPrice ?? null,
@@ -897,6 +921,50 @@ async function resolveArtworkFileUrl(fileAsset: {
   }
 }
 
+/** Step types that represent real, physical production work happening in a specific department
+ *  (as opposed to design/review/QC/dispatch, which already have their own precise order-status
+ *  values). Mirrors order-status-sync.service.ts's STEP_TYPE_TO_ORDER_STATUS "IN_PRODUCTION"
+ *  bucket exactly, so the department name shown here always agrees with what put the order into
+ *  IN_PRODUCTION in the first place. */
+const PRODUCTION_STEP_TYPES = new Set<WorkflowStepType>([
+  WorkflowStepType.PRINTING,
+  WorkflowStepType.LAMINATION,
+  WorkflowStepType.UV,
+  WorkflowStepType.FOILING,
+  WorkflowStepType.DIE_CUTTING,
+  WorkflowStepType.PACKAGING,
+  WorkflowStepType.CUSTOM,
+]);
+
+interface StageTask {
+  stepOrder: number;
+  department: { name: string } | null;
+  workflowStep: { stepType: WorkflowStepType };
+}
+
+/**
+ * "In Production" is a status bucket, not a department — an order sitting there is actually at
+ * Printing, Lamination, Die Cutting, or whichever department currently owns it. This resolves the
+ * real department name from the order's active workflow tasks so the vendor sees where their
+ * order physically is, not just the generic bucket it's rolled up into.
+ *
+ * When more than one production-stage task is active (rare, but possible with multi-item orders),
+ * the one with the highest stepOrder wins — that's the furthest-progressed, i.e. current, step.
+ */
+function deriveCurrentStageLabel(workflowInstances: { tasks: StageTask[] }[]): string | null {
+  let best: { stepOrder: number; label: string } | null = null;
+  for (const instance of workflowInstances) {
+    for (const task of instance.tasks) {
+      if (!PRODUCTION_STEP_TYPES.has(task.workflowStep.stepType)) continue;
+      if (!task.department?.name) continue;
+      if (!best || task.stepOrder > best.stepOrder) {
+        best = { stepOrder: task.stepOrder, label: task.department.name };
+      }
+    }
+  }
+  return best?.label ?? null;
+}
+
 function mapOrderToListDto(order: OrderListRecord) {
   const item = order.items[0];
   // Rolled-up artwork state for the list row's badge. "needs_revision" wins over "rejected"
@@ -918,6 +986,7 @@ function mapOrderToListDto(order: OrderListRecord) {
     orderNumber: order.orderNumber,
     orderName: order.orderName,
     status: order.status,
+    currentStageLabel: deriveCurrentStageLabel(order.workflowInstances),
     artworkState,
     productName:
       item?.productOfferingVersion.productOffering.displayName ??
@@ -983,6 +1052,7 @@ async function mapOrderToDetailDto(order: OrderDetailRecord) {
     orderNumber: order.orderNumber,
     orderName: order.orderName,
     status: order.status,
+    currentStageLabel: deriveCurrentStageLabel(order.workflowInstances),
     hasInvoice,
     invoicePdfUrl,
     productTotal: Number(order.subtotal),

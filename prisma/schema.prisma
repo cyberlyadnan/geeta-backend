@@ -145,6 +145,14 @@ enum ProductSizeMode {
   FIXED
 }
 
+/// Whether a product type routes orders through the design team, and whether that's the vendor's
+/// choice. Replaces a plain boolean so "mandatory but not offered" can't be represented.
+enum DesignServiceMode {
+  NOT_OFFERED
+  OPTIONAL
+  REQUIRED
+}
+
 /// Where the content for a design came from.
 enum DesignTaskSource {
   /// Vendor supplied print-ready artwork — no design work needed.
@@ -1121,6 +1129,11 @@ model ProductFamily {
   sortOrder   Int           @default(0) @map("sort_order")
   status      ProductStatus @default(ACTIVE)
   isActive    Boolean       @default(true) @map("is_active")
+  /// Which step-3 screen the vendor order wizard shows after this family is picked. "DEFAULT"
+  /// keeps today's behavior (step 3 is skipped). The frontend maps other keys (e.g.
+  /// "CATALOG_GALLERY") to a registered template component — an unrecognized key falls back to
+  /// "DEFAULT" rather than erroring, so this is safe to leave unset.
+  step3TemplateKey String   @default("DEFAULT") @map("step3_template_key")
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
   deletedAt   DateTime?     @map("deleted_at")
@@ -1658,6 +1671,7 @@ model FileAsset {
   productionNoteFiles     WorkflowTaskProductionNote[]
   qcInspectionAttachments QualityInspectionAttachment[]
   qcDefectAttachments     QualityInspectionDefect[]
+  designTaskAttachment    DesignTaskAttachment?
 
   @@index([uploadedById])
   @@index([createdAt])
@@ -3226,7 +3240,18 @@ model ProductTypeProfile {
   /// "fixed_catalog" | "quantity_pricing".
   pricingStrategyKey     String          @map("pricing_strategy_key")
   wizardStepsKey         String          @map("wizard_steps_key")
-  requiresDesignApproval Boolean         @default(false) @map("requires_design_approval")
+  /// NOT_OFFERED: no design section at all, artwork upload only. OPTIONAL: vendor chooses between
+  /// uploading finished artwork or asking for design help. REQUIRED: always routes through design,
+  /// no print-ready-artwork question is asked.
+  designServiceMode      DesignServiceMode @default(NOT_OFFERED) @map("design_service_mode")
+  /// Deprecated — superseded by designServiceMode. Kept in the schema (unread by application
+  /// code) rather than dropped: removing this field from a model this deeply relation-connected
+  /// pushes several unrelated Prisma include queries past a TypeScript type-instantiation-depth
+  /// cliff, which silently falls back to wrong/incomplete inferred types elsewhere (verified by
+  /// isolated testing — reproduces with ANY field removal here, not specific to this one). Safe
+  /// to actually drop later in a dedicated pass once that TS/schema fragility is addressed on its
+  /// own, decoupled from this feature.
+  requiresDesignApproval Boolean           @default(false) @map("requires_design_approval")
   /// Default design fee, applied to a new DesignTask unless overridden per order. Changing this
   /// NEVER retroactively changes DesignTask.price on existing orders — that column is a snapshot
   /// taken at DesignTask-creation time, same pattern ProductOfferingVersion uses for pricing so
@@ -3269,10 +3294,26 @@ model DesignTask {
   assignedTo   User?                @relation("DesignTaskAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   proofs       DesignProofVersion[]
   decisions    DesignApprovalDecision[]
+  attachments  DesignTaskAttachment[]
 
   @@index([status])
   @@index([assignedToUserId])
   @@map("design_tasks")
+}
+
+/// Reference material (photos, logos, existing artwork to redo) the vendor uploaded when
+/// requesting design help — separate from ArtworkFile, which is print-ready output, not input.
+model DesignTaskAttachment {
+  id           String   @id @default(cuid())
+  designTaskId String   @map("design_task_id")
+  fileAssetId  String   @unique @map("file_asset_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  designTask DesignTask @relation(fields: [designTaskId], references: [id], onDelete: Cascade)
+  fileAsset  FileAsset  @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  @@index([designTaskId])
+  @@map("design_task_attachments")
 }
 
 /// Append-only history of every proof the design team submitted, so a vendor can see what

@@ -8,6 +8,7 @@ import {
   PricingRuleStatus,
   OptionPricingStrategy,
   WorkflowStepType,
+  DesignServiceMode,
 } from '@prisma/client';
 
 export const listProductsQuerySchema = z.object({
@@ -24,6 +25,13 @@ export const listProductsQuerySchema = z.object({
 });
 
 export const productIdParamSchema = z.object({ id: z.string().min(1) });
+
+export const versionIdParamSchema = z.object({ versionId: z.string().min(1) });
+
+export const updateDesignServiceSchema = z.object({
+  designServiceMode: z.nativeEnum(DesignServiceMode),
+  defaultDesignPrice: z.coerce.number().nonnegative().nullable().optional(),
+});
 
 const attributeValueSchema = z.object({
   id: z.string().min(1).optional(),
@@ -196,6 +204,12 @@ export const listFamiliesQuerySchema = z.object({
   status: z.nativeEnum(ProductStatus).optional(),
 });
 
+/**
+ * Which step-3 screen the vendor order wizard shows for this family. Kept as a zod enum (not a
+ * DB enum) so a new template can be added later with a one-line change here — no migration.
+ */
+export const step3TemplateKeySchema = z.enum(['DEFAULT', 'CATALOG_GALLERY']);
+
 export const createFamilySchema = z.object({
   categoryId: z.string().min(1),
   name: z.string().min(1).max(200),
@@ -205,6 +219,7 @@ export const createFamilySchema = z.object({
   imageKey: z.string().optional().nullable(),
   sortOrder: z.number().int().optional(),
   status: z.nativeEnum(ProductStatus).optional(),
+  step3TemplateKey: step3TemplateKeySchema.optional(),
 });
 
 export const updateFamilySchema = createFamilySchema.partial();
@@ -297,3 +312,4 @@ export type CreateConfigRuleInput = z.infer<typeof createConfigRuleSchema>;
 export type UpdateConfigRuleInput = z.infer<typeof updateConfigRuleSchema>;
 export type ListConfigRulesQuery = z.infer<typeof listConfigRulesQuerySchema>;
 export type OrderConfigurationQuery = z.infer<typeof orderConfigurationQuerySchema>;
+export type UpdateDesignServiceInput = z.infer<typeof updateDesignServiceSchema>;

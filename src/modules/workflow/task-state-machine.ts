@@ -27,12 +27,14 @@ const TRANSITIONS: Readonly<Record<WorkflowTaskStatus, readonly WorkflowTaskStat
   [WorkflowTaskStatus.READY]: [
     WorkflowTaskStatus.ASSIGNED,
     WorkflowTaskStatus.IN_PROGRESS,
+    WorkflowTaskStatus.COMPLETED,
     WorkflowTaskStatus.BLOCKED,
     WorkflowTaskStatus.CANCELLED,
     WorkflowTaskStatus.SKIPPED,
   ],
   [WorkflowTaskStatus.ASSIGNED]: [
     WorkflowTaskStatus.IN_PROGRESS,
+    WorkflowTaskStatus.COMPLETED,
     WorkflowTaskStatus.READY,
     WorkflowTaskStatus.BLOCKED,
     WorkflowTaskStatus.CANCELLED,

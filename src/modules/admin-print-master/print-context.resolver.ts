@@ -113,13 +113,13 @@ export class PrintContextResolver {
       where: { id: versionId, deletedAt: null },
       include: {
         productOffering: { select: { id: true, name: true, displayName: true, slug: true, thumbnailUrl: true } },
-        // Phase 4 — order placement reads requiresDesignApproval off this to decide whether the
+        // Phase 4 — order placement reads designServiceMode off this to decide whether the
         // order needs a DesignTask.
         productTypeProfile: {
           select: {
             key: true,
             wizardStepsKey: true,
-            requiresDesignApproval: true,
+            designServiceMode: true,
             sizeMode: true,
             defaultDesignPrice: true,
           },

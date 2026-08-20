@@ -1,4 +1,4 @@
-export { designTaskRoutes, orderDesignApprovalRoutes } from './design-approval.routes.js';
+export { designTaskRoutes, orderDesignApprovalRoutes, designAttachmentRoutes } from './design-approval.routes.js';
 export { designApprovalService, DesignApprovalService } from './design-approval.service.js';
 export type { DesignApprovalDb } from './design-approval.service.js';
 export {

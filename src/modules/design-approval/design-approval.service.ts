@@ -3,39 +3,58 @@ import {
   DesignTaskSource,
   DesignTaskStatus,
   RoleName,
+  WorkflowHistoryAction,
+  WorkflowStepType,
+  WorkflowTaskStatus,
   type Prisma,
 } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { workflowEngine } from '../workflow/workflow.engine.js';
+import { assertTaskTransition } from '../workflow/task-state-machine.js';
 import { recordOrderEvent } from '../orders/order-events.service.js';
+import { storageService } from '../../services/storage/storage.service.js';
+import { resolveExtension, sanitizeFileName } from '../../services/storage/storage.utils.js';
 import {
   notificationDispatchService,
   NotificationDispatchService,
   type PendingNotification,
 } from '../../services/notifications/index.js';
+import { logger } from '../../logs/logger.js';
 import {
+  DESIGN_DEPARTMENT_CODE,
   DESIGN_NOTIFICATION_TYPES,
   DESIGN_STEP_CODES,
   MAX_REVISION_ROUNDS,
 } from './design-approval.constants.js';
+import type {
+  PresignDesignAttachmentInput,
+  PresignDesignProofInput,
+  RegisterDesignAttachmentInput,
+} from './design-approval.validation.js';
 
 /** Narrow slice of the Prisma client this service needs — injectable so tests can drive the
  *  whole flow with a hand-rolled fake instead of monkey-patching the real (proxy-based) Prisma
  *  client, which node:test's mock.method cannot patch (see retail-customer.service tests). */
 export type DesignApprovalDb = Pick<
   typeof prisma,
-  'designTask' | 'designProofVersion' | 'productionOrder' | 'user' | '$transaction'
+  | 'designTask'
+  | 'designTaskAttachment'
+  | 'designProofVersion'
+  | 'productionOrder'
+  | 'user'
+  | '$transaction'
 >;
 
 export interface CreateDesignTaskInput {
   orderId: string;
-  /** True when the vendor supplied print-ready artwork — no design work is needed. */
-  hasArtwork: boolean;
   matterContent?: string | null;
   /** Snapshotted onto DesignTask.price. Null/undefined means no fee is charged for design on
    *  this order (e.g. no default configured and no override entered). */
   price?: number | null;
+  /** Reference material (photos, logos, existing artwork to redo) the vendor uploaded ahead of
+   *  placing the order — FileAsset ids, ownership already verified by the caller. */
+  attachmentFileAssetIds?: string[];
 }
 
 export interface SubmitProofInput {
@@ -60,18 +79,49 @@ export class DesignApprovalService {
   ) {}
 
   /**
-   * Called during order placement for products whose profile requires design approval.
-   *
-   * Returns null when the vendor supplied artwork: there is nothing to design, so no DesignTask
-   * is created and the workflow's design steps are skipped rather than sitting in a queue
-   * waiting for work that will never happen.
+   * A design task doesn't exist yet at this point — the vendor is still filling out the order
+   * form — so reference-material uploads are staged as plain FileAssets, keyed by vendor, and
+   * only pinned to a DesignTaskAttachment once the order (and its DesignTask) actually gets
+   * created. Mirrors how artwork presign/register works ahead of order placement.
+   */
+  presignAttachment(vendorUserId: string, input: PresignDesignAttachmentInput) {
+    return storageService.createPresignedDesignAttachmentUpload(
+      vendorUserId,
+      input.fileName,
+      input.contentType,
+      input.fileSize,
+    );
+  }
+
+  async registerAttachment(vendorUserId: string, input: RegisterDesignAttachmentInput) {
+    const ext = resolveExtension(input.mimeType, input.originalName);
+    const fileAsset = await prisma.fileAsset.create({
+      data: {
+        originalName: sanitizeFileName(input.originalName),
+        fileName: sanitizeFileName(input.originalName),
+        fileKey: input.key,
+        fileUrl: input.publicUrl,
+        mimeType: input.mimeType,
+        extension: ext,
+        fileSize: input.fileSize,
+        uploadedById: vendorUserId,
+      },
+      select: { id: true, fileUrl: true, originalName: true },
+    });
+    return fileAsset;
+  }
+
+  /**
+   * Called during order placement once the caller has already decided the order needs design
+   * work (product's designServiceMode is REQUIRED, or OPTIONAL and the vendor asked for help, or
+   * staff forced it for a local/counter order). Always creates a task — deciding whether design
+   * work is needed at all is the caller's job (orders.service.ts), not this method's; that keeps
+   * "is design wanted" as one decision made in one place instead of duplicated here.
    */
   async createForOrder(
     input: CreateDesignTaskInput,
     tx?: Prisma.TransactionClient,
-  ): Promise<{ id: string; source: DesignTaskSource } | null> {
-    if (input.hasArtwork) return null;
-
+  ): Promise<{ id: string; source: DesignTaskSource }> {
     const db = tx ?? this.db;
     const task = await db.designTask.create({
       data: {
@@ -83,6 +133,16 @@ export class DesignApprovalService {
       },
       select: { id: true, source: true },
     });
+
+    if (input.attachmentFileAssetIds?.length) {
+      await db.designTaskAttachment.createMany({
+        data: input.attachmentFileAssetIds.map((fileAssetId) => ({
+          designTaskId: task.id,
+          fileAssetId,
+        })),
+      });
+    }
+
     return task;
   }
 
@@ -148,7 +208,11 @@ export class DesignApprovalService {
               body: `Proof v${versionNumber} for order ${task.order.orderNumber} is ready for your approval.`,
               entityType: 'ORDER',
               entityId: task.orderId,
-              metadata: { designTaskId: task.id, versionNumber, gate: DesignApprovalGate.DIGITAL_PROOF },
+              metadata: {
+                designTaskId: task.id,
+                versionNumber,
+                gate: DesignApprovalGate.DIGITAL_PROOF,
+              },
             },
             tx,
           ),
@@ -164,6 +228,221 @@ export class DesignApprovalService {
     // Pushed only after the proof is durably saved — see NotificationDispatchService.
     this.notifications.flush(notifications);
     return result;
+  }
+
+  /**
+   * A designer picks up the next card in the queue. Purely a DesignTask-level status flip — it
+   * does not touch the underlying production workflow, so it stays lightweight and safe to call
+   * even on orders whose workflow hasn't reached the DESIGN step yet.
+   */
+  /**
+   * The order's active DESIGN-department workflow task, if any — mirrors exactly the predicate
+   * order-status-sync.service.ts uses to decide an order is still "in Design", so start/finish
+   * here drive the same signal that decides the vendor-facing order stage. Without this, the
+   * design queue's Start/Approve buttons only ever touched DesignTask.status (this module's own
+   * bookkeeping row) and never the real production WorkflowTask, so the order stayed stuck on
+   * "Design" forever even after approval.
+   */
+  private findActiveDesignWorkflowTask(orderId: string) {
+    return prisma.workflowTask.findFirst({
+      where: {
+        workflowInstance: { orderId },
+        department: { code: DESIGN_DEPARTMENT_CODE },
+        status: {
+          in: [
+            WorkflowTaskStatus.PENDING,
+            WorkflowTaskStatus.WAITING,
+            WorkflowTaskStatus.READY,
+            WorkflowTaskStatus.ASSIGNED,
+            WorkflowTaskStatus.IN_PROGRESS,
+            WorkflowTaskStatus.REWORK,
+          ],
+        },
+      },
+      orderBy: { stepOrder: 'asc' },
+      select: {
+        id: true,
+        workflowInstanceId: true,
+        status: true,
+        workflowStep: { select: { stepType: true, stepCode: true, stepName: true } },
+      },
+    });
+  }
+
+  /**
+   * Moves a workflow task up to IN_PROGRESS so it can then be completed — walks the handful of
+   * legal task-state-machine hops (PENDING/WAITING → READY → IN_PROGRESS) directly, without
+   * pulling in the full execution/session system (assignment, time tracking, pause/resume) that
+   * the generic production queues use. That system is still there for departments that want it;
+   * design just doesn't need it for the simple start → upload → done flow.
+   */
+  private async claimWorkflowTask(
+    task: { id: string; status: WorkflowTaskStatus },
+    actorId: string,
+  ): Promise<void> {
+    let current = task.status;
+    if (current === WorkflowTaskStatus.IN_PROGRESS) return;
+
+    if (current === WorkflowTaskStatus.PENDING || current === WorkflowTaskStatus.WAITING) {
+      assertTaskTransition(current, WorkflowTaskStatus.READY);
+      await prisma.workflowTask.update({
+        where: { id: task.id },
+        data: { status: WorkflowTaskStatus.READY, queuedAt: new Date() },
+      });
+      current = WorkflowTaskStatus.READY;
+    }
+
+    assertTaskTransition(current, WorkflowTaskStatus.IN_PROGRESS);
+    await prisma.workflowTask.update({
+      where: { id: task.id },
+      data: { status: WorkflowTaskStatus.IN_PROGRESS, startedAt: new Date() },
+    });
+    await prisma.workflowTaskHistory.create({
+      data: { taskId: task.id, action: WorkflowHistoryAction.STARTED, performedById: actorId },
+    });
+  }
+
+  async startTask(designTaskId: string, staffUserId: string) {
+    const task = await this.db.designTask.findUnique({
+      where: { id: designTaskId },
+      select: { id: true, status: true, assignedToUserId: true, orderId: true },
+    });
+    if (!task) throw ApiError.notFound('Design task not found');
+    if (
+      task.status !== DesignTaskStatus.PENDING &&
+      task.status !== DesignTaskStatus.REVISION_REQUESTED
+    ) {
+      throw ApiError.badRequest('This card is not waiting to be started');
+    }
+
+    const updated = await this.db.designTask.update({
+      where: { id: designTaskId },
+      data: {
+        status: DesignTaskStatus.IN_PROGRESS,
+        // First designer to hit Start claims it; doesn't reassign it away from whoever already has it.
+        assignedToUserId: task.assignedToUserId ?? staffUserId,
+      },
+      select: { id: true, status: true, assignedToUserId: true, orderId: true },
+    });
+
+    // Claim the real production task too, so the order's status (and every other panel reading
+    // it — vendor order page, admin order list) reflects that design work has actually begun.
+    const workflowTask = await this.findActiveDesignWorkflowTask(updated.orderId);
+    if (workflowTask && workflowTask.workflowStep.stepType !== WorkflowStepType.VENDOR_APPROVAL) {
+      await this.claimWorkflowTask(workflowTask, staffUserId);
+    }
+
+    await recordOrderEvent(updated.orderId, {
+      eventType: 'DESIGN_STARTED',
+      title: 'Design work started',
+      actorId: staffUserId,
+      metadata: { designTaskId },
+    });
+
+    return updated;
+  }
+
+  /** An upload URL for the design team to push a finished design/proof file straight to a task. */
+  presignProofUpload(designTaskId: string, input: PresignDesignProofInput) {
+    return storageService.createPresignedDesignProofUpload(
+      designTaskId,
+      input.fileName,
+      input.contentType,
+      input.fileSize,
+    );
+  }
+
+  /**
+   * The design team marks the card done after confirming approval with the customer directly
+   * (over WhatsApp, by phone, in person) rather than through the vendor's in-app decision screen.
+   *
+   * This drives the order's real production workflow forward — completing the DESIGN
+   * department's own "do the design" task, then approving whichever vendor-approval gate opens
+   * as a result — using the exact same mechanics a vendor's in-app "Approve" click or an
+   * operator's "Complete" click would use (same DesignApprovalDecision audit row, same
+   * workflowEngine.advance, same order-status sync). Nothing about the underlying gate/workflow
+   * system is bypassed or removed; only the trigger differs. That's what actually moves the
+   * vendor-facing order out of "Design" and into "Under Review" once this finishes.
+   *
+   * Bounded to a few hops: design → proof gate covers the common case. If a template chains
+   * further into real-world work a click can't finish on someone's behalf (e.g. producing a
+   * physical sample), the loop stops there and the card stays "in progress" rather than being
+   * falsely marked approved — someone can click this again once that step is actually done.
+   */
+  async staffApproveOnBehalf(designTaskId: string, staffUserId: string) {
+    const task = await this.db.designTask.findUnique({
+      where: { id: designTaskId },
+      select: {
+        id: true,
+        status: true,
+        orderId: true,
+        order: { select: { id: true, orderNumber: true, customerId: true } },
+      },
+    });
+    if (!task) throw ApiError.notFound('Design task not found');
+    if (task.status === DesignTaskStatus.APPROVED) {
+      throw ApiError.badRequest('This design has already been approved');
+    }
+
+    for (let hop = 0; hop < 5; hop++) {
+      const active = await this.findActiveDesignWorkflowTask(task.orderId);
+      if (!active) break;
+
+      if (active.workflowStep.stepType === WorkflowStepType.VENDOR_APPROVAL) {
+        const gate =
+          active.workflowStep.stepCode === DESIGN_STEP_CODES.SAMPLE_APPROVAL
+            ? DesignApprovalGate.PHYSICAL_SAMPLE
+            : DesignApprovalGate.DIGITAL_PROOF;
+
+        await this.approveGate({
+          order: { ...task.order, designTask: { id: task.id } },
+          gate,
+          open: {
+            taskId: active.id,
+            workflowInstanceId: active.workflowInstanceId,
+            stepName: active.workflowStep.stepName,
+          },
+          vendorUserId: staffUserId,
+        });
+        continue;
+      }
+
+      // A CUSTOM "do the work" step. Only auto-complete the literal design-creation step —
+      // anything else in this department (e.g. SAMPLE_PRODUCTION) is real-world work.
+      if (active.workflowStep.stepCode !== DESIGN_STEP_CODES.DESIGN) break;
+
+      await this.claimWorkflowTask(active, staffUserId);
+      await workflowEngine.advance({
+        workflowInstanceId: active.workflowInstanceId,
+        taskId: active.id,
+        action: 'complete',
+        actorId: staffUserId,
+        remarks: 'Design finished — approved with the customer over WhatsApp',
+      });
+    }
+
+    const stillActive = await this.findActiveDesignWorkflowTask(task.orderId);
+    if (stillActive) {
+      await this.db.designTask.update({
+        where: { id: designTaskId },
+        data: { status: DesignTaskStatus.IN_PROGRESS },
+      });
+      return { gate: null, approved: false as const, advanced: true as const };
+    }
+
+    await this.db.designTask.update({
+      where: { id: designTaskId },
+      data: { status: DesignTaskStatus.APPROVED },
+    });
+    await recordOrderEvent(task.orderId, {
+      eventType: 'DESIGN_APPROVED',
+      title: 'Design approved (confirmed with customer directly)',
+      actorId: staffUserId,
+      metadata: { designTaskId },
+    }).catch((err) => {
+      logger.warn('Failed to record DESIGN_APPROVED order event', { orderId: task.orderId, err });
+    });
+    return { gate: null, approved: true as const, advanced: true as const };
   }
 
   /**
@@ -186,7 +465,12 @@ export class DesignApprovalService {
 
     const order = await this.db.productionOrder.findUnique({
       where: { id: input.orderId },
-      select: { id: true, orderNumber: true, customerId: true, designTask: { select: { id: true, revisionCount: true } } },
+      select: {
+        id: true,
+        orderNumber: true,
+        customerId: true,
+        designTask: { select: { id: true, revisionCount: true } },
+      },
     });
     if (!order) throw ApiError.notFound('Order not found');
     if (order.customerId !== input.vendorUserId) {
@@ -215,7 +499,12 @@ export class DesignApprovalService {
   }
 
   private async approveGate(args: {
-    order: { id: string; orderNumber: string; customerId: string | null; designTask: { id: string } };
+    order: {
+      id: string;
+      orderNumber: string;
+      customerId: string | null;
+      designTask: { id: string };
+    };
     gate: DesignApprovalGate;
     open: { taskId: string; workflowInstanceId: string; stepName: string };
     vendorUserId: string;
@@ -245,7 +534,10 @@ export class DesignApprovalService {
       await recordOrderEvent(
         order.id,
         {
-          eventType: gate === DesignApprovalGate.DIGITAL_PROOF ? 'DESIGN_PROOF_APPROVED' : 'DESIGN_SAMPLE_APPROVED',
+          eventType:
+            gate === DesignApprovalGate.DIGITAL_PROOF
+              ? 'DESIGN_PROOF_APPROVED'
+              : 'DESIGN_SAMPLE_APPROVED',
           title:
             gate === DesignApprovalGate.DIGITAL_PROOF
               ? 'Proof approved — sample production starting'
@@ -256,16 +548,26 @@ export class DesignApprovalService {
         tx,
       );
 
-      return this.notifyDesignTeam(
-        tx,
-        {
-          type: DESIGN_NOTIFICATION_TYPES.APPROVED,
-          title: `${gate === DesignApprovalGate.DIGITAL_PROOF ? 'Proof' : 'Sample'} approved`,
-          body: `Order ${order.orderNumber} was approved by the customer.`,
-          orderId: order.id,
-        },
-      );
+      return this.notifyDesignTeam(tx, {
+        type: DESIGN_NOTIFICATION_TYPES.APPROVED,
+        title: `${gate === DesignApprovalGate.DIGITAL_PROOF ? 'Proof' : 'Sample'} approved`,
+        body: `Order ${order.orderNumber} was approved by the customer.`,
+        orderId: order.id,
+      });
     });
+
+    // Ensure any PENDING/WAITING task is claimed up to READY/IN_PROGRESS before completing.
+    const taskRecord = await prisma.workflowTask.findUnique({
+      where: { id: open.taskId },
+      select: { id: true, status: true },
+    });
+    if (
+      taskRecord &&
+      (taskRecord.status === WorkflowTaskStatus.PENDING ||
+        taskRecord.status === WorkflowTaskStatus.WAITING)
+    ) {
+      await this.claimWorkflowTask(taskRecord, vendorUserId);
+    }
 
     // Completing the gate advances the workflow to whatever comes next — sample production after
     // the proof gate, full production after the sample gate.
@@ -327,7 +629,10 @@ export class DesignApprovalService {
       await recordOrderEvent(
         order.id,
         {
-          eventType: gate === DesignApprovalGate.DIGITAL_PROOF ? 'DESIGN_PROOF_REVISION' : 'DESIGN_SAMPLE_REVISION',
+          eventType:
+            gate === DesignApprovalGate.DIGITAL_PROOF
+              ? 'DESIGN_PROOF_REVISION'
+              : 'DESIGN_SAMPLE_REVISION',
           title: 'Changes requested',
           description: revisionNote,
           actorId: vendorUserId,
@@ -417,9 +722,18 @@ export class DesignApprovalService {
             proofUrl: true,
             matterContent: true,
             revisionCount: true,
+            attachments: {
+              select: { id: true, fileAsset: { select: { originalName: true, fileUrl: true } } },
+            },
             proofs: {
               orderBy: { versionNumber: 'desc' },
-              select: { id: true, versionNumber: true, proofUrl: true, notes: true, createdAt: true },
+              select: {
+                id: true,
+                versionNumber: true,
+                proofUrl: true,
+                notes: true,
+                createdAt: true,
+              },
             },
             decisions: {
               orderBy: { createdAt: 'desc' },
@@ -430,7 +744,8 @@ export class DesignApprovalService {
       },
     });
     if (!order) throw ApiError.notFound('Order not found');
-    if (order.customerId !== vendorUserId) throw ApiError.forbidden('This order does not belong to you');
+    if (order.customerId !== vendorUserId)
+      throw ApiError.forbidden('This order does not belong to you');
     if (!order.designTask) return { orderId: order.id, designTask: null, openGate: null };
 
     const open = await workflowEngine.findOpenVendorApprovalTask(orderId);
@@ -440,8 +755,19 @@ export class DesignApprovalService {
       orderNumber: order.orderNumber,
       designTask: {
         ...order.designTask,
-        proofs: order.designTask.proofs.map((p) => ({ ...p, createdAt: p.createdAt.toISOString() })),
-        decisions: order.designTask.decisions.map((d) => ({ ...d, createdAt: d.createdAt.toISOString() })),
+        attachments: order.designTask.attachments.map((a) => ({
+          id: a.id,
+          fileName: a.fileAsset.originalName,
+          fileUrl: a.fileAsset.fileUrl,
+        })),
+        proofs: order.designTask.proofs.map((p) => ({
+          ...p,
+          createdAt: p.createdAt.toISOString(),
+        })),
+        decisions: order.designTask.decisions.map((d) => ({
+          ...d,
+          createdAt: d.createdAt.toISOString(),
+        })),
       },
       openGate: open
         ? {
@@ -473,13 +799,25 @@ export class DesignApprovalService {
           proofUrl: true,
           revisionCount: true,
           createdAt: true,
+          attachments: {
+            select: {
+              id: true,
+              fileAsset: { select: { originalName: true, fileUrl: true } },
+            },
+          },
           order: {
             select: {
               id: true,
               orderNumber: true,
               orderName: true,
               customer: {
-                select: { id: true, firstName: true, lastName: true, vendorProfile: { select: { businessName: true } } },
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  vendorProfile: { select: { businessName: true } },
+                },
               },
             },
           },
@@ -502,6 +840,11 @@ export class DesignApprovalService {
         proofUrl: task.proofUrl,
         revisionCount: task.revisionCount,
         createdAt: task.createdAt.toISOString(),
+        attachments: task.attachments.map((a) => ({
+          id: a.id,
+          fileName: a.fileAsset.originalName,
+          fileUrl: a.fileAsset.fileUrl,
+        })),
         order: {
           id: task.order.id,
           orderNumber: task.order.orderNumber,
@@ -511,6 +854,8 @@ export class DesignApprovalService {
             (task.order.customer
               ? `${task.order.customer.firstName} ${task.order.customer.lastName}`
               : null),
+          // For the "Contact on WhatsApp" button — kept as raw digits/plus, formatted client-side.
+          customerPhone: task.order.customer?.phone ?? null,
         },
         latestFeedback: task.decisions[0]
           ? {

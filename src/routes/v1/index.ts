@@ -58,7 +58,11 @@ import { adminOrdersRoutes } from '../../modules/admin-orders/index.js';
 import { adminCreditAccountsRoutes, adminFinancialEventsRoutes } from '../../modules/admin-credit/index.js';
 import { adminFinanceRoutes } from '../../modules/admin-finance/index.js';
 import { dispatchRoutes, adminDispatchRoutes } from '../../modules/dispatch/index.js';
-import { designTaskRoutes, orderDesignApprovalRoutes } from '../../modules/design-approval/index.js';
+import {
+  designTaskRoutes,
+  orderDesignApprovalRoutes,
+  designAttachmentRoutes,
+} from '../../modules/design-approval/index.js';
 
 const v1Router = Router();
 
@@ -105,6 +109,7 @@ v1Router.use('/admin/dispatch', adminDispatchRoutes);
 v1Router.use('/design-tasks', designTaskRoutes);
 // Vendor-facing design approval lives under the order it belongs to.
 v1Router.use('/orders', orderDesignApprovalRoutes);
+v1Router.use('/design-attachments', designAttachmentRoutes);
 v1Router.use('/admin/categories', adminCategoriesRoutes);
 v1Router.use('/admin/families', adminFamiliesRoutes);
 v1Router.use('/admin/series', adminSeriesRoutes);

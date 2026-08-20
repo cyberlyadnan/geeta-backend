@@ -13,6 +13,7 @@ export const STORAGE_FOLDERS = {
   MARKETING: 'marketing',
   ARTWORK: 'artwork',
   PRODUCTION: 'production',
+  DESIGN: 'design',
 } as const;
 
 export type CatalogImageUploadFolder =

@@ -35,7 +35,7 @@ export const VERSION_PRICING_INCLUDE = {
   printProcess: { select: { pricingStrategyKey: true } },
   // Phase 4 — the product type profile, when one is tagged, states the strategy directly.
   productTypeProfile: {
-    select: { key: true, pricingStrategyKey: true, wizardStepsKey: true, requiresDesignApproval: true },
+    select: { key: true, pricingStrategyKey: true, wizardStepsKey: true, designServiceMode: true },
   },
 } satisfies Prisma.ProductOfferingVersionInclude;
 
