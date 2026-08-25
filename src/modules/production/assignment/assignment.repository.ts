@@ -91,11 +91,33 @@ export const MY_TASK_SELECT = {
               id: true,
               status: true,
               stepOrder: true,
+              department: { select: { name: true, code: true } },
               workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
             },
             orderBy: { stepOrder: 'asc' as const },
           },
-          order: { select: { orderNumber: true, orderName: true } },
+          // The card acts without a detail fetch, so the order identity, the vendor it belongs
+          // to and the delivery address all travel with the list — a job slip printed straight
+          // from the card needs every one of them.
+          order: {
+            select: {
+              id: true,
+              orderNumber: true,
+              orderName: true,
+              deliveryAddress: true,
+              customer: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true,
+                  vendorProfile: { select: { businessName: true, vendorCode: true } },
+                },
+              },
+              retailCustomer: { select: { id: true, name: true, phone: true } },
+            },
+          },
           productionOrderItem: {
             select: {
               quantity: true,
@@ -115,9 +137,36 @@ export const MY_TASK_SELECT = {
                   },
                 },
               },
-              // Approval status only — enough for the row to show "changes made" once a vendor
-              // has resubmitted, without loading full artwork payloads into the list.
-              orderArtworks: { select: { approvalStatus: true, updatedAt: true } },
+              // Full artwork payload, not just the approval status. The verifier and the
+              // designer download from the card itself now, so the list has to carry the file
+              // URLs; the previous status-only select would have forced a second round trip per
+              // card. `take: 5` on versions matches the detail view and bounds the payload.
+              orderArtworks: {
+                select: {
+                  id: true,
+                  fileRequirementCode: true,
+                  approvalStatus: true,
+                  resubmittedAt: true,
+                  updatedAt: true,
+                  artworkFile: {
+                    select: {
+                      fileAsset: { select: { fileUrl: true, originalName: true, mimeType: true } },
+                    },
+                  },
+                  pinnedVersion: {
+                    select: {
+                      artworkVersion: {
+                        select: {
+                          id: true,
+                          versionNumber: true,
+                          previewUrl: true,
+                          fileAsset: { select: { fileUrl: true, originalName: true, mimeType: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -311,9 +360,10 @@ export class AssignmentRepository {
                   productionOrderItem: {
                     orderArtworks: {
                       some: {
-                        approvalStatus: {
-                          in: ['REVISION_REQUESTED', 'PENDING'],
-                        },
+                        OR: [
+                          { approvalStatus: 'REVISION_REQUESTED' },
+                          { resubmittedAt: { not: null } },
+                        ],
                       },
                     },
                   },

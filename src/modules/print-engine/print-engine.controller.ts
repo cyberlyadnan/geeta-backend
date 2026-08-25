@@ -189,6 +189,9 @@ export const productionArtworkController = {
           adminNotes,
           approvedById: req.user!.id,
           approvedAt: new Date(),
+          // The verifier has now acted on whatever was resubmitted (or was never resubmitted at
+          // all) — clear the flag so a future fresh PENDING never reads as "changes made".
+          resubmittedAt: null,
         },
       });
 
@@ -298,6 +301,7 @@ export const productionArtworkController = {
         mimeType: file.mimetype,
         fileSize: file.size,
         notes: typeof req.body?.notes === 'string' ? req.body.notes : undefined,
+        markResubmitted: true,
       });
       // Mark any pending ARTWORK_REVISION_REQUESTED notifications for this vendor & order as read
       await prisma.userNotification.updateMany({

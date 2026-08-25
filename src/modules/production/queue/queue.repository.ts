@@ -144,6 +144,7 @@ export const QUEUE_TASK_DETAIL_SELECT = {
               id: true,
               fileRequirementCode: true,
               approvalStatus: true,
+              resubmittedAt: true,
               artworkFile: {
                 select: {
                   fileAsset: {

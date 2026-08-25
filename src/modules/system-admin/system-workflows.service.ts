@@ -174,6 +174,9 @@ export class SystemWorkflowsService {
         locksAmendmentsOnStart: step.locksAmendmentsOnStart,
         instructions: step.instructions,
         metadata: (step.metadata as Record<string, unknown>) ?? {},
+        // Carry over conditional-skip rules (e.g. "skip Lamination when Lamination = none") —
+        // dropping these on duplicate silently broke auto-skip for every cloned template.
+        skipWhen: (step.skipWhen ?? undefined) as SaveWorkflowStepsInput['steps'][number]['skipWhen'],
         sla: step.slaPolicy
           ? {
               warningAfterMinutes: step.slaPolicy.warningAfterMinutes,

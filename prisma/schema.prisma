@@ -4190,6 +4190,10 @@ model OrderArtwork {
   adminNotes          String?               @map("admin_notes") @db.Text
   approvedById        String?               @map("approved_by_id")
   approvedAt          DateTime?             @map("approved_at")
+  /// Set only when a VENDOR resubmits after a revision was requested — distinguishes "fresh
+  /// artwork awaiting first review" (PENDING, resubmittedAt null) from "vendor sent a fix"
+  /// (PENDING, resubmittedAt set). Cleared whenever the verifier acts (approve/reject/revision).
+  resubmittedAt       DateTime?             @map("resubmitted_at")
   createdAt           DateTime              @default(now()) @map("created_at")
   updatedAt           DateTime              @updatedAt @map("updated_at")
 

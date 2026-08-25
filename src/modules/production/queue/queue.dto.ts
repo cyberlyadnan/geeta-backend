@@ -106,6 +106,7 @@ export interface QueueTaskDetailDto extends QueueTaskCardDto {
     fileUrl: string | null;
     originalName: string | null;
     approvalStatus: string;
+    resubmittedAt: string | null;
   }>;
   attachments: Array<{
     id: string;
@@ -292,6 +293,7 @@ export function mapQueueTaskDetail(record: QueueTaskDetailRecord): QueueTaskDeta
         previewUrl: pinned?.previewUrl ?? null,
         originalName: fileAsset?.originalName ?? null,
         approvalStatus: art.approvalStatus,
+        resubmittedAt: art.resubmittedAt ? art.resubmittedAt.toISOString() : null,
         artworkVersionId: pinned?.id ?? null,
         versionNumber: pinned?.versionNumber ?? null,
         extension,

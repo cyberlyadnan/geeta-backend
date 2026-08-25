@@ -32,6 +32,11 @@ export class ProductionArtworkService {
       mimeType: string;
       fileSize: number;
       notes?: string;
+      /** True only for the vendor's own "resubmit after revision request" flow — stamps
+       *  resubmittedAt so the verifier queue can tell this apart from a fresh, never-reviewed
+       *  upload. Staff-initiated replacements (e.g. production fixing a file on the vendor's
+       *  behalf) leave it unset. */
+      markResubmitted?: boolean;
     },
   ) {
     const orderArtwork = await prisma.orderArtwork.findUnique({
@@ -140,6 +145,7 @@ export class ProductionArtworkService {
           adminNotes: input.notes ?? null,
           approvedById: null,
           approvedAt: null,
+          resubmittedAt: input.markResubmitted ? now : null,
         },
       });
 

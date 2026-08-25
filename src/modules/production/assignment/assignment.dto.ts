@@ -66,8 +66,32 @@ export interface MyAssignedTaskDto {
    * "changes_made" — the vendor has resubmitted and it needs another look.
    */
   artworkState: 'awaiting_vendor' | 'changes_made' | 'approved' | 'pending' | 'none';
+  orderId: string;
   orderNumber: string;
   orderName: string | null;
+  /** Vendor identity for the card: phoning them, and printing a job slip, both need it. */
+  vendor: {
+    name: string;
+    businessName: string | null;
+    memberCode: string | null;
+    phone: string | null;
+    email: string | null;
+  };
+  deliveryAddress: string | null;
+  /**
+   * Every artwork file on the order, resolved to a downloadable URL. Present on the list so a
+   * verifier or designer can download straight from the task card without opening the task.
+   */
+  artworkFiles: Array<{
+    id: string;
+    fileRequirementCode: string;
+    fileUrl: string | null;
+    previewUrl: string | null;
+    originalName: string | null;
+    approvalStatus: string;
+    resubmittedAt: string | null;
+    extension: string;
+  }>;
   productName: string;
   quantity: number;
   configurationSnapshot?: unknown;
@@ -76,7 +100,15 @@ export interface MyAssignedTaskDto {
   productSnapshot?: unknown;
   department: { id: string; code: string; name: string };
   step: { code: string; name: string; type: string };
-  workflowSteps: Array<{ id: string; status: string; stepOrder: number; stepType: string; stepName: string }>;
+  workflowSteps: Array<{
+    id: string;
+    status: string;
+    stepOrder: number;
+    stepType: string;
+    stepName: string;
+    departmentName: string;
+    departmentCode: string;
+  }>;
   taskStatus: string;
   assignmentStatus: string;
   priority: string;
@@ -217,27 +249,61 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
   const offering = task.workflowInstance.productionOrderItem.productOfferingVersion?.productOffering;
 
   // Artwork state for the verifier's row. "changes_made" means the vendor has resubmitted since
-  // a revision was requested — the signal that pulls a task back onto the verifier's plate.
-  const approvals = task.workflowInstance.productionOrderItem.orderArtworks.map(
-    (a) => a.approvalStatus,
-  );
+  // a revision was requested (resubmittedAt is stamped) — that's the signal that pulls a task
+  // back onto the verifier's plate. A brand-new PENDING upload that was never flagged is just
+  // "pending" first-time review, not "changes made".
+  const artworks = task.workflowInstance.productionOrderItem.orderArtworks;
   const artworkState: MyAssignedTaskDto['artworkState'] =
-    approvals.length === 0
+    artworks.length === 0
       ? 'none'
-      : approvals.includes('REVISION_REQUESTED')
+      : artworks.some((a) => a.approvalStatus === 'REVISION_REQUESTED')
         ? 'awaiting_vendor'
-        : approvals.includes('PENDING')
+        : artworks.some((a) => a.resubmittedAt != null)
           ? 'changes_made'
-          : approvals.every((a) => a === 'APPROVED')
+          : artworks.every((a) => a.approvalStatus === 'APPROVED')
             ? 'approved'
             : 'pending';
+
+  const order = task.workflowInstance.order;
+  const customer = order.customer;
+  const vendorName =
+    customer?.vendorProfile?.businessName?.trim() ||
+    (customer ? userName(customer.firstName, customer.lastName) : null) ||
+    order.retailCustomer?.name ||
+    'Retail customer';
 
   return {
     assignmentId: record.id,
     taskId: record.workflowTaskId,
     artworkState,
-    orderNumber: task.workflowInstance.order.orderNumber,
-    orderName: task.workflowInstance.order.orderName,
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    orderName: order.orderName,
+    vendor: {
+      name: vendorName,
+      businessName: customer?.vendorProfile?.businessName ?? null,
+      memberCode: customer?.vendorProfile?.vendorCode ?? null,
+      phone: customer?.phone ?? order.retailCustomer?.phone ?? null,
+      email: customer?.email ?? null,
+    },
+    deliveryAddress: order.deliveryAddress ?? null,
+    artworkFiles: artworks.map((art) => {
+      const pinned = art.pinnedVersion?.artworkVersion;
+      const fileAsset = pinned?.fileAsset ?? art.artworkFile?.fileAsset;
+      const mimeType = fileAsset?.mimeType ?? '';
+      return {
+        id: art.id,
+        fileRequirementCode: art.fileRequirementCode,
+        fileUrl: fileAsset?.fileUrl ?? null,
+        previewUrl: pinned?.previewUrl ?? null,
+        originalName: fileAsset?.originalName ?? null,
+        approvalStatus: art.approvalStatus,
+        resubmittedAt: art.resubmittedAt ? art.resubmittedAt.toISOString() : null,
+        extension:
+          fileAsset?.originalName?.split('.').pop()?.toLowerCase() ??
+          (mimeType.includes('pdf') ? 'pdf' : mimeType.includes('png') ? 'png' : ''),
+      };
+    }),
     productName: offering?.displayName ?? offering?.name ?? 'Product',
     quantity: task.workflowInstance.productionOrderItem.quantity,
     configurationSnapshot: task.workflowInstance.productionOrderItem.configurationSnapshot,
@@ -260,6 +326,8 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
       stepOrder: t.stepOrder,
       stepType: t.workflowStep.stepType,
       stepName: t.workflowStep.stepName,
+      departmentName: t.department.name,
+      departmentCode: t.department.code,
     })),
     taskStatus: task.status,
     assignmentStatus: record.status,
