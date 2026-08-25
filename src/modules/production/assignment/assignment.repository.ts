@@ -92,7 +92,7 @@ export const MY_TASK_SELECT = {
               status: true,
               stepOrder: true,
               department: { select: { name: true, code: true } },
-              workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
+              workflowStep: { select: { stepCode: true, stepName: true, stepType: true, jobSlipBeforeThisStep: true } },
             },
             orderBy: { stepOrder: 'asc' as const },
           },

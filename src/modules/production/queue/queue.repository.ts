@@ -195,7 +195,7 @@ export const QUEUE_TASK_DETAIL_SELECT = {
           id: true,
           stepOrder: true,
           status: true,
-          workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
+          workflowStep: { select: { stepCode: true, stepName: true, stepType: true, jobSlipBeforeThisStep: true } },
         },
         orderBy: { stepOrder: 'asc' as const },
       },

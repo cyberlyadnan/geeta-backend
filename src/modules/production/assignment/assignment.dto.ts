@@ -108,6 +108,7 @@ export interface MyAssignedTaskDto {
     stepName: string;
     departmentName: string;
     departmentCode: string;
+    jobSlipBeforeThisStep: boolean;
   }>;
   taskStatus: string;
   assignmentStatus: string;
@@ -328,6 +329,7 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
       stepName: t.workflowStep.stepName,
       departmentName: t.department.name,
       departmentCode: t.department.code,
+      jobSlipBeforeThisStep: t.workflowStep.jobSlipBeforeThisStep,
     })),
     taskStatus: task.status,
     assignmentStatus: record.status,

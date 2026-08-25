@@ -78,6 +78,7 @@ export class SystemWorkflowsService {
             isMandatory: true,
             locksAmendmentsOnStart: true,
             skipWhen: true,
+            jobSlipBeforeThisStep: true,
             instructions: true,
             metadata: true,
             department: { select: { id: true, code: true, name: true } },
@@ -172,6 +173,7 @@ export class SystemWorkflowsService {
         allowSkip: step.allowSkip,
         isMandatory: step.isMandatory,
         locksAmendmentsOnStart: step.locksAmendmentsOnStart,
+        jobSlipBeforeThisStep: step.jobSlipBeforeThisStep,
         instructions: step.instructions,
         metadata: (step.metadata as Record<string, unknown>) ?? {},
         // Carry over conditional-skip rules (e.g. "skip Lamination when Lamination = none") —
@@ -323,6 +325,10 @@ export class SystemWorkflowsService {
         }
 
         // 3. Upsert steps with their final clean stepOrder (1..N)
+        const slipStopOrder = [...sortedSteps]
+          .reverse()
+          .find((step) => step.jobSlipBeforeThisStep)?.stepOrder;
+
         for (const step of sortedSteps) {
           const data = {
             workflowTemplateId: templateId,
@@ -336,6 +342,7 @@ export class SystemWorkflowsService {
             allowSkip: step.allowSkip ?? false,
             isMandatory: step.isMandatory ?? true,
             locksAmendmentsOnStart: step.locksAmendmentsOnStart ?? false,
+            jobSlipBeforeThisStep: slipStopOrder != null && step.stepOrder === slipStopOrder,
             instructions: step.instructions?.trim() ? step.instructions.trim() : null,
             metadata: (step.metadata ?? {}) as Prisma.InputJsonValue,
             skipWhen: step.skipWhen !== undefined

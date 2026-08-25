@@ -1761,6 +1761,10 @@ model WorkflowTemplateStep {
   /// Order amendments are blocked once a task for this step has started (left BLOCKED/PENDING/
   /// WAITING/READY/ASSIGNED) — e.g. flag the "Printing" step. Per-template, not a global status list.
   locksAmendmentsOnStart Boolean          @default(false) @map("locks_amendments_on_start")
+  /// When true, this step is the job-slip stop: the last non-skipped department before it
+  /// must print the physical slip (and cannot complete without it). Typically Dispatch;
+  /// set it to Quality Check if that step is in the flow.
+  jobSlipBeforeThisStep  Boolean          @default(false) @map("job_slip_before_this_step")
   /// JSON skip-condition evaluated against the order's configurationSnapshot.selections at workflow
   /// creation time. When the condition matches, the task is created with SKIPPED status so it never
   /// appears in the department queue. Format: { "field": "<configFieldCode>", "operator": "in"|"eq"|"not_in"|"neq", "values": ["v1","v2"] }

@@ -111,6 +111,8 @@ export const workflowStepSchema = z.object({
   isMandatory: z.boolean().optional(),
   /** Order amendments are blocked once a task for this step leaves the not-yet-started statuses. */
   locksAmendmentsOnStart: z.boolean().optional(),
+  /** Job slip must be printed on the last real department before this step. */
+  jobSlipBeforeThisStep: z.boolean().optional(),
   instructions: z.string().max(5000).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
   skipWhen: z

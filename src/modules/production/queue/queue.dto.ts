@@ -41,6 +41,7 @@ export interface QueueWorkflowProgressStepDto {
   isCurrent: boolean;
   isCompleted: boolean;
   isFuture: boolean;
+  jobSlipBeforeThisStep: boolean;
 }
 
 export interface QueueTaskCardDto {
@@ -258,6 +259,7 @@ export function mapQueueTaskDetail(record: QueueTaskDetailRecord): QueueTaskDeta
       isCurrent,
       isCompleted,
       isFuture: !isCompleted && !isCurrent,
+      jobSlipBeforeThisStep: step.workflowStep.jobSlipBeforeThisStep,
     };
   });
 
