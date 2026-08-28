@@ -46,7 +46,7 @@ export class AdminOrdersService {
   async preview(staffUserId: string, input: AdminOrderPreviewInput) {
     const { actingAs, ...rest } = input;
     const actor = await resolveActor(actingAs, staffUserId);
-    return ordersService.preview(actor, rest);
+    return ordersService.preview(actor, rest, staffUserId);
   }
 
   async create(staffUserId: string, input: AdminCreateOrderInput) {

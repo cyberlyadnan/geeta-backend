@@ -157,8 +157,11 @@ export class OrdersService {
     return await mapOrderToDetailDto(order);
   }
 
-  async preview(actor: OrderActor, input: OrderPreviewInput) {
-    const computed = await this.computeOrderTotals(actor, input, { forPreview: true });
+  async preview(actor: OrderActor, input: OrderPreviewInput, staffUserId?: string | null) {
+    const computed = await this.computeOrderTotals(actor, input, {
+      forPreview: true,
+      staffUserId,
+    });
 
     if (actor.type === 'retail') {
       // No wallet for retail customers in Phase 1 — payment/credit is Phase 2 scope.
@@ -184,7 +187,7 @@ export class OrdersService {
       throw ApiError.internal('Retail-customer orders must record which staff member created them');
     }
 
-    const computed = await this.computeOrderTotals(actor, input);
+    const computed = await this.computeOrderTotals(actor, input, { staffUserId: createdByActorId });
 
     // Retail-customer orders have no wallet in Phase 1 — nothing to check or debit (Phase 2
     // scope). Vendor orders (self-serve or admin-created-for-vendor) keep the existing
@@ -573,11 +576,17 @@ export class OrdersService {
     }
   }
 
+  private resolveArtworkOwnerUserId(actor: OrderActor, staffUserId?: string | null): string | null {
+    if (actor.type === 'vendor') return actor.vendorUserId;
+    return staffUserId ?? null;
+  }
+
   private async computeOrderTotals(
     actor: OrderActor,
     input: CreateProductionOrderInput | OrderPreviewInput,
-    options: { forPreview?: boolean } = {},
+    options: { forPreview?: boolean; staffUserId?: string | null } = {},
   ) {
+    const artworkOwnerUserId = this.resolveArtworkOwnerUserId(actor, options.staffUserId);
     const versionId = input.versionId;
     if (!versionId) throw ApiError.badRequest('Product version is required');
 
@@ -745,15 +754,15 @@ export class OrdersService {
     let coverageSnapshot: Record<string, unknown> | null = null;
 
     if (input.artworks?.length) {
-      // Artwork ownership is checked against the vendor for vendor orders (self-serve or
-      // admin-placed-on-their-behalf — the vendor still owns their own uploads either way).
-      // Retail walk-ins have no app account to own an upload against; artwork attachment for
-      // retail orders is out of Phase 1's scope (no artwork slots in the admin-order UI yet).
-      if (actor.type === 'retail') {
-        throw ApiError.badRequest('Artwork attachment is not yet supported for retail-customer orders');
+      // Vendor orders: uploads belong to the vendor (self-serve or admin-placed on their behalf).
+      // Retail walk-ins: uploads are attached by the staff member creating the counter order.
+      if (!artworkOwnerUserId) {
+        throw ApiError.badRequest(
+          'Artwork attachment for retail-customer orders requires a staff-created order context',
+        );
       }
       const validation = await printJobService.validateArtworksForOrder(
-        actor.vendorUserId,
+        artworkOwnerUserId,
         versionId,
         input.artworks,
         printContextResolved,
@@ -768,11 +777,13 @@ export class OrdersService {
     let verifiedDesignAttachmentIds: string[] = [];
     const designAttachmentIds = 'designAttachments' in input ? input.designAttachments : undefined;
     if (!options.forPreview && designAttachmentIds?.length) {
-      if (actor.type === 'retail') {
-        throw ApiError.badRequest('Design attachments are not yet supported for retail-customer orders');
+      if (!artworkOwnerUserId) {
+        throw ApiError.badRequest(
+          'Design attachments for retail-customer orders require a staff-created order context',
+        );
       }
       const owned = await prisma.fileAsset.findMany({
-        where: { id: { in: designAttachmentIds }, uploadedById: actor.vendorUserId },
+        where: { id: { in: designAttachmentIds }, uploadedById: artworkOwnerUserId },
         select: { id: true },
       });
       if (owned.length !== designAttachmentIds.length) {
