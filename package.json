@@ -57,7 +57,11 @@
     "qa:stab": "dotenv -e .env -e .env.local -- tsx scripts/qa/stabilization.ts",
     "qa:e2e": "dotenv -e .env -e .env.local -- tsx scripts/qa/e2e-journey.ts",
     "qa:drift": "dotenv -e .env -e .env.local -- prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code",
-    "qa:uat": "dotenv -e .env -e .env.local -- tsx scripts/qa/uat-walkthrough.ts"
+    "qa:uat": "dotenv -e .env -e .env.local -- tsx scripts/qa/uat-walkthrough.ts",
+    "accounting:setup": "dotenv -e .env -e .env.local -- tsx scripts/seed-accounting.ts",
+    "accounting:backfill": "dotenv -e .env -e .env.local -- tsx scripts/seed-accounting.ts",
+    "accounting:verify": "dotenv -e .env -e .env.local -- tsx scripts/verify-accounting.ts",
+    "test:accounting": "tsx --test src/services/accounting/__tests__/**/*.test.ts"
   },
   "keywords": [
     "erp",

@@ -8,3 +8,8 @@ export {
   createSliderExpiryWorker,
   scheduleSliderExpiryJob,
 } from './slider-expiry.job.js';
+export {
+  createAccountingProjectionWorker,
+  scheduleAccountingProjectionJob,
+  getAccountingProjectionQueue,
+} from './accounting-projection.job.js';

@@ -1,17 +1,25 @@
-﻿import type { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { ApiResponse } from '../../common/responses/ApiResponse.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { reportsService } from './reports.service.js';
+import type {
+  CollectionsQuery,
+  ExpenseSummaryQuery,
+  SalesRegisterQuery,
+} from './reports.validation.js';
 
 export class ReportsController {
-  list = asyncHandler(async (_req: Request, res: Response) => {
-    const result = await reportsService.findAll();
-    return ApiResponse.success(res, result);
+  salesRegister = asyncHandler(async (req: Request, res: Response) => {
+    const result = await reportsService.salesRegister(req.validatedQuery as SalesRegisterQuery);
+    return ApiResponse.success(res, result, 'Sales register', 200, result.meta);
   });
 
-  getById = asyncHandler(async (req: Request, res: Response) => {
-    const result = await reportsService.findById(req.params['id'] as string);
-    return ApiResponse.success(res, result);
+  collections = asyncHandler(async (req: Request, res: Response) => {
+    return ApiResponse.success(res, await reportsService.collections(req.validatedQuery as CollectionsQuery));
+  });
+
+  expenseSummary = asyncHandler(async (req: Request, res: Response) => {
+    return ApiResponse.success(res, await reportsService.expenseSummary(req.validatedQuery as ExpenseSummaryQuery));
   });
 }
 

@@ -57,6 +57,9 @@ import { retailCustomerRoutes } from '../../modules/admin-retail-customers/index
 import { adminOrdersRoutes } from '../../modules/admin-orders/index.js';
 import { adminCreditAccountsRoutes, adminFinancialEventsRoutes } from '../../modules/admin-credit/index.js';
 import { adminFinanceRoutes } from '../../modules/admin-finance/index.js';
+import { adminAccountingRoutes } from '../../modules/admin-accounting/index.js';
+import { cashBankRoutes } from '../../modules/cash-bank/index.js';
+import { creditNotesRoutes } from '../../modules/credit-notes/index.js';
 import { dispatchRoutes, adminDispatchRoutes } from '../../modules/dispatch/index.js';
 import {
   designTaskRoutes,
@@ -104,6 +107,12 @@ v1Router.use('/admin/orders', adminOrdersRoutes);
 v1Router.use('/admin/credit-accounts', adminCreditAccountsRoutes);
 v1Router.use('/admin/financial-events', adminFinancialEventsRoutes);
 v1Router.use('/admin/finance', adminFinanceRoutes);
+// Double-entry accounting (Phase 5): the books themselves, the money's physical locations, and
+// the documents that reverse a sale. Mounted beside the existing finance routes rather than
+// inside them, so the older screens are untouched by anything added here.
+v1Router.use('/admin/accounting', adminAccountingRoutes);
+v1Router.use('/admin/cash-bank', cashBankRoutes);
+v1Router.use('/admin/credit-notes', creditNotesRoutes);
 v1Router.use('/dispatch', dispatchRoutes);
 v1Router.use('/admin/dispatch', adminDispatchRoutes);
 v1Router.use('/design-tasks', designTaskRoutes);

@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
   ACTIVITY_LOGS: 'activity-logs',
   ANALYTICS: 'analytics',
   ARTWORK_PROCESSING: 'artwork-processing',
+  ACCOUNTING_PROJECTION: 'accounting-projection',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

@@ -110,6 +110,10 @@ enum FinancialEventType {
   DELIVERY_CHARGE_DEBIT
   UDHAR_DRAW
   UDHAR_REPAYMENT
+  /// Phase 5: refund credited back to a customer's wallet against a credit note. Distinct from
+  /// WALLET_ADMIN_CREDIT because a refund is not a giveaway — it settles a receivable rather than
+  /// creating a marketing cost, and the two must not land in the same P&L line.
+  REFUND_CREDIT
 }
 
 enum FinancialEventDirection {
@@ -130,6 +134,8 @@ enum FinancialReferenceType {
   DRAW
   REPAYMENT
   WALLET_ADJUSTMENT
+  /// Phase 5.
+  CREDIT_NOTE
 }
 
 enum CreditTransactionType {
@@ -812,6 +818,20 @@ model User {
   designApprovalDecisions         DesignApprovalDecision[]        @relation("DesignApprovalDecider")
   orderPaymentReceiptsRecorded    OrderPaymentReceipt[]           @relation("OrderPaymentReceiptRecordedBy")
 
+  // Accounting & finance (Phase 5)
+  journalEntriesCreated           JournalEntry[]                  @relation("JournalEntryCreatedBy")
+  fiscalPeriodsClosed             FiscalPeriod[]                  @relation("FiscalPeriodClosedBy")
+  bankTransactionsCreated         BankTransaction[]               @relation("BankTransactionCreatedBy")
+  bankTransactionsReconciled      BankTransaction[]               @relation("BankTransactionReconciledBy")
+  bankReconciliationsCreated      BankReconciliation[]            @relation("BankReconciliationCreatedBy")
+  expensesCreated                 Expense[]                       @relation("ExpenseCreatedBy")
+  expensesApproved                Expense[]                       @relation("ExpenseApprovedBy")
+  suppliersCreated                Supplier[]                      @relation("SupplierCreatedBy")
+  purchaseBillsCreated            PurchaseBill[]                  @relation("PurchaseBillCreatedBy")
+  supplierPaymentsCreated         SupplierPayment[]               @relation("SupplierPaymentCreatedBy")
+  creditNotesCreated              CreditNote[]                    @relation("CreditNoteCreatedBy")
+  financeSettingsUpdated          FinanceSettings[]               @relation("FinanceSettingsUpdatedBy")
+
   @@index([roleId])
   @@index([status])
   @@index([phone])
@@ -1194,6 +1214,10 @@ model ProductOffering {
   status           ProductStatus     @default(DRAFT)
   isFeatured       Boolean           @default(false) @map("is_featured")
   isActive         Boolean           @default(true) @map("is_active")
+  /// GST classification (Phase 5). Nullable so existing products keep working — the invoice tax
+  /// engine falls back to the company-wide default HSN and rate from FinanceSettings.
+  hsnCode          String?           @map("hsn_code")
+  gstRatePercent   Decimal?          @map("gst_rate_percent") @db.Decimal(5, 2)
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
   deletedAt        DateTime?         @map("deleted_at")
@@ -1721,6 +1745,8 @@ model Department {
   executionSessions     WorkflowTaskExecutionSession[]
   productionNotes       WorkflowTaskProductionNote[]
   machines              Machine[]
+  journalLines          JournalLine[]                  @relation("JournalLineDepartment")
+  expenses              Expense[]                      @relation("ExpenseDepartment")
 
   @@index([facilityId])
   @@map("departments")
@@ -2874,6 +2900,7 @@ model Material {
 
   category         MaterialCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   bomTemplateItems BomTemplateItem[]
+  purchaseBillItems PurchaseBillItem[]
 
   @@index([categoryId])
   @@index([status])
@@ -3454,7 +3481,24 @@ model Invoice {
   pdfUrl          String?            @map("pdf_url") @db.Text
   createdAt       DateTime           @default(now()) @map("created_at")
 
+  // ── GST detail (Phase 5). All nullable/defaulted so every existing writer keeps compiling;
+  // the accounting projection backfills them and new invoices are written with them populated.
+  /// Two-digit state code of the place of supply. Null on pre-Phase-5 invoices.
+  placeOfSupply    String?             @map("place_of_supply")
+  supplyType       GstSupplyType       @default(INTRA_STATE) @map("supply_type")
+  documentCategory GstDocumentCategory @default(B2CS) @map("document_category")
+  cgstAmount       Decimal             @default(0) @map("cgst_amount") @db.Decimal(12, 2)
+  sgstAmount       Decimal             @default(0) @map("sgst_amount") @db.Decimal(12, 2)
+  igstAmount       Decimal             @default(0) @map("igst_amount") @db.Decimal(12, 2)
+  cessAmount       Decimal             @default(0) @map("cess_amount") @db.Decimal(12, 2)
+  roundOff         Decimal             @default(0) @map("round_off") @db.Decimal(12, 2)
+  reverseCharge    Boolean             @default(false) @map("reverse_charge")
+  /// True once the GST split columns and tax lines have been derived for this invoice.
+  taxDetailReady   Boolean             @default(false) @map("tax_detail_ready")
+
   dispatchBatch DispatchBatch @relation(fields: [dispatchBatchId], references: [id], onDelete: Restrict)
+  taxLines      InvoiceTaxLine[]
+  creditNotes   CreditNote[]
 
   @@index([actorType, actorId, createdAt(sort: Desc)])
   @@map("invoices")
@@ -4224,4 +4268,848 @@ model OrderArtworkVersion {
 
   @@index([artworkVersionId])
   @@map("order_artwork_versions")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ACCOUNTING & FINANCE CORE — Phase 5
+//
+// Design contract (read before changing anything here):
+//
+//  1. The journal is a DERIVED, IDEMPOTENT PROJECTION of source documents. Nothing in this
+//     section is hand-maintained by the operational modules. Orders, dispatch, wallets and
+//     payments keep writing exactly what they write today; the projection layer
+//     (services/accounting/projection) reads those rows and posts the double entry. That is why
+//     adding a new money flow later needs a new adapter, not a change to an existing module.
+//  2. Every JournalEntry carries (sourceType, sourceKey) with a unique constraint. Re-running the
+//     projection can therefore never double-post, which makes the projection safe to run inline,
+//     on a schedule, and as a backfill over historical data — the same code path in all three.
+//  3. Journal entries are append-only. A mistake is corrected by posting a reversal that points
+//     back at the original (reversalOfId), never by editing or deleting — this is what makes the
+//     books defensible to a CA and to the GST department.
+//  4. Money is Decimal(14,2) everywhere. Never Float, never JS number, on the write path.
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+/// Sub-type drives report placement: which side of the balance sheet a line lands on, and which
+/// P&L block it groups under. Reports switch on this, never on the account code.
+enum AccountSubType {
+  CASH
+  BANK
+  PAYMENT_GATEWAY
+  ACCOUNTS_RECEIVABLE
+  CREDIT_RECEIVABLE
+  INVENTORY
+  PREPAID_EXPENSE
+  ADVANCE_TO_SUPPLIER
+  INPUT_TAX
+  FIXED_ASSET
+  ACCUMULATED_DEPRECIATION
+  OTHER_CURRENT_ASSET
+  ACCOUNTS_PAYABLE
+  CUSTOMER_WALLET_LIABILITY
+  CUSTOMER_ADVANCE
+  OUTPUT_TAX
+  TAX_PAYABLE
+  ACCRUED_LIABILITY
+  LOAN
+  OTHER_CURRENT_LIABILITY
+  OWNERS_CAPITAL
+  RETAINED_EARNINGS
+  DRAWINGS
+  SALES_REVENUE
+  SERVICE_REVENUE
+  OTHER_INCOME
+  SALES_RETURN
+  COST_OF_GOODS_SOLD
+  DIRECT_EXPENSE
+  OPERATING_EXPENSE
+  PAYROLL_EXPENSE
+  FINANCE_COST
+  DEPRECIATION
+  OTHER_EXPENSE
+}
+
+enum NormalBalance {
+  DEBIT
+  CREDIT
+}
+
+/// What produced a journal entry. Also the first half of the idempotency key.
+enum JournalSourceType {
+  OPENING_BALANCE
+  WALLET_TOPUP
+  WALLET_ADJUSTMENT
+  ORDER_ADVANCE
+  UDHAR_DRAW
+  UDHAR_REPAYMENT
+  COUNTER_RECEIPT
+  SALES_INVOICE
+  ADVANCE_APPLICATION
+  CREDIT_NOTE
+  REFUND_PAYOUT
+  EXPENSE
+  PURCHASE_BILL
+  SUPPLIER_PAYMENT
+  BANK_TRANSACTION
+  GATEWAY_SETTLEMENT
+  MANUAL_JOURNAL
+  DEPRECIATION
+  PERIOD_CLOSE
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  POSTED
+  REVERSED
+}
+
+/// Indian GST supply classification — decides CGST+SGST vs IGST and the GSTR-1 table a row
+/// belongs to. Derived from place of supply vs the company's own state code, never entered.
+enum GstSupplyType {
+  INTRA_STATE
+  INTER_STATE
+  EXEMPT
+  NIL_RATED
+  NON_GST
+  EXPORT
+}
+
+/// GSTR-1 table classification for an outward document.
+enum GstDocumentCategory {
+  B2B
+  B2CL
+  B2CS
+  EXPORT
+  CREDIT_NOTE_B2B
+  CREDIT_NOTE_B2C
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chart of accounts
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One node of the chart of accounts. Codes follow the conventional Indian small-business
+/// numbering (1xxx asset, 2xxx liability, 3xxx equity, 4xxx income, 5xxx COGS, 6xxx expense) so a
+/// CA recognises the structure on sight. `isSystem` accounts are referenced by the posting rules
+/// by code and therefore cannot be deleted or re-typed from the UI.
+model ChartOfAccount {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  name          String
+  type          AccountType
+  subType       AccountSubType
+  normalBalance NormalBalance  @map("normal_balance")
+  parentId      String?        @map("parent_id")
+  description   String?        @db.Text
+  /// Locked against edit/delete because posting rules resolve it by code.
+  isSystem      Boolean        @default(false) @map("is_system")
+  isActive      Boolean        @default(true) @map("is_active")
+  /// Display order inside its parent group on reports.
+  sortOrder     Int            @default(0) @map("sort_order")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  parent           ChartOfAccount?   @relation("AccountTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children         ChartOfAccount[]  @relation("AccountTree")
+  journalLines     JournalLine[]
+  cashBankAccounts CashBankAccount[]
+  expenseCategories ExpenseCategory[]
+  suppliers        Supplier[]
+
+  @@index([type, subType])
+  @@index([parentId])
+  @@index([isActive])
+  @@map("chart_of_accounts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fiscal calendar & period locking
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum FiscalPeriodStatus {
+  OPEN
+  /// Soft close: only a SUPER_ADMIN can post a back-dated correction.
+  CLOSED
+  /// Hard lock: return filed / books handed to the CA. Nothing can post, by anyone.
+  LOCKED
+}
+
+/// Indian fiscal year, April→March. `label` is the human form ("2026-27").
+model FiscalYear {
+  id        String             @id @default(cuid())
+  label     String             @unique
+  startDate DateTime           @map("start_date") @db.Date
+  endDate   DateTime           @map("end_date") @db.Date
+  status    FiscalPeriodStatus @default(OPEN)
+  isCurrent Boolean            @default(false) @map("is_current")
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  periods FiscalPeriod[]
+
+  @@index([isCurrent])
+  @@map("fiscal_years")
+}
+
+model FiscalPeriod {
+  id           String             @id @default(cuid())
+  fiscalYearId String             @map("fiscal_year_id")
+  /// 1 = April … 12 = March, matching the Indian fiscal year.
+  periodNumber Int                @map("period_number")
+  label        String
+  startDate    DateTime           @map("start_date") @db.Date
+  endDate      DateTime           @map("end_date") @db.Date
+  status       FiscalPeriodStatus @default(OPEN)
+  closedAt     DateTime?          @map("closed_at")
+  closedById   String?            @map("closed_by_id")
+  notes        String?            @db.Text
+
+  fiscalYear FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+  closedBy   User?      @relation("FiscalPeriodClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+
+  @@unique([fiscalYearId, periodNumber])
+  @@index([startDate, endDate])
+  @@index([status])
+  @@map("fiscal_periods")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The journal — the single source of accounting truth
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A balanced double entry. totalDebit must equal totalCredit; the posting service refuses
+/// anything else, so an unbalanced row cannot exist in this table.
+model JournalEntry {
+  id            String             @id @default(cuid())
+  voucherNumber String             @unique @map("voucher_number")
+  entryDate     DateTime           @map("entry_date")
+  fiscalYear    Int                @map("fiscal_year")
+  /// 1-12, matching FiscalPeriod.periodNumber.
+  fiscalPeriod  Int                @map("fiscal_period")
+  sourceType    JournalSourceType  @map("source_type")
+  /// Id of the originating row (invoice id, receipt id, financial event id …). Null for manual.
+  sourceId      String?            @map("source_id")
+  /// Idempotency key within a sourceType — usually the sourceId, suffixed when one source
+  /// document produces more than one entry (e.g. "<invoiceId>:advance").
+  sourceKey     String             @map("source_key")
+  status        JournalEntryStatus @default(POSTED)
+  narration     String             @db.Text
+  /// Denormalised party for fast statement queries; the authoritative party is on the lines.
+  partyType     FinancialActorType? @map("party_type")
+  partyId       String?            @map("party_id")
+  partyName     String?            @map("party_name")
+  totalDebit    Decimal            @map("total_debit") @db.Decimal(14, 2)
+  totalCredit   Decimal            @map("total_credit") @db.Decimal(14, 2)
+  /// Set on the REVERSING entry, pointing back at the entry it cancels. The original carries the
+  /// back-reference through `reversedBy`. One-to-one: an entry can be reversed at most once.
+  reversalOfId  String?            @unique @map("reversal_of_id")
+  reversalReason String?           @map("reversal_reason") @db.Text
+  /// False only for entries a human typed in the manual-journal screen.
+  isSystemGenerated Boolean        @default(true) @map("is_system_generated")
+  createdByUserId String?          @map("created_by_user_id")
+  metadata      Json               @default("{}")
+  createdAt     DateTime           @default(now()) @map("created_at")
+
+  lines         JournalLine[]
+  createdByUser User?         @relation("JournalEntryCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  reversalOf    JournalEntry? @relation("JournalReversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
+  reversedBy    JournalEntry? @relation("JournalReversal")
+  bankTransactions BankTransaction[]
+
+  @@unique([sourceType, sourceKey])
+  @@index([entryDate])
+  @@index([fiscalYear, fiscalPeriod])
+  @@index([sourceType, sourceId])
+  @@index([partyType, partyId, entryDate(sort: Desc)])
+  @@index([status])
+  @@map("journal_entries")
+}
+
+/// One debit or credit against one account. Exactly one of debit/credit is non-zero.
+model JournalLine {
+  id             String   @id @default(cuid())
+  journalEntryId String   @map("journal_entry_id")
+  lineNumber     Int      @map("line_number")
+  accountId      String   @map("account_id")
+  debit          Decimal  @default(0) @db.Decimal(14, 2)
+  credit         Decimal  @default(0) @db.Decimal(14, 2)
+  description    String?  @db.Text
+  /// Sub-ledger dimension: which customer/vendor this receivable or payable belongs to. This is
+  /// what makes party statements and ageing possible without a separate sub-ledger table.
+  partyType      FinancialActorType? @map("party_type")
+  partyId        String?  @map("party_id")
+  /// Supplier sub-ledger (payables side) — separate from partyId, which is the customer side.
+  supplierId     String?  @map("supplier_id")
+  /// Cost centre for departmental P&L.
+  departmentId   String?  @map("department_id")
+  /// Tax analysis columns, populated on revenue/tax/expense lines so the GST reports can be
+  /// built from the journal alone rather than by re-joining source documents.
+  hsnCode        String?  @map("hsn_code")
+  taxRate        Decimal? @map("tax_rate") @db.Decimal(5, 2)
+  taxableValue   Decimal? @map("taxable_value") @db.Decimal(14, 2)
+  referenceType  String?  @map("reference_type")
+  referenceId    String?  @map("reference_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  department   Department?    @relation("JournalLineDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  supplier     Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([journalEntryId])
+  @@index([accountId, createdAt])
+  @@index([partyType, partyId])
+  @@index([supplierId])
+  @@index([departmentId])
+  @@map("journal_lines")
+}
+
+/// Gapless per-series voucher counter. key is e.g. "JV-2026", "EXP-2026", "CN-2026".
+model VoucherNumberSequence {
+  key       String @id
+  lastValue Int    @default(0) @map("last_value")
+
+  @@map("voucher_number_sequences")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cash & bank
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum CashBankAccountType {
+  CASH
+  BANK
+  PAYMENT_GATEWAY
+}
+
+enum BankTransactionDirection {
+  IN
+  OUT
+}
+
+enum BankTransactionStatus {
+  PENDING
+  CLEARED
+  RECONCILED
+  VOID
+}
+
+/// A real place money physically sits: the counter cash drawer, a current account, the Razorpay
+/// settlement balance. Each one maps to exactly one ledger account so the balance sheet and the
+/// operational view can never disagree.
+model CashBankAccount {
+  id               String              @id @default(cuid())
+  code             String              @unique
+  name             String
+  type             CashBankAccountType
+  ledgerAccountId  String              @map("ledger_account_id")
+  bankName         String?             @map("bank_name")
+  accountNumber    String?             @map("account_number")
+  ifsc             String?
+  branch           String?
+  upiId            String?             @map("upi_id")
+  openingBalance   Decimal             @default(0) @map("opening_balance") @db.Decimal(14, 2)
+  openingBalanceAsOf DateTime?         @map("opening_balance_as_of")
+  isActive         Boolean             @default(true) @map("is_active")
+  /// Where counter cash receipts land by default.
+  isDefaultCash    Boolean             @default(false) @map("is_default_cash")
+  /// Where online/gateway money lands by default.
+  isDefaultBank    Boolean             @default(false) @map("is_default_bank")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  ledgerAccount    ChartOfAccount    @relation(fields: [ledgerAccountId], references: [id], onDelete: Restrict)
+  transactions     BankTransaction[]
+  expensesPaidFrom Expense[]
+  supplierPayments SupplierPayment[]
+  reconciliations  BankReconciliation[]
+
+  @@index([type, isActive])
+  @@map("cash_bank_accounts")
+}
+
+/// Money actually moving in or out of a cash/bank account. Sales receipts and expense payments
+/// create these automatically; a manual row covers everything else (owner drawings, bank charges,
+/// cash deposited into the bank).
+model BankTransaction {
+  id            String                   @id @default(cuid())
+  accountId     String                   @map("account_id")
+  direction     BankTransactionDirection
+  amount        Decimal                  @db.Decimal(14, 2)
+  valueDate     DateTime                 @map("value_date")
+  description   String                   @db.Text
+  counterparty  String?
+  referenceType String?                  @map("reference_type")
+  referenceId   String?                  @map("reference_id")
+  /// Bank statement identifier, filled in during reconciliation.
+  statementRef  String?                  @map("statement_ref")
+  status        BankTransactionStatus    @default(CLEARED)
+  reconciledAt  DateTime?                @map("reconciled_at")
+  reconciledById String?                 @map("reconciled_by_id")
+  reconciliationId String?               @map("reconciliation_id")
+  journalEntryId String?                 @map("journal_entry_id")
+  createdById   String?                  @map("created_by_id")
+  metadata      Json                     @default("{}")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+
+  account        CashBankAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  journalEntry   JournalEntry?       @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy      User?               @relation("BankTransactionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  reconciledBy   User?               @relation("BankTransactionReconciledBy", fields: [reconciledById], references: [id], onDelete: SetNull)
+  reconciliation BankReconciliation? @relation(fields: [reconciliationId], references: [id], onDelete: SetNull)
+
+  @@index([accountId, valueDate(sort: Desc)])
+  @@index([status])
+  @@index([referenceType, referenceId])
+  @@map("bank_transactions")
+}
+
+enum BankReconciliationStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+/// A closing exercise against one statement: "as at this date the bank says X, our books say Y,
+/// and here is the list of items explaining the gap."
+model BankReconciliation {
+  id               String                   @id @default(cuid())
+  accountId        String                   @map("account_id")
+  statementDate    DateTime                 @map("statement_date") @db.Date
+  statementBalance Decimal                  @map("statement_balance") @db.Decimal(14, 2)
+  bookBalance      Decimal                  @map("book_balance") @db.Decimal(14, 2)
+  difference       Decimal                  @db.Decimal(14, 2)
+  status           BankReconciliationStatus @default(IN_PROGRESS)
+  notes            String?                  @db.Text
+  completedAt      DateTime?                @map("completed_at")
+  createdById      String?                  @map("created_by_id")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  account      CashBankAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdBy    User?             @relation("BankReconciliationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  transactions BankTransaction[]
+
+  @@index([accountId, statementDate(sort: Desc)])
+  @@map("bank_reconciliations")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Expenses
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAID
+  CANCELLED
+}
+
+enum ExpensePaymentMode {
+  CASH
+  BANK_TRANSFER
+  UPI
+  CARD
+  CHEQUE
+  /// Unpaid — sits in Expenses Payable until settled.
+  CREDIT
+}
+
+/// Expense head. Maps to a ledger account so the P&L groups itself with no extra configuration.
+model ExpenseCategory {
+  id              String  @id @default(cuid())
+  code            String  @unique
+  name            String
+  ledgerAccountId String  @map("ledger_account_id")
+  parentId        String?  @map("parent_id")
+  /// Whether GST paid on this head is claimable as input credit (rent yes, staff welfare no).
+  inputCreditEligible Boolean @default(true) @map("input_credit_eligible")
+  isSystem        Boolean @default(false) @map("is_system")
+  isActive        Boolean @default(true) @map("is_active")
+  sortOrder       Int     @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  ledgerAccount ChartOfAccount    @relation(fields: [ledgerAccountId], references: [id], onDelete: Restrict)
+  parent        ExpenseCategory?  @relation("ExpenseCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children      ExpenseCategory[] @relation("ExpenseCategoryTree")
+  expenses      Expense[]
+
+  @@index([isActive])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id             String             @id @default(cuid())
+  expenseNumber  String             @unique @map("expense_number")
+  categoryId     String             @map("category_id")
+  expenseDate    DateTime           @map("expense_date")
+  /// Free-text payee when the spend is not against a registered supplier.
+  payeeName      String?            @map("payee_name")
+  supplierId     String?            @map("supplier_id")
+  description    String             @db.Text
+  /// Pre-tax amount.
+  taxableAmount  Decimal            @map("taxable_amount") @db.Decimal(14, 2)
+  gstRate        Decimal            @default(0) @map("gst_rate") @db.Decimal(5, 2)
+  cgstAmount     Decimal            @default(0) @map("cgst_amount") @db.Decimal(14, 2)
+  sgstAmount     Decimal            @default(0) @map("sgst_amount") @db.Decimal(14, 2)
+  igstAmount     Decimal            @default(0) @map("igst_amount") @db.Decimal(14, 2)
+  tdsAmount      Decimal            @default(0) @map("tds_amount") @db.Decimal(14, 2)
+  totalAmount    Decimal            @map("total_amount") @db.Decimal(14, 2)
+  /// Snapshot at entry time — the category default can change later without rewriting history.
+  inputCreditEligible Boolean       @default(true) @map("input_credit_eligible")
+  supplierGstin  String?            @map("supplier_gstin")
+  supplierInvoiceNumber String?     @map("supplier_invoice_number")
+  supplierInvoiceDate   DateTime?   @map("supplier_invoice_date")
+  hsnCode        String?            @map("hsn_code")
+  paymentMode    ExpensePaymentMode @map("payment_mode")
+  paidFromAccountId String?         @map("paid_from_account_id")
+  status         ExpenseStatus      @default(APPROVED)
+  departmentId   String?            @map("department_id")
+  attachmentUrl  String?            @map("attachment_url") @db.Text
+  notes          String?            @db.Text
+  createdById    String             @map("created_by_id")
+  approvedById   String?            @map("approved_by_id")
+  approvedAt     DateTime?          @map("approved_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  category        ExpenseCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  supplier        Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  paidFromAccount CashBankAccount? @relation(fields: [paidFromAccountId], references: [id], onDelete: SetNull)
+  department      Department?      @relation("ExpenseDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy       User             @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy      User?            @relation("ExpenseApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([expenseDate(sort: Desc)])
+  @@index([categoryId])
+  @@index([status])
+  @@index([supplierId])
+  @@map("expenses")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Suppliers, purchase bills & payables
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Supplier {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  name            String
+  contactPerson   String?  @map("contact_person")
+  phone           String?
+  email           String?
+  gstin           String?
+  pan             String?
+  address         String?  @db.Text
+  city            String?
+  state           String?
+  stateCode       String?  @map("state_code")
+  pincode         String?
+  paymentTermsDays Int     @default(0) @map("payment_terms_days")
+  /// Optional dedicated payable account; falls back to the system Accounts Payable account.
+  ledgerAccountId String?  @map("ledger_account_id")
+  openingBalance  Decimal  @default(0) @map("opening_balance") @db.Decimal(14, 2)
+  notes           String?  @db.Text
+  isActive        Boolean  @default(true) @map("is_active")
+  createdById     String?  @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  ledgerAccount ChartOfAccount?   @relation(fields: [ledgerAccountId], references: [id], onDelete: SetNull)
+  createdBy     User?             @relation("SupplierCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  bills         PurchaseBill[]
+  payments      SupplierPayment[]
+  expenses      Expense[]
+  journalLines  JournalLine[]
+
+  @@index([isActive])
+  @@index([gstin])
+  @@map("suppliers")
+}
+
+enum PurchaseBillStatus {
+  DRAFT
+  APPROVED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model PurchaseBill {
+  id                 String             @id @default(cuid())
+  billNumber         String             @unique @map("bill_number")
+  /// The number printed on the supplier's own invoice — what the CA matches against GSTR-2B.
+  supplierBillNumber String             @map("supplier_bill_number")
+  supplierId         String             @map("supplier_id")
+  billDate           DateTime           @map("bill_date")
+  dueDate            DateTime           @map("due_date")
+  placeOfSupply      String?            @map("place_of_supply")
+  supplyType         GstSupplyType      @default(INTRA_STATE) @map("supply_type")
+  subtotal           Decimal            @db.Decimal(14, 2)
+  discount           Decimal            @default(0) @db.Decimal(14, 2)
+  taxableValue       Decimal            @map("taxable_value") @db.Decimal(14, 2)
+  cgstAmount         Decimal            @default(0) @map("cgst_amount") @db.Decimal(14, 2)
+  sgstAmount         Decimal            @default(0) @map("sgst_amount") @db.Decimal(14, 2)
+  igstAmount         Decimal            @default(0) @map("igst_amount") @db.Decimal(14, 2)
+  roundOff           Decimal            @default(0) @map("round_off") @db.Decimal(14, 2)
+  total              Decimal            @db.Decimal(14, 2)
+  amountPaid         Decimal            @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  status             PurchaseBillStatus @default(APPROVED)
+  inputCreditEligible Boolean           @default(true) @map("input_credit_eligible")
+  reverseCharge      Boolean            @default(false) @map("reverse_charge")
+  attachmentUrl      String?            @map("attachment_url") @db.Text
+  notes              String?            @db.Text
+  createdById        String             @map("created_by_id")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  supplier    Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy   User                        @relation("PurchaseBillCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  items       PurchaseBillItem[]
+  allocations SupplierPaymentAllocation[]
+
+  @@index([supplierId, billDate(sort: Desc)])
+  @@index([status])
+  @@index([dueDate])
+  @@map("purchase_bills")
+}
+
+model PurchaseBillItem {
+  id               String   @id @default(cuid())
+  billId           String   @map("bill_id")
+  lineNumber       Int      @map("line_number")
+  description      String
+  hsnCode          String?  @map("hsn_code")
+  materialId       String?  @map("material_id")
+  quantity         Decimal  @default(1) @db.Decimal(14, 3)
+  uom              String?
+  unitPrice        Decimal  @map("unit_price") @db.Decimal(14, 2)
+  discount         Decimal  @default(0) @db.Decimal(14, 2)
+  taxableValue     Decimal  @map("taxable_value") @db.Decimal(14, 2)
+  gstRate          Decimal  @default(0) @map("gst_rate") @db.Decimal(5, 2)
+  cgstAmount       Decimal  @default(0) @map("cgst_amount") @db.Decimal(14, 2)
+  sgstAmount       Decimal  @default(0) @map("sgst_amount") @db.Decimal(14, 2)
+  igstAmount       Decimal  @default(0) @map("igst_amount") @db.Decimal(14, 2)
+  total            Decimal  @db.Decimal(14, 2)
+  /// Which expense/COGS account this line hits. Defaults to the bill-level material account.
+  expenseAccountId String?  @map("expense_account_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  bill     PurchaseBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  material Material?    @relation(fields: [materialId], references: [id], onDelete: SetNull)
+
+  @@index([billId])
+  @@index([materialId])
+  @@map("purchase_bill_items")
+}
+
+model SupplierPayment {
+  id              String             @id @default(cuid())
+  paymentNumber   String             @unique @map("payment_number")
+  supplierId      String             @map("supplier_id")
+  paymentDate     DateTime           @map("payment_date")
+  amount          Decimal            @db.Decimal(14, 2)
+  mode            ExpensePaymentMode
+  fromAccountId   String             @map("from_account_id")
+  referenceNumber String?            @map("reference_number")
+  tdsAmount       Decimal            @default(0) @map("tds_amount") @db.Decimal(14, 2)
+  notes           String?            @db.Text
+  createdById     String             @map("created_by_id")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  supplier    Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  fromAccount CashBankAccount             @relation(fields: [fromAccountId], references: [id], onDelete: Restrict)
+  createdBy   User                        @relation("SupplierPaymentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  allocations SupplierPaymentAllocation[]
+
+  @@index([supplierId, paymentDate(sort: Desc)])
+  @@map("supplier_payments")
+}
+
+/// Which bills a payment settled. A payment with no allocation is an on-account advance.
+model SupplierPaymentAllocation {
+  id        String  @id @default(cuid())
+  paymentId String  @map("payment_id")
+  billId    String  @map("bill_id")
+  amount    Decimal @db.Decimal(14, 2)
+
+  payment SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  bill    PurchaseBill    @relation(fields: [billId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, billId])
+  @@index([billId])
+  @@map("supplier_payment_allocations")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sales-side GST detail, credit notes & refunds
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// HSN/SAC-wise breakup of one issued invoice. GSTR-1's HSN summary table is a group-by over
+/// these rows; without them an HSN summary is not derivable at all.
+model InvoiceTaxLine {
+  id           String   @id @default(cuid())
+  invoiceId    String   @map("invoice_id")
+  lineNumber   Int      @map("line_number")
+  description  String
+  hsnCode      String   @map("hsn_code")
+  uom          String   @default("NOS")
+  quantity     Decimal  @default(1) @db.Decimal(14, 3)
+  taxableValue Decimal  @map("taxable_value") @db.Decimal(14, 2)
+  gstRate      Decimal  @map("gst_rate") @db.Decimal(5, 2)
+  cgstAmount   Decimal  @default(0) @map("cgst_amount") @db.Decimal(14, 2)
+  sgstAmount   Decimal  @default(0) @map("sgst_amount") @db.Decimal(14, 2)
+  igstAmount   Decimal  @default(0) @map("igst_amount") @db.Decimal(14, 2)
+  cessAmount   Decimal  @default(0) @map("cess_amount") @db.Decimal(14, 2)
+  total        Decimal  @db.Decimal(14, 2)
+  orderId      String?  @map("order_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([hsnCode])
+  @@map("invoice_tax_lines")
+}
+
+enum CreditNoteReason {
+  ORDER_CANCELLATION
+  ORDER_AMENDMENT
+  QUALITY_ISSUE
+  RATE_DIFFERENCE
+  GOODS_RETURN
+  POST_SALE_DISCOUNT
+  OTHER
+}
+
+enum CreditNoteStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+}
+
+enum RefundMode {
+  /// Money returned to the customer's platform wallet.
+  WALLET
+  CASH
+  BANK_TRANSFER
+  UPI
+  /// No money moves — the Udhar outstanding is reduced instead.
+  CREDIT_ADJUSTMENT
+  /// No money moves — held as an advance against the customer's next order.
+  ADJUST_AGAINST_FUTURE
+}
+
+/// A GST credit note: the only lawful way to reverse an issued tax invoice. Every refund the
+/// platform pays out is expected to carry one, which is what makes the GST returns tie back to
+/// the money that actually left the business.
+model CreditNote {
+  id               String              @id @default(cuid())
+  creditNoteNumber String              @unique @map("credit_note_number")
+  /// Original invoice being reversed — null only for a goodwill credit with no invoice behind it.
+  invoiceId        String?             @map("invoice_id")
+  orderId          String?             @map("order_id")
+  actorType        FinancialActorType  @map("actor_type")
+  actorId          String              @map("actor_id")
+  billedToName     String              @map("billed_to_name")
+  gstNumber        String?             @map("gst_number")
+  noteDate         DateTime            @map("note_date")
+  reason           CreditNoteReason
+  reasonNote       String?             @map("reason_note") @db.Text
+  placeOfSupply    String?             @map("place_of_supply")
+  supplyType       GstSupplyType       @default(INTRA_STATE) @map("supply_type")
+  documentCategory GstDocumentCategory @default(CREDIT_NOTE_B2C) @map("document_category")
+  taxableValue     Decimal             @map("taxable_value") @db.Decimal(14, 2)
+  gstRate          Decimal             @map("gst_rate") @db.Decimal(5, 2)
+  cgstAmount       Decimal             @default(0) @map("cgst_amount") @db.Decimal(14, 2)
+  sgstAmount       Decimal             @default(0) @map("sgst_amount") @db.Decimal(14, 2)
+  igstAmount       Decimal             @default(0) @map("igst_amount") @db.Decimal(14, 2)
+  total            Decimal             @db.Decimal(14, 2)
+  refundMode       RefundMode          @map("refund_mode")
+  refundedFromAccountId String?        @map("refunded_from_account_id")
+  refundedAt       DateTime?           @map("refunded_at")
+  status           CreditNoteStatus    @default(ISSUED)
+  pdfUrl           String?             @map("pdf_url") @db.Text
+  createdById      String              @map("created_by_id")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdBy User     @relation("CreditNoteCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([actorType, actorId, noteDate(sort: Desc)])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("credit_notes")
+}
+
+/// Rate master by HSN/SAC so product setup does not have to repeat the rate on every offering.
+model GstRateMaster {
+  id          String   @id @default(cuid())
+  hsnCode     String   @unique @map("hsn_code")
+  description String
+  ratePercent Decimal  @map("rate_percent") @db.Decimal(5, 2)
+  cessPercent Decimal  @default(0) @map("cess_percent") @db.Decimal(5, 2)
+  isService   Boolean  @default(false) @map("is_service")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("gst_rate_masters")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Single-row configuration for the accounting engine.
+model FinanceSettings {
+  id                   String   @id @default("default")
+  /// The company's own GST state code — decides intra vs inter-state on every document.
+  homeStateCode        String   @default("24") @map("home_state_code")
+  defaultGstRatePercent Decimal @default(18) @map("default_gst_rate_percent") @db.Decimal(5, 2)
+  defaultHsnCode       String   @default("4911") @map("default_hsn_code")
+  /// April = 4. Kept configurable rather than hard-coded so the engine is not India-only.
+  fiscalYearStartMonth Int      @default(4) @map("fiscal_year_start_month")
+  /// Turns automatic journal projection on/off without a deploy — the kill switch.
+  autoPostingEnabled   Boolean  @default(true) @map("auto_posting_enabled")
+  /// Threshold above which a B2C inter-state sale is B2CL rather than B2CS (₹2.5 lakh).
+  b2clThreshold        Decimal  @default(250000) @map("b2cl_threshold") @db.Decimal(14, 2)
+  /// Books cannot be posted to before this date — set when opening balances are entered.
+  booksBeginFrom       DateTime? @map("books_begin_from")
+  enableTds            Boolean  @default(false) @map("enable_tds")
+  defaultTdsRatePercent Decimal @default(0) @map("default_tds_rate_percent") @db.Decimal(5, 2)
+  updatedById          String?  @map("updated_by_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("FinanceSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("finance_settings")
+}
+
+/// Audit trail for the projection runs, so "why is this entry missing" is answerable.
+model AccountingProjectionRun {
+  id            String   @id @default(cuid())
+  trigger       String
+  startedAt     DateTime @default(now()) @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  entriesPosted Int      @default(0) @map("entries_posted")
+  sourcesScanned Json    @default("{}") @map("sources_scanned")
+  errorCount    Int      @default(0) @map("error_count")
+  errors        Json     @default("[]")
+  createdById   String?  @map("created_by_id")
+
+  @@index([startedAt(sort: Desc)])
+  @@map("accounting_projection_runs")
 }

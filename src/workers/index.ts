@@ -16,6 +16,8 @@ import {
   createActivityLogWorker,
   createAnalyticsWorker,
   createArtworkProcessingWorker,
+  createAccountingProjectionWorker,
+  scheduleAccountingProjectionJob,
 } from '../jobs/index.js';
 
 const workers: Worker[] = [];
@@ -43,7 +45,12 @@ async function bootstrap(): Promise<void> {
     createActivityLogWorker(),
     createAnalyticsWorker(),
     createArtworkProcessingWorker(),
+    createAccountingProjectionWorker(),
   );
+
+  // Registering the repeat here (rather than in the API process) keeps the schedule owned by the
+  // process that actually runs it.
+  await scheduleAccountingProjectionJob();
 
   logger.info(`BullMQ workers started (${workers.length} workers)`);
 }
