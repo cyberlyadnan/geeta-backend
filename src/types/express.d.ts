@@ -17,6 +17,11 @@ declare global {
       validatedQuery?: unknown;
       validatedParams?: unknown;
       performanceContext?: ActiveRequestContext;
+      /**
+       * Set only when a channel partner is viewing one of their vendors read-only. `user` then
+       * describes the vendor; this keeps the id of whoever is actually signed in.
+       */
+      partnerView?: { actorUserId: string; vendorUserId: string };
     }
   }
 }

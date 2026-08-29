@@ -186,7 +186,7 @@ export class AdminProductsService {
           slug,
           description: input.description,
           shortDescription: input.shortDescription,
-          sku: input.sku,
+          hsnCode: input.hsnCode,
           visibility: input.visibility ?? ProductVisibility.VENDOR_ONLY,
           status: productStatus,
           isActive:
@@ -348,7 +348,7 @@ export class AdminProductsService {
           ...(input.name != null && { name: input.name }),
           ...(input.description !== undefined && { description: input.description }),
           ...(input.shortDescription !== undefined && { shortDescription: input.shortDescription }),
-          ...(input.sku !== undefined && { sku: input.sku }),
+          ...(input.hsnCode !== undefined && { hsnCode: input.hsnCode }),
           ...(input.visibility != null && { visibility: input.visibility }),
           ...(input.status != null && {
             status: input.status,

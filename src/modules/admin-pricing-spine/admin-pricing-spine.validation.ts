@@ -48,14 +48,31 @@ export const updateFlexPricingSchema = z.object({
 
 // --- 0C: Vendor price overrides ------------------------------------------------------------
 
-export const createVendorOverrideSchema = z.object({
-  vendorId: z.string().min(1),
-  versionId: z.string().min(1),
-  /** Omit for a whole-product override (e.g. a flex_area ratePerSqFt override). */
-  matrixCellId: z.string().min(1).optional().nullable(),
-  overrideType: z.nativeEnum(VendorPriceOverrideType),
-  value: z.number(),
-});
+export const createVendorOverrideSchema = z
+  .object({
+    vendorId: z.string().min(1),
+    versionId: z.string().min(1),
+    /** Omit for a whole-product override (e.g. a flex_area ratePerSqFt override). */
+    matrixCellId: z.string().min(1).optional().nullable(),
+    overrideType: z.nativeEnum(VendorPriceOverrideType),
+    value: z.number(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.overrideType === 'REPLACE' && data.value <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A replacement price must be above 0',
+        path: ['value'],
+      });
+    }
+    if (data.overrideType === 'PERCENT' && (data.value <= -100 || data.value > 100)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Percentage adjustment must be between −100 and +100 (−5 = 5% off, +5 = 5% on)',
+        path: ['value'],
+      });
+    }
+  });
 
 export const listVendorOverridesQuerySchema = z.object({
   versionId: z.string().min(1),

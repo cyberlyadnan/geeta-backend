@@ -66,13 +66,19 @@ const quantityTierSchema = z.object({
   basePrice: z.number().positive(),
 });
 
+/** GST HSN/SAC — 4–8 digits (e.g. 4911 for printed matter). */
+export const hsnCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4,8}$/, 'HSN must be 4–8 digits');
+
 export const createProductSchema = z.object({
   name: z.string().min(2).max(200),
   /** Explicit catalog placement — no auto-created family/series. */
   seriesId: z.string().min(1),
   description: z.string().optional(),
   shortDescription: z.string().optional(),
-  sku: z.string().optional(),
+  hsnCode: hsnCodeSchema,
   visibility: z.nativeEnum(ProductVisibility).default('VENDOR_ONLY'),
   status: z.nativeEnum(ProductStatus).default('DRAFT'),
   sortOrder: z.number().int().optional(),

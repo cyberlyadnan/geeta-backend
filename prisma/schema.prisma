@@ -27,6 +27,9 @@ enum RoleName {
   ADMIN
   MANAGER
   STAFF
+  /// Support desk operator. Sees the ticket queue and nothing else — added now so the separate
+  /// support panel is a layout and a middleware entry later, not a permissions refactor.
+  SUPPORT
   CUSTOMER
   VENDOR
 }
@@ -412,6 +415,7 @@ enum PricingRuleStatus {
 enum VendorPriceOverrideType {
   REPLACE
   DELTA
+  PERCENT
 }
 
 enum FileRequirementType {
@@ -831,6 +835,24 @@ model User {
   supplierPaymentsCreated         SupplierPayment[]               @relation("SupplierPaymentCreatedBy")
   creditNotesCreated              CreditNote[]                    @relation("CreditNoteCreatedBy")
   financeSettingsUpdated          FinanceSettings[]               @relation("FinanceSettingsUpdatedBy")
+
+  // Support desk (Phase 6)
+  supportTicketsAsVendor          SupportTicket[]                 @relation("SupportTicketVendor")
+  supportTicketsRaised            SupportTicket[]                 @relation("SupportTicketRaisedBy")
+  supportTicketsAssigned          SupportTicket[]                 @relation("SupportTicketAssignee")
+  supportTicketsDecided           SupportTicket[]                 @relation("SupportTicketDecider")
+  supportMessagesAuthored         SupportTicketMessage[]          @relation("SupportMessageAuthor")
+  supportAttachmentsUploaded      SupportTicketAttachment[]       @relation("SupportAttachmentUploader")
+  supportEventsPerformed          SupportTicketEvent[]            @relation("SupportEventActor")
+  supportSettingsUpdated          SupportSettings[]               @relation("SupportSettingsUpdatedBy")
+
+  // Channel partners (Phase 6)
+  channelPartnerProfile           ChannelPartnerProfile?          @relation("ChannelPartnerUser")
+  channelPartnersPromoted         ChannelPartnerProfile[]         @relation("ChannelPartnerPromotedBy")
+  channelPartnerLinks             ChannelPartnerAssignment[]      @relation("ChannelPartnerLinkedVendor")
+  channelPartnerAssignmentsMade   ChannelPartnerAssignment[]      @relation("ChannelPartnerAssignedBy")
+  channelPartnerAssignmentsEnded  ChannelPartnerAssignment[]      @relation("ChannelPartnerEndedBy")
+  commissionPlansCreated          ChannelPartnerCommissionPlan[]  @relation("CommissionPlanCreatedBy")
 
   @@index([roleId])
   @@index([status])
@@ -1973,6 +1995,11 @@ model ProductionOrder {
   notes                 String?               @db.Text
   quoteId               String?               @map("quote_id")
   walletDeducted        Boolean               @default(false) @map("wallet_deducted")
+  /// Phase 6: this order is a free/discounted replacement raised from a support ticket. Flagged
+  /// on the order itself (not derived from the ticket) so every screen in the production flow —
+  /// queues, job cards, dispatch — can badge it without joining to support.
+  isReprint             Boolean               @default(false) @map("is_reprint")
+  reprintOfOrderId      String?               @map("reprint_of_order_id")
   estimatedCompletionAt DateTime?             @map("estimated_completion_at")
   sourceDraftId         String?               @map("source_draft_id")
   createdAt             DateTime              @default(now()) @map("created_at")
@@ -1992,6 +2019,10 @@ model ProductionOrder {
   dispatchBatchOrder   DispatchBatchOrder?
   designTask           DesignTask?
   paymentReceipts      OrderPaymentReceipt[]
+  reprintOf            ProductionOrder?           @relation("OrderReprintChain", fields: [reprintOfOrderId], references: [id], onDelete: SetNull)
+  reprints             ProductionOrder[]         @relation("OrderReprintChain")
+  supportTickets       SupportTicket[]           @relation("SupportTicketOrder")
+  raisedFromTicket     SupportTicket?            @relation("SupportTicketReprintOrder")
 
   @@index([customerId])
   @@index([customerId, createdAt(sort: Desc)])
@@ -2002,6 +2033,8 @@ model ProductionOrder {
   @@index([status])
   @@index([orderNumber])
   @@index([deliveryStatus])
+  @@index([isReprint, createdAt(sort: Desc)])
+  @@index([reprintOfOrderId])
   @@map("production_orders")
 }
 
@@ -2053,6 +2086,7 @@ model RetailCustomer {
   createdBy       User                @relation("RetailCustomerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   orders          ProductionOrder[]
   dispatchBatches DispatchBatch[]
+  supportTickets  SupportTicket[]
 
   @@index([phone])
   @@map("retail_customers")
@@ -5112,4 +5146,388 @@ model AccountingProjectionRun {
 
   @@index([startedAt(sort: Desc)])
   @@map("accounting_projection_runs")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUPPORT & REPRINT — Phase 6
+//
+// Two request shapes share one ticket table, because they share one lifecycle (raised →
+// reviewed → decided → resolved), one conversation thread, one attachment story and one queue.
+// Splitting them into separate models would duplicate all of that to express a difference that
+// is really just "which fields are required at raise time".
+//
+// The reprint path is the one with a rule attached: a reprint can only be asked for within N days
+// of dispatch, N being admin-configurable at runtime (SupportSettings.reprintWindowDays) rather
+// than a constant, because the business changes it seasonally. The eligibility decision is
+// snapshotted onto the ticket at raise time so a later change to the window can never
+// retroactively invalidate a request that was legitimately accepted.
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum SupportTicketType {
+  /// "My job came out wrong — print it again." Requires an order inside the reprint window.
+  REPRINT
+  /// Everything else: billing, delivery, wallet, artwork, a question.
+  OTHER
+}
+
+enum SupportTicketStatus {
+  OPEN
+  UNDER_REVIEW
+  /// Waiting on the vendor — usually for a clearer photo or a missing detail.
+  AWAITING_CUSTOMER
+  /// Reprint approved; the replacement order has been (or is about to be) created.
+  APPROVED
+  REJECTED
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+/// What went wrong. Drives routing and the "what are we getting complaints about" report.
+enum SupportTicketCategory {
+  PRINT_QUALITY
+  COLOR_MISMATCH
+  DAMAGED_IN_TRANSIT
+  WRONG_PRODUCT
+  SHORT_QUANTITY
+  CUTTING_OR_FINISHING
+  DELAY
+  DELIVERY_ISSUE
+  ARTWORK_ISSUE
+  BILLING_ISSUE
+  WALLET_ISSUE
+  GENERAL_QUERY
+  OTHER
+}
+
+enum SupportAttachmentKind {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+enum SupportMessageAuthorType {
+  VENDOR
+  STAFF
+  /// Status changes and automatic notes, so the thread reads as one story.
+  SYSTEM
+}
+
+/// Where a ticket came from, for the "how are people reaching us" report.
+enum SupportTicketChannel {
+  VENDOR_PORTAL
+  PHONE
+  WHATSAPP
+  EMAIL
+  WALK_IN
+  STAFF_RAISED
+}
+
+model SupportTicket {
+  id            String                @id @default(cuid())
+  ticketNumber  String                @unique @map("ticket_number")
+  type          SupportTicketType
+  category      SupportTicketCategory @default(OTHER)
+  status        SupportTicketStatus   @default(OPEN)
+  priority      SupportTicketPriority @default(NORMAL)
+  channel       SupportTicketChannel  @default(VENDOR_PORTAL)
+
+  /// Who the ticket belongs to. Exactly one of these is set — same XOR shape as ProductionOrder.
+  vendorUserId     String? @map("vendor_user_id")
+  retailCustomerId String? @map("retail_customer_id")
+  /// Who actually raised it: the vendor themselves, or the staff member who took the call.
+  raisedById       String  @map("raised_by_id")
+
+  /// Required for REPRINT, optional for OTHER — an "order not received" complaint names an
+  /// order too, but a billing question may not.
+  orderId String? @map("order_id")
+
+  subject     String
+  description String @db.Text
+
+  // ── Reprint-specific ───────────────────────────────────────────────────────
+  /// How many pieces the vendor wants reprinted. Null = the whole order.
+  requestedQuantity Int? @map("requested_quantity")
+  /// Frozen at raise time: dispatch date, the window in force, days elapsed. Keeps a decision
+  /// auditable after the admin changes the window.
+  eligibilitySnapshot Json @default("{}") @map("eligibility_snapshot")
+  /// The replacement order, once approved. One reprint order per ticket.
+  reprintOrderId String? @unique @map("reprint_order_id")
+  /// What the vendor is charged for the reprint. Zero by default — the original was already paid
+  /// for, so a reprint is a production cost, not a second sale. Admin can override per case.
+  reprintChargeAmount Decimal @default(0) @map("reprint_charge_amount") @db.Decimal(12, 2)
+
+  // ── Handling ───────────────────────────────────────────────────────────────
+  assignedToId    String?   @map("assigned_to_id")
+  decisionRemarks String?   @map("decision_remarks") @db.Text
+  /// Staff-only working notes. Never returned on the vendor-facing endpoints.
+  internalNotes   String?   @map("internal_notes") @db.Text
+  decidedById     String?   @map("decided_by_id")
+  decidedAt       DateTime? @map("decided_at")
+  /// When staff first replied — the number the response-time report is built from.
+  firstRespondedAt DateTime? @map("first_responded_at")
+  /// Response deadline, stamped from SupportSettings.responseSlaHours at raise time.
+  slaDueAt        DateTime? @map("sla_due_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  closedAt        DateTime? @map("closed_at")
+  /// 1-5, asked once the ticket is resolved.
+  satisfactionRating Int?   @map("satisfaction_rating")
+  metadata        Json      @default("{}")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  vendorUser     User?                     @relation("SupportTicketVendor", fields: [vendorUserId], references: [id], onDelete: Cascade)
+  retailCustomer RetailCustomer?           @relation(fields: [retailCustomerId], references: [id], onDelete: Cascade)
+  raisedBy       User                      @relation("SupportTicketRaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
+  assignedTo     User?                     @relation("SupportTicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  decidedBy      User?                     @relation("SupportTicketDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  order          ProductionOrder?          @relation("SupportTicketOrder", fields: [orderId], references: [id], onDelete: SetNull)
+  reprintOrder   ProductionOrder?          @relation("SupportTicketReprintOrder", fields: [reprintOrderId], references: [id], onDelete: SetNull)
+  messages       SupportTicketMessage[]
+  attachments    SupportTicketAttachment[]
+  events         SupportTicketEvent[]
+
+  @@index([vendorUserId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([type, status])
+  @@index([assignedToId, status])
+  @@index([orderId])
+  @@index([slaDueAt])
+  @@map("support_tickets")
+}
+
+/// The conversation. `isInternal` messages are staff-only and are filtered out of every
+/// vendor-facing response at the query level, never in the UI.
+model SupportTicketMessage {
+  id           String                   @id @default(cuid())
+  ticketId     String                   @map("ticket_id")
+  authorType   SupportMessageAuthorType @map("author_type")
+  authorUserId String?                  @map("author_user_id")
+  body         String                   @db.Text
+  isInternal   Boolean                  @default(false) @map("is_internal")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+
+  ticket      SupportTicket             @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author      User?                     @relation("SupportMessageAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  attachments SupportTicketAttachment[]
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+/// Photos and videos of the damage. Stored by object key, served through a presigned URL — the
+/// same secure-access path artwork uses, so a ticket's media is never a public link.
+model SupportTicketAttachment {
+  id           String                @id @default(cuid())
+  ticketId     String                @map("ticket_id")
+  messageId    String?               @map("message_id")
+  kind         SupportAttachmentKind
+  fileName     String                @map("file_name")
+  fileKey      String                @map("file_key") @db.Text
+  mimeType     String                @map("mime_type")
+  sizeBytes    Int                   @map("size_bytes")
+  /// Poster frame for a video, so the ticket list can show something without downloading it.
+  thumbnailKey String?               @map("thumbnail_key") @db.Text
+  uploadedById String                @map("uploaded_by_id")
+  createdAt    DateTime              @default(now()) @map("created_at")
+
+  ticket     SupportTicket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message    SupportTicketMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  uploadedBy User                  @relation("SupportAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([ticketId])
+  @@index([messageId])
+  @@map("support_ticket_attachments")
+}
+
+/// Immutable timeline — raised, assigned, replied, approved, reprint created, resolved. The
+/// vendor sees a filtered view of this, which is what makes "where has my complaint got to"
+/// answerable without anyone picking up a phone.
+model SupportTicketEvent {
+  id          String   @id @default(cuid())
+  ticketId    String   @map("ticket_id")
+  eventType   String   @map("event_type")
+  title       String
+  description String?  @db.Text
+  /// False for internal-only entries (assignment changes, private notes).
+  isCustomerVisible Boolean @default(true) @map("is_customer_visible")
+  actorId     String?  @map("actor_id")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actor  User?         @relation("SupportEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_events")
+}
+
+/// Runtime configuration for the support desk. Single row, admin-editable — the reprint window in
+/// particular is a business lever, not a constant, and changing it must not need a deploy.
+model SupportSettings {
+  id                     String  @id @default("default")
+  /// Days after dispatch during which a reprint can still be asked for.
+  reprintWindowDays      Int     @default(15) @map("reprint_window_days")
+  /// When true a reprint needs a dispatched order; when false any confirmed order qualifies.
+  reprintRequiresDispatch Boolean @default(true) @map("reprint_requires_dispatch")
+  /// Hours in which the desk aims to reply. Drives slaDueAt and the overdue queue.
+  responseSlaHours       Int     @default(24) @map("response_sla_hours")
+  maxAttachmentsPerTicket Int    @default(10) @map("max_attachments_per_ticket")
+  maxImageSizeMb         Int     @default(10) @map("max_image_size_mb")
+  maxVideoSizeMb         Int     @default(100) @map("max_video_size_mb")
+  /// Resolved tickets close themselves after this many quiet days. 0 disables it.
+  autoCloseResolvedAfterDays Int @default(7) @map("auto_close_resolved_after_days")
+  /// Whether a reprint order is free unless the admin says otherwise.
+  reprintFreeByDefault   Boolean @default(true) @map("reprint_free_by_default")
+  supportPhone           String  @default("") @map("support_phone")
+  supportEmail           String  @default("") @map("support_email")
+  supportHours           String  @default("") @map("support_hours")
+  /// The reprint policy shown to vendors, per language code: { "en": "<html>", "hi": "…" }.
+  reprintPolicyContent   Json    @default("{}") @map("reprint_policy_content")
+  updatedById            String? @map("updated_by_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("SupportSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("support_settings")
+}
+
+/// Gapless per-year ticket counter: SR-2026-000001. Same pattern as orders and invoices.
+model SupportTicketNumberSequence {
+  year      Int @id
+  lastValue Int @default(0) @map("last_value")
+
+  @@map("support_ticket_number_sequences")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CHANNEL PARTNERS — Phase 6
+//
+// A "channel partner" is a vendor who brings other vendors onto the platform and then watches
+// over them: he sees their orders, their spend and their reports, and in return the business
+// gives him better pricing (today) or a commission (a later phase this schema is shaped for).
+//
+// Deliberately modelled as a PROFILE on an existing vendor user rather than a new account type.
+// The partner logs in once, keeps his own vendor portal exactly as it was, and gets a second
+// panel. That keeps his own ordering, wallet and invoices untouched by anything here, and means
+// promoting a vendor is a row insert, not a migration of his data.
+//
+// The relationship is an ASSIGNMENT ROW rather than a foreign key on VendorProfile, because the
+// link has its own history: when it started, who approved it, why, and when it ended. A nullable
+// `channelPartnerId` column would answer "who owns this vendor today" and nothing else.
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum ChannelPartnerStatus {
+  ACTIVE
+  /// Keeps the history and the links, stops the panel from loading.
+  SUSPENDED
+}
+
+/// How a vendor came to be linked to a partner — the difference matters when the partner and the
+/// admin disagree about who brought whom.
+enum ChannelPartnerLinkSource {
+  /// Vendor signed up using the partner's referral code.
+  REFERRAL_CODE
+  /// Admin tagged the vendor to the partner after the fact — the common case today.
+  ADMIN_ASSIGNED
+  /// Partner claimed the vendor and admin confirmed it.
+  PARTNER_CLAIMED
+}
+
+enum CommissionBasis {
+  ORDER_SUBTOTAL
+  ORDER_GRAND_TOTAL
+}
+
+enum CommissionPlanStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model ChannelPartnerProfile {
+  id          String               @id @default(cuid())
+  userId      String               @unique @map("user_id")
+  /// Shareable referral code — a vendor registering with it is auto-linked to this partner.
+  partnerCode String               @unique @map("partner_code")
+  status      ChannelPartnerStatus @default(ACTIVE)
+  displayName String?              @map("display_name")
+  notes       String?              @db.Text
+  promotedById String?             @map("promoted_by_id")
+  promotedAt  DateTime             @default(now()) @map("promoted_at")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  user            User                           @relation("ChannelPartnerUser", fields: [userId], references: [id], onDelete: Cascade)
+  promotedBy      User?                          @relation("ChannelPartnerPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)
+  assignments     ChannelPartnerAssignment[]
+  commissionPlans ChannelPartnerCommissionPlan[]
+
+  @@index([status])
+  @@map("channel_partner_profiles")
+}
+
+/// One partner ↔ one vendor. Kept as history: ending a link sets `endedAt` and clears `isActive`
+/// rather than deleting the row, so a report over last quarter still knows who owned what then.
+model ChannelPartnerAssignment {
+  id               String                   @id @default(cuid())
+  partnerProfileId String                   @map("partner_profile_id")
+  vendorUserId     String                   @map("vendor_user_id")
+  source           ChannelPartnerLinkSource @default(ADMIN_ASSIGNED)
+  isActive         Boolean                  @default(true) @map("is_active")
+  assignedById     String?                  @map("assigned_by_id")
+  assignedAt       DateTime                 @default(now()) @map("assigned_at")
+  endedById        String?                  @map("ended_by_id")
+  endedAt          DateTime?                @map("ended_at")
+  notes            String?                  @db.Text
+
+  partnerProfile ChannelPartnerProfile @relation(fields: [partnerProfileId], references: [id], onDelete: Cascade)
+  vendorUser     User                  @relation("ChannelPartnerLinkedVendor", fields: [vendorUserId], references: [id], onDelete: Cascade)
+  assignedBy     User?                 @relation("ChannelPartnerAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  endedBy        User?                 @relation("ChannelPartnerEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+
+  /// A vendor can be linked to a partner once. Re-linking after an end reuses the row.
+  @@unique([partnerProfileId, vendorUserId])
+  @@index([vendorUserId, isActive])
+  @@index([partnerProfileId, isActive])
+  @@map("channel_partner_assignments")
+}
+
+/// Commission terms for a partner.
+///
+/// **Nothing accrues from this table yet.** Today the partner's reward is the discounted pricing
+/// admin already grants through VendorPriceOverride, and this model exists so the reporting can
+/// show an indicative figure and so a real commission phase is additive: the accrual becomes one
+/// more projection adapter (see services/accounting/projection) posting Dr Commission Expense /
+/// Cr Partner Payable, and a payout screen. No schema migration, no re-modelling of the link.
+model ChannelPartnerCommissionPlan {
+  id               String               @id @default(cuid())
+  partnerProfileId String               @map("partner_profile_id")
+  name             String
+  basis            CommissionBasis      @default(ORDER_SUBTOTAL)
+  ratePercent      Decimal              @map("rate_percent") @db.Decimal(5, 2)
+  /// Orders below this value earn nothing.
+  minOrderValue    Decimal              @default(0) @map("min_order_value") @db.Decimal(12, 2)
+  /// Cap per calendar month. Zero means uncapped.
+  monthlyCap       Decimal              @default(0) @map("monthly_cap") @db.Decimal(12, 2)
+  status           CommissionPlanStatus @default(DRAFT)
+  effectiveFrom    DateTime             @map("effective_from")
+  effectiveTo      DateTime?            @map("effective_to")
+  notes            String?              @db.Text
+  createdById      String?              @map("created_by_id")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+
+  partnerProfile ChannelPartnerProfile @relation(fields: [partnerProfileId], references: [id], onDelete: Cascade)
+  createdBy      User?                 @relation("CommissionPlanCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([partnerProfileId, status])
+  @@map("channel_partner_commission_plans")
 }

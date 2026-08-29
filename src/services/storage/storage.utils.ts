@@ -36,8 +36,23 @@ export function resolveExtension(contentType: string, fileName: string): string 
   if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
     return ext === 'jpeg' ? 'jpg' : ext;
   }
+  // Support-desk media (Phase 6). Without these a vendor's complaint video would land on storage
+  // as ".bin", which browsers refuse to play inline no matter what content type we serve it with.
+  const fromVideoMime = VIDEO_MIME_TO_EXT[contentType];
+  if (fromVideoMime) return fromVideoMime;
+  if (['mp4', 'mov', 'm4v', 'webm', '3gp', 'heic'].includes(ext)) return ext;
   return 'bin';
 }
+
+/** Video containers a phone camera actually produces, mapped to the extension players expect. */
+const VIDEO_MIME_TO_EXT: Record<string, string> = {
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/x-m4v': 'm4v',
+  'video/webm': 'webm',
+  'video/3gpp': '3gp',
+  'image/heic': 'heic',
+};
 
 export function normalizeVendorDocumentContentType(contentType: string): string {
   const lower = contentType.toLowerCase().trim();

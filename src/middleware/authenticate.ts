@@ -7,6 +7,7 @@ import {
 } from '../observability/request-context.js';
 import { tokenService } from '../services/auth/token.service.js';
 import { preloadRequestContext } from './preload-context.js';
+import { applyPartnerViewContext } from './partner-view.js';
 
 export async function authenticate(
   req: Request,
@@ -31,7 +32,11 @@ export async function authenticate(
       permissions: payload.permissions ?? [],
     };
 
-    setRequestUserId(payload.sub, req);
+    // A channel partner may ask to run this request as one of their linked vendors. The swap
+    // happens here, before anything is preloaded, so the whole request has one identity.
+    await applyPartnerViewContext(req);
+
+    setRequestUserId(req.user.id, req);
     endAuthentication(req, 'JWT verification');
 
     await preloadRequestContext(req, res, next);

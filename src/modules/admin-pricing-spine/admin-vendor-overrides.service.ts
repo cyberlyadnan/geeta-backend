@@ -4,6 +4,7 @@ import { ApiError } from '../../common/errors/ApiError.js';
 import { toDecimal, decimalToNumber } from '../../utils/money.js';
 import { catalogAuditService } from '../../services/catalog/catalog-audit.service.js';
 import { vendorPriceOverrideRepository } from '../../repositories/vendor-price-override.repository.js';
+import { computeEffectiveOverridePrice } from '../../services/pricing-engine/vendor-price-override.resolver.js';
 import type {
   CreateVendorOverrideInput,
   ListVendorOverridesQuery,
@@ -68,8 +69,7 @@ export class AdminVendorOverridesService {
           : null;
       const value = decimalToNumber(o.value);
       // REPLACE substitutes the price outright; DELTA adds to it, so a negative DELTA is a discount.
-      const effectivePrice =
-        o.overrideType === 'REPLACE' ? value : listPrice != null ? listPrice + value : null;
+      const effectivePrice = computeEffectiveOverridePrice(listPrice, o.overrideType, value);
 
       return {
         id: o.id,

@@ -60,6 +60,44 @@ export class StorageService {
     }));
   }
 
+  /**
+   * Presigns an upload for support-desk media.
+   *
+   * Separate from `createPresignedUpload` because that one is image-only by contract — it
+   * normalises the content type into the catalogue's allow-list and caps at the 5 MB image limit.
+   * Support attachments are the opposite case: a phone video of a damaged consignment is the most
+   * useful evidence the desk gets, and it is neither an image nor small. The caller has already
+   * validated the type and the size against the desk's own runtime limits, so this signs what it
+   * is given rather than re-deriving a policy that does not apply here.
+   */
+  createPresignedMediaUpload(input: {
+    folder: StorageFolder;
+    fileName: string;
+    contentType: string;
+  }): Promise<PresignedUploadResult> {
+    const config = assertR2Config();
+    const contentType = input.contentType.toLowerCase().split(';')[0]?.trim() ?? 'application/octet-stream';
+    const key = buildObjectKey(input.folder, input.fileName, contentType);
+
+    const command = new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: key,
+      ContentType: contentType,
+    });
+
+    return getSignedUrl(getPresignS3Client(), command, {
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
+      signableHeaders: new Set(['content-type']),
+    }).then((uploadUrl) => ({
+      uploadUrl,
+      key,
+      publicUrl: buildPublicUrl(config.publicUrl, key),
+      contentType,
+      uploadHeaders: { 'Content-Type': contentType },
+      expiresIn: PRESIGN_UPLOAD_EXPIRY_SECONDS,
+    }));
+  }
+
   async createPresignedDownload(
     key: string,
     options?: { fileName?: string; mimeType?: string; disposition?: 'inline' | 'attachment' },

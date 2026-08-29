@@ -60,6 +60,10 @@ import { adminFinanceRoutes } from '../../modules/admin-finance/index.js';
 import { adminAccountingRoutes } from '../../modules/admin-accounting/index.js';
 import { cashBankRoutes } from '../../modules/cash-bank/index.js';
 import { creditNotesRoutes } from '../../modules/credit-notes/index.js';
+import { adminSupportRoutes } from '../../modules/admin-support/index.js';
+import { vendorReportsRoutes } from '../../modules/vendor-reports/index.js';
+import { channelPartnerRoutes } from '../../modules/channel-partner/index.js';
+import { adminChannelPartnersRoutes } from '../../modules/admin-channel-partners/index.js';
 import { dispatchRoutes, adminDispatchRoutes } from '../../modules/dispatch/index.js';
 import {
   designTaskRoutes,
@@ -113,6 +117,14 @@ v1Router.use('/admin/finance', adminFinanceRoutes);
 v1Router.use('/admin/accounting', adminAccountingRoutes);
 v1Router.use('/admin/cash-bank', cashBankRoutes);
 v1Router.use('/admin/credit-notes', creditNotesRoutes);
+
+// Phase 6 — support desk, vendor reporting and the channel-partner programme.
+// The vendor-facing routes are scoped by req.user rather than by role, so they carry no role
+// guard; the desk and the admin management screens name their roles explicitly.
+v1Router.use('/vendor-reports', vendorReportsRoutes);
+v1Router.use('/partner', channelPartnerRoutes);
+v1Router.use('/admin/support', adminSupportRoutes);
+v1Router.use('/admin/channel-partners', adminChannelPartnersRoutes);
 v1Router.use('/dispatch', dispatchRoutes);
 v1Router.use('/admin/dispatch', adminDispatchRoutes);
 v1Router.use('/design-tasks', designTaskRoutes);

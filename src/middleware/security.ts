@@ -49,7 +49,15 @@ export const corsMiddleware = cors({
   },
   credentials: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Request-ID', 'X-Requested-With'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'X-Request-ID',
+    'X-Requested-With',
+    // Channel partner "view as vendor" — see middleware/partner-view.ts.
+    'X-Partner-View',
+  ],
   exposedHeaders: ['X-Request-ID'],
   optionsSuccessStatus: 204,
   maxAge: 86_400,
