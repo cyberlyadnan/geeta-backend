@@ -1,4 +1,5 @@
 import type { productionOrderRepository, OrderContext } from './production-order.repository.js';
+import { formatVendorCodeDisplay } from '../../../constants/vendor-code.js';
 
 type ListRow = Awaited<ReturnType<typeof productionOrderRepository.list>>['items'][number];
 type OrderDetail = NonNullable<Awaited<ReturnType<typeof productionOrderRepository.findById>>>;
@@ -42,7 +43,7 @@ function resolveOrderCustomer(row: {
       isRetail: false as const,
       id: row.customer.id,
       name: vendorName(row.customer),
-      code: row.customer.vendorProfile?.vendorCode ?? null,
+      code: formatVendorCodeDisplay(row.customer.vendorProfile?.vendorCode),
       email: row.customer.email ?? null,
       phone: row.customer.phone ?? null,
       vendorProfile: row.customer.vendorProfile,

@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { formatVendorCodeDisplay } from '../../constants/vendor-code.js';
 import {
   USER_ADMIN_LIST_SELECT,
   USER_SUMMARY_SELECT,
@@ -31,7 +32,7 @@ type VendorListItem = Prisma.VendorProfileGetPayload<{
 export function mapVendorListItemToDto(profile: VendorListItem) {
   return {
     id: profile.id,
-    vendorCode: profile.vendorCode,
+    vendorCode: formatVendorCodeDisplay(profile.vendorCode) ?? profile.vendorCode,
     businessName: profile.businessName,
     ownerName: profile.ownerName,
     accountStatus: profile.accountStatus,
@@ -52,6 +53,7 @@ export function mapVendorDetailToDto(
   return {
     profile: {
       ...profile,
+      vendorCode: formatVendorCodeDisplay(profile.vendorCode) ?? profile.vendorCode,
       user: mapUserPublicToDto(profile.user),
       verifiedBy: mapUserSummaryToDto(profile.verifiedBy),
       rejectedBy: mapUserSummaryToDto(profile.rejectedBy),
@@ -71,7 +73,7 @@ export function mapVendorStatusUpdateToDto(
 ) {
   return {
     id: profile.id,
-    vendorCode: profile.vendorCode,
+    vendorCode: formatVendorCodeDisplay(profile.vendorCode) ?? profile.vendorCode,
     businessName: profile.businessName,
     accountStatus: profile.accountStatus,
     verificationRemarks: profile.verificationRemarks,

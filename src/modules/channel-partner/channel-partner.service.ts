@@ -1,5 +1,6 @@
 import { ProductionOrderStatus, type Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { vendorCodeSearchTerms } from '../../constants/vendor-code.js';
 import { partnerAccessService, partnerStatsService } from '../../services/channel-partner/index.js';
 import type {
   PartnerOverviewQuery,
@@ -95,11 +96,12 @@ export class ChannelPartnerService {
     const rows = await partnerStatsService.vendorBreakdown(context.linkedVendorIds, query);
 
     const needle = query.search?.toLowerCase();
+    const codeTerms = query.search ? vendorCodeSearchTerms(query.search).map((t) => t.toLowerCase()) : [];
     const filtered = needle
       ? rows.filter(
           (row) =>
             row.vendorName.toLowerCase().includes(needle) ||
-            (row.vendorCode ?? '').toLowerCase().includes(needle) ||
+            codeTerms.some((term) => (row.vendorCode ?? '').toLowerCase().includes(term)) ||
             (row.city ?? '').toLowerCase().includes(needle),
         )
       : rows;

@@ -3,6 +3,7 @@ import type {
   QueueTaskDetailRecord,
   QueueTaskListRecord,
 } from './queue.repository.js';
+import { formatVendorCodeDisplay } from '../../../constants/vendor-code.js';
 import { mapQueueAssignmentSummary } from '../assignment/assignment.dto.js';
 import { buildConfigurationEntries, type ConfigurationEntry } from '../configuration-highlight.util.js';
 
@@ -211,7 +212,7 @@ export function mapQueueTaskCard(record: QueueTaskListRecord): QueueTaskCardDto 
       id: record.workflowInstance.order.customer?.id ?? record.workflowInstance.order.retailCustomer?.id ?? '',
       name: resolveVendorName(record),
       businessName: record.workflowInstance.order.customer?.vendorProfile?.businessName ?? null,
-      memberCode: record.workflowInstance.order.customer?.vendorProfile?.vendorCode ?? null,
+      memberCode: formatVendorCodeDisplay(record.workflowInstance.order.customer?.vendorProfile?.vendorCode),
       phone:
         record.workflowInstance.order.customer?.phone ??
         record.workflowInstance.order.retailCustomer?.phone ??

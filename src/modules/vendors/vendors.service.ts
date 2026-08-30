@@ -1,4 +1,5 @@
 import { prisma } from '../../config/database.js';
+import { formatVendorCodeDisplay } from '../../constants/vendor-code.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { resolveSupportContact } from '../../config/business-contact.js';
 import { USER_PUBLIC_SELECT } from '../../common/security/user.serialization.js';
@@ -44,7 +45,7 @@ export class VendorsService {
     const pendingRequests = await vendorComplianceService.getPendingForVendor(profile.id);
 
     return {
-      vendorCode: profile.vendorCode,
+      vendorCode: formatVendorCodeDisplay(profile.vendorCode) ?? profile.vendorCode,
       businessName: profile.businessName,
       ownerName: profile.ownerName,
       phone: user.phone,

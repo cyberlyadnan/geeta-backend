@@ -9,7 +9,7 @@ type TransactionClient = Prisma.TransactionClient;
 
 export class VendorCodeService {
   /**
-   * Atomically reserves the next vendor member ID (GP1001, GP1002, …).
+   * Atomically reserves the next vendor member ID (GP-1001, GP-1002, …).
    * Must run inside a Prisma transaction.
    */
   async allocateNext(tx: TransactionClient): Promise<string> {

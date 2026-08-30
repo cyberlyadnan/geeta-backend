@@ -1,4 +1,5 @@
 import type { Prisma, Role, VendorProfile } from '@prisma/client';
+import { formatVendorCodeDisplay } from '../../constants/vendor-code.js';
 import { extractPermissions } from '../../modules/auth/auth.utils.js';
 
 /** Fields safe to return from any authenticated API */
@@ -175,7 +176,7 @@ export function mapVendorProfileSummaryToDto(
   if (!profile) return null;
   return {
     id: profile.id,
-    vendorCode: profile.vendorCode,
+    vendorCode: formatVendorCodeDisplay(profile.vendorCode) ?? profile.vendorCode,
     businessName: profile.businessName,
     accountStatus: profile.accountStatus,
     verificationRemarks: profile.verificationRemarks,

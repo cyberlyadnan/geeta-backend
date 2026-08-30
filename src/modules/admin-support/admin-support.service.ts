@@ -1,5 +1,6 @@
 import { Prisma, SupportMessageAuthorType, SupportTicketStatus } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { formatVendorCodeDisplay } from '../../constants/vendor-code.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { notifyUser } from '../orders/order-events.service.js';
 import {
@@ -127,7 +128,7 @@ export class AdminSupportService {
           (ticket.vendorUser ? `${ticket.vendorUser.firstName} ${ticket.vendorUser.lastName}` : null) ??
           ticket.retailCustomer?.name ??
           null,
-        vendorCode: ticket.vendorUser?.vendorProfile?.vendorCode ?? null,
+        vendorCode: formatVendorCodeDisplay(ticket.vendorUser?.vendorProfile?.vendorCode),
         vendorPhone: ticket.vendorUser?.phone ?? ticket.retailCustomer?.phone ?? null,
         isOverdue: isOverdue(ticket),
         slaDueAt: ticket.slaDueAt?.toISOString() ?? null,
@@ -180,7 +181,7 @@ export class AdminSupportService {
         (ticket.vendorUser ? `${ticket.vendorUser.firstName} ${ticket.vendorUser.lastName}` : null) ??
         ticket.retailCustomer?.name ??
         null,
-      vendorCode: ticket.vendorUser?.vendorProfile?.vendorCode ?? null,
+      vendorCode: formatVendorCodeDisplay(ticket.vendorUser?.vendorProfile?.vendorCode),
       isOverdue: isOverdue(ticket),
       lastActivityAt: ticket.updatedAt.toISOString(),
       createdAt: ticket.createdAt.toISOString(),
@@ -191,7 +192,7 @@ export class AdminSupportService {
             id: ticket.vendorUser.id,
             name: ticket.vendorUser.vendorProfile?.businessName ??
               `${ticket.vendorUser.firstName} ${ticket.vendorUser.lastName}`,
-            code: ticket.vendorUser.vendorProfile?.vendorCode ?? null,
+            code: formatVendorCodeDisplay(ticket.vendorUser.vendorProfile?.vendorCode),
             phone: ticket.vendorUser.phone,
             email: ticket.vendorUser.email,
           }

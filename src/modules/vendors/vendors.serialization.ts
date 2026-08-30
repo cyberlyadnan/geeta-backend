@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { formatVendorCodeDisplay } from '../../constants/vendor-code.js';
 import { mapUserPublicToDto } from '../../common/security/user.serialization.js';
 import { formatVendorAddress } from '../../services/delivery/delivery.repository.js';
 
@@ -64,7 +65,7 @@ export function mapVendorSettingsProfile(profile: VendorSettingsRecord) {
 
   return {
     id: profile.id,
-    vendorCode: profile.vendorCode,
+    vendorCode: formatVendorCodeDisplay(profile.vendorCode) ?? profile.vendorCode,
     businessName: profile.businessName,
     ownerName: profile.ownerName,
     alternatePhone: profile.alternatePhone,

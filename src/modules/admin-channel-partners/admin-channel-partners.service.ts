@@ -1,5 +1,6 @@
 import { ChannelPartnerStatus, Prisma, RoleName } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { formatVendorCodeDisplay, vendorCodeSearchTerms } from '../../constants/vendor-code.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { logger } from '../../logs/logger.js';
 import { allocatePartnerCode, partnerStatsService } from '../../services/channel-partner/index.js';
@@ -122,7 +123,7 @@ export class AdminChannelPartnersService {
             partner.user.vendorProfile?.businessName ??
             `${partner.user.firstName} ${partner.user.lastName}`,
           userId: partner.user.id,
-          vendorCode: partner.user.vendorProfile?.vendorCode ?? null,
+          vendorCode: formatVendorCodeDisplay(partner.user.vendorProfile?.vendorCode),
           city: partner.user.vendorProfile?.city ?? null,
           phone: partner.user.phone,
           email: partner.user.email,
@@ -388,7 +389,7 @@ export class AdminChannelPartnersService {
       user: {
         id: partner.user.id,
         name: partner.user.vendorProfile?.businessName ?? `${partner.user.firstName} ${partner.user.lastName}`,
-        vendorCode: partner.user.vendorProfile?.vendorCode ?? null,
+        vendorCode: formatVendorCodeDisplay(partner.user.vendorProfile?.vendorCode),
         email: partner.user.email,
         phone: partner.user.phone,
         city: partner.user.vendorProfile?.city ?? null,
@@ -404,7 +405,7 @@ export class AdminChannelPartnersService {
         vendorName:
           assignment.vendorUser.vendorProfile?.businessName ??
           `${assignment.vendorUser.firstName} ${assignment.vendorUser.lastName}`,
-        vendorCode: assignment.vendorUser.vendorProfile?.vendorCode ?? null,
+        vendorCode: formatVendorCodeDisplay(assignment.vendorUser.vendorProfile?.vendorCode),
         city: assignment.vendorUser.vendorProfile?.city ?? null,
         phone: assignment.vendorUser.phone,
         source: assignment.source,
@@ -457,7 +458,9 @@ export class AdminChannelPartnersService {
         ...(query.search && {
           OR: [
             { vendorProfile: { businessName: { contains: query.search, mode: 'insensitive' as const } } },
-            { vendorProfile: { vendorCode: { contains: query.search, mode: 'insensitive' as const } } },
+            ...vendorCodeSearchTerms(query.search).map((term) => ({
+              vendorProfile: { vendorCode: { contains: term, mode: 'insensitive' as const } },
+            })),
             { phone: { contains: query.search } },
             { email: { contains: query.search, mode: 'insensitive' as const } },
           ],
@@ -478,7 +481,7 @@ export class AdminChannelPartnersService {
     return vendors.map((vendor) => ({
       id: vendor.id,
       name: vendor.vendorProfile?.businessName ?? `${vendor.firstName} ${vendor.lastName}`,
-      vendorCode: vendor.vendorProfile?.vendorCode ?? null,
+      vendorCode: formatVendorCodeDisplay(vendor.vendorProfile?.vendorCode),
       city: vendor.vendorProfile?.city ?? null,
       phone: vendor.phone,
       accountStatus: vendor.vendorProfile?.accountStatus ?? null,

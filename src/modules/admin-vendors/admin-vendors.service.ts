@@ -1,6 +1,7 @@
 import { ActivityAction, UserStatus, VendorAccountStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { vendorCodeSearchTerms } from '../../constants/vendor-code.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { activityLogService } from '../../services/activity/index.js';
 import type {
@@ -29,7 +30,9 @@ export class AdminVendorsService {
       ...(deliveryPreference && { deliveryPreference }),
       ...(search && {
         OR: [
-          { vendorCode: { contains: search, mode: 'insensitive' } },
+          ...vendorCodeSearchTerms(search).map((term) => ({
+            vendorCode: { contains: term, mode: 'insensitive' as const },
+          })),
           { businessName: { contains: search, mode: 'insensitive' } },
           { ownerName: { contains: search, mode: 'insensitive' } },
           { gstNumber: { contains: search, mode: 'insensitive' } },

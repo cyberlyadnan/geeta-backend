@@ -11,6 +11,7 @@ import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { passwordService, tokenService } from '../../services/auth/index.js';
 import { activityLogService } from '../../services/activity/index.js';
 import { vendorCodeService } from '../../services/vendor-code/index.js';
+import { formatVendorCodeDisplay } from '../../constants/vendor-code.js';
 import { parseDurationToMs } from '../../utils/time.js';
 import { jwtConfig } from '../../config/jwt.js';
 import { userRepository } from '../../repositories/user.repository.js';
@@ -124,7 +125,7 @@ export class AuthService {
       message:
         'Registration submitted successfully. Your account is pending admin verification.',
       vendorProfileId: user.vendorProfile.id,
-      vendorCode: user.vendorProfile.vendorCode,
+      vendorCode: formatVendorCodeDisplay(user.vendorProfile.vendorCode) ?? user.vendorProfile.vendorCode,
       accountStatus: VendorAccountStatus.PENDING,
     };
   }

@@ -1,5 +1,6 @@
 import { CommissionPlanStatus, Prisma, ProductionOrderStatus } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { formatVendorCodeDisplay } from '../../constants/vendor-code.js';
 
 const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 const num = (value: Prisma.Decimal | null | undefined): number => (value == null ? 0 : Number(value));
@@ -110,7 +111,7 @@ export class PartnerStatsService {
         return {
           vendorUserId: vendor.id,
           vendorName: vendor.vendorProfile?.businessName ?? `${vendor.firstName} ${vendor.lastName}`,
-          vendorCode: vendor.vendorProfile?.vendorCode ?? null,
+          vendorCode: formatVendorCodeDisplay(vendor.vendorProfile?.vendorCode),
           city: vendor.vendorProfile?.city ?? null,
           phone: vendor.phone,
           accountStatus: vendor.vendorProfile?.accountStatus ?? 'UNKNOWN',

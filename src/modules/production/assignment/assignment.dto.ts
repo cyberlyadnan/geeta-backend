@@ -3,6 +3,7 @@ import type {
   AssignmentRecord,
   MyAssignedTaskRecord,
 } from './assignment.repository.js';
+import { formatVendorCodeDisplay } from '../../../constants/vendor-code.js';
 import { buildConfigurationEntries, type ConfigurationEntry } from '../configuration-highlight.util.js';
 
 export interface AssignmentDto {
@@ -283,7 +284,7 @@ export function mapMyAssignedTask(record: MyAssignedTaskRecord): MyAssignedTaskD
     vendor: {
       name: vendorName,
       businessName: customer?.vendorProfile?.businessName ?? null,
-      memberCode: customer?.vendorProfile?.vendorCode ?? null,
+      memberCode: formatVendorCodeDisplay(customer?.vendorProfile?.vendorCode),
       phone: customer?.phone ?? order.retailCustomer?.phone ?? null,
       email: customer?.email ?? null,
     },
