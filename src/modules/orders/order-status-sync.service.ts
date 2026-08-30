@@ -22,7 +22,6 @@ const STEP_TYPE_TO_ORDER_STATUS: Partial<Record<WorkflowStepType, ProductionOrde
   [WorkflowStepType.PACKAGING]: ProductionOrderStatus.IN_PRODUCTION,
   [WorkflowStepType.CUSTOM]: ProductionOrderStatus.IN_PRODUCTION,
   [WorkflowStepType.QUALITY_CHECK]: ProductionOrderStatus.QUALITY_CHECK,
-  [WorkflowStepType.DISPATCH]: ProductionOrderStatus.READY_FOR_DISPATCH,
 };
 
 const STATUS_RANK: Record<string, number> = {

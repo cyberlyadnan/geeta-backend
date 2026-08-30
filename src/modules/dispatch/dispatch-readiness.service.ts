@@ -1,12 +1,23 @@
-import { ProductionOrderStatus, WorkflowInstanceStatus, WorkflowTaskStatus, type Prisma } from '@prisma/client';
+import {
+  ProductionOrderStatus,
+  type Prisma,
+} from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { recordOrderEvent } from '../orders/order-events.service.js';
+import {
+  hasOpenDispatchWork,
+  isPreDispatchProductionComplete,
+  isDispatchWorkflowStep,
+} from '../workflow/workflow-dispatch.util.js';
 import { shiftAssignmentService, type DispatchActor } from './shift-assignment.service.js';
 
 /** Narrow slice of the Prisma client this service needs — injectable so tests can drive the
  *  whole flow with a hand-rolled fake instead of monkey-patching the real (proxy-based) Prisma
  *  client, which node:test's mock.method cannot patch (see retail-customer.service tests). */
-export type DispatchReadinessDb = Pick<typeof prisma, 'workflowInstance' | 'productionOrder' | 'workflowTask' | '$transaction'>;
+export type DispatchReadinessDb = Pick<
+  typeof prisma,
+  'workflowInstance' | 'productionOrder' | 'workflowTask' | '$transaction'
+>;
 
 export interface ReadinessOutcome {
   ready: boolean;
@@ -19,13 +30,10 @@ export interface ReadinessOutcome {
  * Decides whether an order has finished production and, if so, moves it to READY_FOR_DISPATCH
  * and books it into a dispatch batch.
  *
- * An order has one workflow instance per order item, so completing a single workflow is not
- * enough — every instance for the order must be COMPLETED before it can ship. This runs off the
- * WORKFLOW_COMPLETED event, so it fires once per completing instance and simply no-ops until
- * the last one lands.
+ * Production completion means every non-dispatch workflow step is terminal (completed or skipped).
+ * The dispatch step becoming READY alone is not enough — earlier departments must have finished.
  *
- * Self-pickup orders are deliberately excluded: there is nothing to dispatch or charge delivery
- * for, so they go straight to COMPLETED without entering a batch.
+ * Self-pickup orders skip batching and go straight to COMPLETED.
  */
 export class DispatchReadinessService {
   constructor(private readonly db: DispatchReadinessDb = prisma) {}
@@ -46,11 +54,7 @@ export class DispatchReadinessService {
     });
     if (!task) return { ready: false, reason: 'order-missing' };
 
-    if (
-      task.workflowStep.stepType !== 'DISPATCH' &&
-      task.workflowStep.stepCode !== 'DISPATCH' &&
-      !task.workflowStep.stepCode?.includes('DISPATCH')
-    ) {
+    if (!isDispatchWorkflowStep(task.workflowStep)) {
       return { ready: false, reason: 'wrong-status' };
     }
 
@@ -66,7 +70,6 @@ export class DispatchReadinessService {
         customerId: true,
         retailCustomerId: true,
         deliveryRequired: true,
-        workflowInstances: { select: { status: true } },
       },
     });
     if (!order) return { ready: false, reason: 'order-missing' };
@@ -74,6 +77,8 @@ export class DispatchReadinessService {
     // Terminal or already-dispatched orders must not be re-batched by a late event.
     const advanceable: ProductionOrderStatus[] = [
       ProductionOrderStatus.ORDER_PLACED,
+      ProductionOrderStatus.DESIGN,
+      ProductionOrderStatus.UNDER_ARTWORK_REVIEW,
       ProductionOrderStatus.IN_PRODUCTION,
       ProductionOrderStatus.QUALITY_CHECK,
       ProductionOrderStatus.CONFIRMED,
@@ -86,9 +91,6 @@ export class DispatchReadinessService {
       where: { orderId: order.id },
       include: {
         tasks: {
-          where: {
-            status: { in: [WorkflowTaskStatus.READY, WorkflowTaskStatus.ASSIGNED, WorkflowTaskStatus.IN_PROGRESS] },
-          },
           include: { workflowStep: true },
         },
       },
@@ -96,20 +98,14 @@ export class DispatchReadinessService {
 
     if (instances.length === 0) return { ready: false, reason: 'workflows-outstanding' };
 
-    const readyForDispatch = instances.every((inst) => {
-      if (inst.status === WorkflowInstanceStatus.COMPLETED) return true;
-      return (
-        inst.tasks.length > 0 &&
-        inst.tasks.every(
-          (t) =>
-            t.workflowStep.stepType === 'DISPATCH' ||
-            t.workflowStep.stepCode === 'DISPATCH' ||
-            t.workflowStep.stepCode?.includes('DISPATCH')
-        )
-      );
-    });
+    const productionComplete = instances.every((inst) =>
+      isPreDispatchProductionComplete(inst.tasks, inst.status),
+    );
 
-    if (!readyForDispatch) return { ready: false, reason: 'workflows-outstanding' };
+    if (!productionComplete) return { ready: false, reason: 'workflows-outstanding' };
+
+    const dispatchStillOpen = instances.some((inst) => hasOpenDispatchWork(inst.tasks));
+    if (!dispatchStillOpen) return { ready: false, reason: 'wrong-status' };
 
     if (!order.deliveryRequired) {
       await this.db.$transaction(async (tx: Prisma.TransactionClient) => {
