@@ -1,5 +1,8 @@
 -- Production order numbers: GP-2026-000047 → 000047 (6-digit numeric only).
 
+-- Phase 1: temporary unique values so reassignment does not hit order_number unique constraint.
+UPDATE production_orders SET order_number = 'TMP-' || id;
+
 WITH ordered AS (
   SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS rn
   FROM production_orders
