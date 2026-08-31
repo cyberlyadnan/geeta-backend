@@ -94,6 +94,15 @@ export class DispatchController {
     const result = await dispatchService.listAvailableOrders(id);
     return ApiResponse.success(res, { items: result });
   });
+
+  setBatchDeliveryService = asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as { deliveryServiceId: string | null };
+    const result = await dispatchService.setBatchDeliveryService(
+      req.params['id'] as string,
+      body.deliveryServiceId,
+    );
+    return ApiResponse.success(res, result, 'Delivery service updated');
+  });
 }
 
 export const dispatchController = new DispatchController();

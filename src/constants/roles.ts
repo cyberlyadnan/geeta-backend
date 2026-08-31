@@ -14,6 +14,8 @@ export const ROLE_HIERARCHY: Record<RoleName, number> = {
   [RoleName.MANAGER]: 60,
   [RoleName.SUPPORT]: 45,
   [RoleName.STAFF]: 40,
+  /// Below STAFF: a delivery person's reach is narrower than a shop-floor operator's, not wider.
+  [RoleName.DELIVERY]: 30,
   [RoleName.VENDOR]: 20,
   [RoleName.CUSTOMER]: 10,
 };
@@ -24,6 +26,7 @@ export const INTERNAL_ROLES: RoleName[] = [
   RoleName.MANAGER,
   RoleName.SUPPORT,
   RoleName.STAFF,
+  RoleName.DELIVERY,
 ];
 
 export const EXTERNAL_ROLES: RoleName[] = [RoleName.CUSTOMER, RoleName.VENDOR];
@@ -54,4 +57,34 @@ export const SUPPORT_DECISION_ROLES: RoleName[] = [
 export const SUPPORT_ADMIN_ROLES: RoleName[] = [
   RoleName.SUPER_ADMIN,
   RoleName.ADMIN,
+];
+
+
+/**
+ * Who may run the delivery department from the admin side — configure services, tag delivery
+ * persons, and reassign a consignment.
+ *
+ * Declared once here and spread into the delivery routes, exactly as the support lists are. A
+ * dedicated delivery supervisor role later is a change to this array, not to a dozen route files.
+ */
+export const DELIVERY_DESK_ROLES: RoleName[] = [
+  RoleName.SUPER_ADMIN,
+  RoleName.ADMIN,
+  RoleName.MANAGER,
+];
+
+/** Roles that may create and edit the delivery service master. */
+export const DELIVERY_ADMIN_ROLES: RoleName[] = [RoleName.SUPER_ADMIN, RoleName.ADMIN];
+
+/**
+ * Who may work a consignment from the delivery portal.
+ *
+ * Includes the desk roles so a manager can demonstrate or cover the flow, but a DELIVERY user is
+ * the normal case — and what they can see is decided by their service tags, never by this list.
+ */
+export const DELIVERY_PORTAL_ROLES: RoleName[] = [
+  RoleName.SUPER_ADMIN,
+  RoleName.ADMIN,
+  RoleName.MANAGER,
+  RoleName.DELIVERY,
 ];

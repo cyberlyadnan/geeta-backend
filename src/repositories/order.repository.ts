@@ -4,6 +4,7 @@ import {
   type ProductionOrderStatus,
 } from '@prisma/client';
 import { prisma } from '../config/database.js';
+import { orderNumberSearchConditions } from '../modules/orders/order-number.service.js';
 
 /** Active (in-flight) task statuses — mirrors order-status-sync.service.ts's own predicate so the
  *  "which department is this order in right now" label always agrees with what actually drove the
@@ -208,7 +209,7 @@ export class OrderRepository {
       ...(filters.search
         ? {
             OR: [
-              { orderNumber: { contains: filters.search, mode: 'insensitive' } },
+              ...orderNumberSearchConditions(filters.search),
               { orderName: { contains: filters.search, mode: 'insensitive' } },
             ],
           }

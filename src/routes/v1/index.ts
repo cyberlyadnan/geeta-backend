@@ -65,6 +65,8 @@ import { vendorReportsRoutes } from '../../modules/vendor-reports/index.js';
 import { channelPartnerRoutes } from '../../modules/channel-partner/index.js';
 import { adminChannelPartnersRoutes } from '../../modules/admin-channel-partners/index.js';
 import { dispatchRoutes, adminDispatchRoutes } from '../../modules/dispatch/index.js';
+import { adminDeliveryDepartmentRoutes } from '../../modules/admin-delivery/index.js';
+import { deliveryPortalRoutes } from '../../modules/delivery-portal/index.js';
 import {
   designTaskRoutes,
   orderDesignApprovalRoutes,
@@ -125,6 +127,10 @@ v1Router.use('/vendor-reports', vendorReportsRoutes);
 v1Router.use('/partner', channelPartnerRoutes);
 v1Router.use('/admin/support', adminSupportRoutes);
 v1Router.use('/admin/channel-partners', adminChannelPartnersRoutes);
+// The delivery *department* — services, people and the consignment board. Distinct from
+// /admin/delivery above, which is the platform's delivery charge and pickup settings.
+v1Router.use('/admin/delivery-department', adminDeliveryDepartmentRoutes);
+v1Router.use('/delivery-portal', deliveryPortalRoutes);
 v1Router.use('/dispatch', dispatchRoutes);
 v1Router.use('/admin/dispatch', adminDispatchRoutes);
 v1Router.use('/design-tasks', designTaskRoutes);

@@ -15,6 +15,7 @@ import {
   shiftIdParamSchema,
   updateShiftSchema,
   removeOrderParamSchema,
+  setBatchDeliveryServiceSchema,
 } from './dispatch.validation.js';
 
 /** Dispatcher-facing: staff who physically bill and ship batches. */
@@ -58,6 +59,12 @@ dispatchRouter.patch(
   validate(batchIdParamSchema, 'params'),
   validate(changeBatchShiftSchema),
   dispatchController.changeBatchShift,
+);
+dispatchRouter.patch(
+  '/batches/:id/delivery-service',
+  validate(batchIdParamSchema, 'params'),
+  validate(setBatchDeliveryServiceSchema),
+  dispatchController.setBatchDeliveryService,
 );
 dispatchRouter.get(
   '/batches/:id/available-orders',

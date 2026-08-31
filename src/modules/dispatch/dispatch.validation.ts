@@ -62,3 +62,15 @@ export type SetDeliveryChargeInput = z.infer<typeof setDeliveryChargeSchema>;
 export type RemoveOrderParam = z.infer<typeof removeOrderParamSchema>;
 export type AddOrderInput = z.infer<typeof addOrderSchema>;
 export type ChangeBatchShiftInput = z.infer<typeof changeBatchShiftSchema>;
+
+/**
+ * Phase 7: send a particular consignment by a service other than the vendor's usual one.
+ *
+ * Null clears the override and puts the batch back on the vendor's tag — which is the right way
+ * to undo a mistake, because it keeps following the vendor if their tag later changes.
+ */
+export const setBatchDeliveryServiceSchema = z.object({
+  deliveryServiceId: z.string().cuid().nullable(),
+});
+
+export type SetBatchDeliveryServiceInput = z.infer<typeof setBatchDeliveryServiceSchema>;

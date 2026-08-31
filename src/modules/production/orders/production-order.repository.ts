@@ -9,6 +9,7 @@ import {
   WorkflowTaskStatus,
 } from '@prisma/client';
 import { prisma } from '../../../config/database.js';
+import { orderNumberSearchConditions } from '../../orders/order-number.service.js';
 import { redisCache } from '../../../common/cache/redis-cache.js';
 import { ORDER_DETAIL_SELECT } from '../../../repositories/order.repository.js';
 import {
@@ -145,7 +146,7 @@ function buildListWhere(query: ListProductionOrdersQuery): Prisma.ProductionOrde
     ...(query.search?.trim()
       ? {
           OR: [
-            { orderNumber: { contains: query.search.trim(), mode: 'insensitive' } },
+            ...orderNumberSearchConditions(query.search),
             { orderName: { contains: query.search.trim(), mode: 'insensitive' } },
             {
               customer: {

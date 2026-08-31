@@ -246,40 +246,44 @@ export class PrintJobService {
       return { artworkFileId, artworkVersionId: artworkVersion.id, fileAssetId: fileAsset.id };
     });
 
-    const queued = await enqueueArtworkProcessing({
+    const queued = enqueueArtworkProcessing({
       artworkVersionId: result.artworkVersionId,
       userId,
       versionId: input.versionId,
+    }).then((ok) => {
+      if (ok) {
+        logger.debug('Artwork queued for worker processing', {
+          artworkVersionId: result.artworkVersionId,
+        });
+      }
+      return ok;
     });
 
-    // Return immediately — inspection runs in the worker or as a background task.
-    if (queued) {
-      logger.debug('Artwork queued for worker processing', {
-        artworkVersionId: result.artworkVersionId,
-      });
-    } else {
-      void artworkProcessingService
-        .processArtworkVersion(result.artworkVersionId, input.versionId)
-        .catch((error) => {
-          logger.error('Artwork background processing failed after upload', {
-            artworkVersionId: result.artworkVersionId,
-            versionId: input.versionId,
-            error: error instanceof Error ? error.message : String(error),
+    void queued.then((ok) => {
+      if (!ok) {
+        void artworkProcessingService
+          .processArtworkVersion(result.artworkVersionId, input.versionId)
+          .catch((error) => {
+            logger.error('Artwork background processing failed after upload', {
+              artworkVersionId: result.artworkVersionId,
+              versionId: input.versionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            void prisma.artworkVersion
+              .update({
+                where: { id: result.artworkVersionId },
+                data: { processingStatus: 'FAILED' },
+              })
+              .catch(() => undefined);
+            void prisma.artworkFile
+              .update({
+                where: { id: result.artworkFileId },
+                data: { processingStatus: 'FAILED' },
+              })
+              .catch(() => undefined);
           });
-          void prisma.artworkVersion
-            .update({
-              where: { id: result.artworkVersionId },
-              data: { processingStatus: 'FAILED' },
-            })
-            .catch(() => undefined);
-          void prisma.artworkFile
-            .update({
-              where: { id: result.artworkFileId },
-              data: { processingStatus: 'FAILED' },
-            })
-            .catch(() => undefined);
-        });
-    }
+      }
+    });
 
     return result;
   }

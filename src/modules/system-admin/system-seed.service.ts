@@ -7,16 +7,16 @@ import { isDevelopmentEnvironment } from './system-admin.access.js';
 export type SeedScope = 'all' | 'roles' | 'master' | 'products' | 'pricing' | 'orders';
 
 const SEED_ORDER_NUMBERS = [
-  'GP-SEED-000001',
-  'GP-SEED-000002',
-  'GP-SEED-000003',
-  'GP-SEED-000004',
-  'GP-SEED-000005',
-  'GP-SEED-000006',
-  'GP-SEED-000007',
-  'GP-SEED-000008',
-  'GP-SEED-000009',
-  'GP-SEED-000010',
+  '000001',
+  '000002',
+  '000003',
+  '000004',
+  '000005',
+  '000006',
+  '000007',
+  '000008',
+  '000009',
+  '000010',
 ];
 
 function runSeedCli(scope: SeedScope): Promise<void> {

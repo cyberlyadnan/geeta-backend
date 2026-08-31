@@ -17,6 +17,7 @@ import { buildInvoicePdf, type InvoicePayload } from './invoice-pdf.service.js';
 import { storageService } from '../../services/storage/storage.service.js';
 import { STORAGE_FOLDERS } from '../../services/storage/storage.types.js';
 import { logger } from '../../logs/logger.js';
+import { deliveryAssignmentService } from '../../services/delivery/index.js';
 import { extractProductAttributes } from '../../utils/product-attributes.js';
 import { companyProfileRepository } from '../../repositories/company-profile.repository.js';
 
@@ -25,11 +26,19 @@ import { companyProfileRepository } from '../../repositories/company-profile.rep
  *  client, which node:test's mock.method cannot patch (see retail-customer.service tests). */
 export type DispatchDb = Pick<
   typeof prisma,
-  'dispatchBatch' | 'deliveryShift' | 'invoice' | 'workflowTask' | '$transaction'
+  | 'dispatchBatch'
+  | 'deliveryShift'
+  | 'deliveryService'
+  | 'invoice'
+  | 'workflowTask'
+  | '$transaction'
 >;
 
 const BATCH_DETAIL_INCLUDE = {
   shift: true,
+  /// Phase 7: set only when a dispatcher overrode the routing. Null means "follow the vendor's
+  /// tag", which is resolved live rather than copied here.
+  deliveryService: { select: { id: true, code: true, name: true, colorHex: true } },
   vendor: {
     select: {
       id: true,
@@ -481,6 +490,8 @@ export class DispatchService {
       status: batch.status,
       dispatchDate: batch.dispatchDate,
       shift: { id: batch.shift.id, label: batch.shift.label, cutoffTime: batch.shift.cutoffTime },
+      /** Phase 7: the override, when one was set. The effective service is resolved separately. */
+      deliveryService: batch.deliveryService ?? null,
       actorType: actor.actorType,
       actorId: actor.actorId,
       actorName: actor.name,
@@ -556,6 +567,15 @@ export class DispatchService {
       return b;
     });
 
+    // Phase 7: the goods are now on the road, so they become a consignment in their delivery
+    // service's queue. Outside the transaction and deliberately non-throwing — a batch that
+    // cannot be routed lands in the delivery board's unrouted tray, which an admin fixes in
+    // seconds. A dispatch that failed at the counter after the goods left would be far worse.
+    const assignment = await deliveryAssignmentService.createForBatch(batchId);
+    if (!assignment) {
+      logger.warn('Dispatched batch has no delivery service to route to', { batchId });
+    }
+
     const orderIds = updated.orders.map((o) => o.orderId);
     const dispatchTasks = await prisma.workflowTask.findMany({
       where: {
@@ -584,6 +604,41 @@ export class DispatchService {
       });
     }
 
+    return this.mapBatch(updated);
+  }
+
+  /**
+   * Phase 7: override which delivery service carries this consignment.
+   *
+   * Only until it is released — once the goods are gone the consignment lives on the delivery
+   * board, and moving it there is a reroute with its own audit trail rather than an edit here.
+   * Passing null clears the override so the batch follows the vendor's tag again.
+   */
+  async setBatchDeliveryService(batchId: string, deliveryServiceId: string | null) {
+    const batch = await this.db.dispatchBatch.findUnique({
+      where: { id: batchId },
+      select: { id: true, status: true },
+    });
+    if (!batch) throw ApiError.notFound('Dispatch batch not found');
+    if (batch.status === 'DISPATCHED') {
+      throw ApiError.badRequest(
+        'This consignment has already left. Reroute it from the delivery board instead.',
+      );
+    }
+
+    if (deliveryServiceId) {
+      const service = await this.db.deliveryService.findUnique({
+        where: { id: deliveryServiceId },
+        select: { isActive: true },
+      });
+      if (!service?.isActive) throw ApiError.badRequest('That delivery service is not available');
+    }
+
+    const updated = await this.db.dispatchBatch.update({
+      where: { id: batchId },
+      data: { deliveryServiceId },
+      include: BATCH_DETAIL_INCLUDE,
+    });
     return this.mapBatch(updated);
   }
 

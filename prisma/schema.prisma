@@ -30,6 +30,9 @@ enum RoleName {
   /// Support desk operator. Sees the ticket queue and nothing else — added now so the separate
   /// support panel is a layout and a middleware entry later, not a permissions refactor.
   SUPPORT
+  /// Delivery department member. Sees only the consignments on the services they are tagged
+  /// with, and nothing else in the platform.
+  DELIVERY
   CUSTOMER
   VENDOR
 }
@@ -854,6 +857,14 @@ model User {
   channelPartnerAssignmentsEnded  ChannelPartnerAssignment[]      @relation("ChannelPartnerEndedBy")
   commissionPlansCreated          ChannelPartnerCommissionPlan[]  @relation("CommissionPlanCreatedBy")
 
+  // ── Phase 7: delivery department ────────────────────────────────────────────────────────────
+  deliveryServicesCreated       DeliveryService[]      @relation("DeliveryServiceCreatedBy")
+  deliveryAgentServices         DeliveryAgentService[] @relation("DeliveryAgentServices")
+  deliveryAgentServicesAssigned DeliveryAgentService[] @relation("DeliveryAgentServiceAssignedBy")
+  deliveryAssignments           DeliveryAssignment[]   @relation("DeliveryAssignmentAgent")
+  deliveryAssignmentsMade       DeliveryAssignment[]   @relation("DeliveryAssignmentAssignedBy")
+  deliveryAttempts              DeliveryAttempt[]      @relation("DeliveryAttemptBy")
+
   @@index([roleId])
   @@index([status])
   @@index([phone])
@@ -882,10 +893,8 @@ model CatalogVersion {
   @@map("catalog_versions")
 }
 
-/// Sequential production order numbers, one counter per (year, prefix): GP-2026-000001 for
-/// vendor/self-serve orders, RC-2026-000001 for local/retail counter orders. Composite key keeps
-/// each prefix's sequence independent and race-safe under concurrent creation (same upsert +
-/// increment pattern as before — prefix just widens the key instead of changing the mechanism).
+/// Sequential production order numbers as zero-padded integers (000001, 000002, …).
+/// Composite key supports legacy per-year/prefix rows; active counter uses year=0, prefix=ORDER.
 model OrderNumberSequence {
   year      Int    @map("year")
   /// Short order-type code, e.g. "GP" (vendor/self-serve), "RC" (retail/local customer).
@@ -931,6 +940,7 @@ model VendorProfile {
   activities          ActivityLog[]              @relation("VendorActivity")
   complianceRequests  VendorComplianceRequest[]
   complianceResponses VendorComplianceResponse[]
+  deliveryServices    VendorDeliveryService[]
 
   @@index([accountStatus])
   @@index([accountStatus, createdAt(sort: Desc)])
@@ -3464,10 +3474,16 @@ model DispatchBatch {
   heldAt           DateTime?           @map("held_at")
   billedAt         DateTime?           @map("billed_at")
   dispatchedAt     DateTime?           @map("dispatched_at")
+  /// Phase 7: which delivery service carries this consignment. Resolved from the vendor's default
+  /// when the batch is opened, and changeable by the dispatcher until it is released. Nullable
+  /// because batches created before Phase 7 have none, and because a vendor may not be tagged yet.
+  deliveryServiceId String?            @map("delivery_service_id")
   createdAt        DateTime            @default(now()) @map("created_at")
   updatedAt        DateTime            @updatedAt @map("updated_at")
 
-  shift          DeliveryShift        @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  shift              DeliveryShift       @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  deliveryService    DeliveryService?    @relation(fields: [deliveryServiceId], references: [id], onDelete: Restrict)
+  deliveryAssignment DeliveryAssignment?
   vendor         User?                @relation("DispatchBatchVendor", fields: [vendorId], references: [id], onDelete: Restrict)
   retailCustomer RetailCustomer?      @relation(fields: [retailCustomerId], references: [id], onDelete: Restrict)
   orders         DispatchBatchOrder[]
@@ -3477,6 +3493,7 @@ model DispatchBatch {
   @@unique([retailCustomerId, shiftId, dispatchDate])
   @@index([status, dispatchDate])
   @@index([shiftId, status])
+  @@index([deliveryServiceId, status])
   @@map("dispatch_batches")
 }
 
@@ -5530,4 +5547,198 @@ model ChannelPartnerCommissionPlan {
 
   @@index([partnerProfileId, status])
   @@map("channel_partner_commission_plans")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// PHASE 7 — DELIVERY DEPARTMENT
+//
+// What happens to a consignment after it is dispatched. The dispatch pipeline already ends with a
+// billed DispatchBatch marked DISPATCHED; from that moment the goods are on the road and nothing
+// in the system knew who was carrying them. This section closes that gap.
+//
+// The routing rule is deliberately boring, because boring is what survives a busy Tuesday: a
+// vendor is tagged with the delivery service they use, every consignment for that vendor takes
+// that service, and the delivery persons tagged with the same service are the ones who see it.
+// No dispatcher decision in the normal case, no per-order question to the vendor, and nothing to
+// re-route when someone is off — the queue belongs to the service, not to a person.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+/// Broad shape of a delivery service. Not the service itself — the business names those (a
+/// company might run two different bus services) — but enough for the UI to pick an icon and for
+/// reports to group like with like.
+enum DeliveryServiceKind {
+  LOCAL
+  INTERSTATE
+  COURIER
+  BUS
+  RAIL
+  AIR
+  SELF_PICKUP
+  OTHER
+}
+
+/// Where one consignment has got to.
+///
+/// UNASSIGNED and ASSIGNED are separated on purpose: a consignment sitting in a service's queue
+/// that nobody has picked up is the single thing a delivery supervisor needs to be able to see at
+/// a glance, and folding it into ASSIGNED would hide it.
+enum DeliveryAssignmentStatus {
+  UNASSIGNED
+  ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+  RETURNED
+  CANCELLED
+}
+
+enum DeliveryAttemptOutcome {
+  DELIVERED
+  FAILED
+}
+
+/// A delivery service the business runs — "Bus Service", "Local Delivery", "Blue Dart", and so on.
+///
+/// Master data, created and named by the admin. Deactivated rather than deleted: a service that
+/// carried a consignment last month must still resolve on that consignment's record next year.
+model DeliveryService {
+  id          String              @id @default(cuid())
+  /// Short stable handle (e.g. BUS, LOCAL, COURIER-BD). Used in exports and never re-used.
+  code        String              @unique
+  name        String
+  kind        DeliveryServiceKind @default(OTHER)
+  description String?             @db.Text
+  /// Chip colour in the UI, so a dispatcher recognises a service by shape before reading it.
+  colorHex    String              @default("#4f46e5") @map("color_hex")
+  /// Couriers and bus services hand over a docket number; local riders do not. When true, the
+  /// delivery person is asked for one at pickup.
+  requiresTrackingNumber Boolean  @default(false) @map("requires_tracking_number")
+  /// Hours from dispatch within which this service is expected to deliver. Null = no promise.
+  slaHours    Int?                @map("sla_hours")
+  sortOrder   Int                 @default(0) @map("sort_order")
+  isActive    Boolean             @default(true) @map("is_active")
+  createdById String?             @map("created_by_id")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  createdBy   User?                   @relation("DeliveryServiceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  vendors     VendorDeliveryService[]
+  agents      DeliveryAgentService[]
+  batches     DispatchBatch[]
+  assignments DeliveryAssignment[]
+
+  @@index([isActive, sortOrder])
+  @@map("delivery_services")
+}
+
+/// Which delivery services a vendor uses. Exactly one row per vendor carries isDefault, and that
+/// is the service every consignment for them takes unless a dispatcher says otherwise.
+model VendorDeliveryService {
+  id                String   @id @default(cuid())
+  vendorProfileId   String   @map("vendor_profile_id")
+  deliveryServiceId String   @map("delivery_service_id")
+  isDefault         Boolean  @default(false) @map("is_default")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  vendorProfile   VendorProfile   @relation(fields: [vendorProfileId], references: [id], onDelete: Cascade)
+  deliveryService DeliveryService @relation(fields: [deliveryServiceId], references: [id], onDelete: Restrict)
+
+  @@unique([vendorProfileId, deliveryServiceId])
+  @@index([deliveryServiceId])
+  /// The lookup the routing rule makes on every batch: "this vendor's default service".
+  @@index([vendorProfileId, isDefault])
+  @@map("vendor_delivery_services")
+}
+
+/// Which delivery services a delivery person handles. This is the whole of their authorisation:
+/// an agent sees a consignment because its service is on this list, and for no other reason.
+model DeliveryAgentService {
+  id                String   @id @default(cuid())
+  userId            String   @map("user_id")
+  deliveryServiceId String   @map("delivery_service_id")
+  assignedById      String?  @map("assigned_by_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  user            User            @relation("DeliveryAgentServices", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy      User?           @relation("DeliveryAgentServiceAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  deliveryService DeliveryService @relation(fields: [deliveryServiceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deliveryServiceId])
+  @@index([deliveryServiceId])
+  @@map("delivery_agent_services")
+}
+
+/// One consignment on the road.
+///
+/// Grain is the dispatch batch, not the order: a batch is one vendor, one shift, one day, one
+/// invoice and one physical handover, so it is what a delivery person actually carries. The
+/// orders inside inherit their status from it, which is why there is no per-order delivery row to
+/// keep in step.
+model DeliveryAssignment {
+  id                String                   @id @default(cuid())
+  dispatchBatchId   String                   @unique @map("dispatch_batch_id")
+  deliveryServiceId String                   @map("delivery_service_id")
+  /// Null while the consignment is sitting in the service's queue. Set when an agent takes it or
+  /// an admin hands it to someone.
+  assignedToId      String?                  @map("assigned_to_id")
+  status            DeliveryAssignmentStatus @default(UNASSIGNED)
+  /// Courier or bus docket. Required at pickup when the service says so.
+  trackingNumber    String?                  @map("tracking_number")
+  /// Who took delivery, captured at the door.
+  receiverName      String?                  @map("receiver_name")
+  receiverPhone     String?                  @map("receiver_phone")
+  /// Storage key of the photo taken at handover — same bucket and presigning as support media.
+  proofPhotoKey     String?                  @map("proof_photo_key")
+  notes             String?                  @db.Text
+  /// Failed attempts so far. A consignment can go back into the queue and be tried again.
+  attemptCount      Int                      @default(0) @map("attempt_count")
+  lastFailureReason String?                  @map("last_failure_reason") @db.Text
+  /// Copied from the service at creation so an SLA breach is judged against the promise that was
+  /// in force on the day, not whatever the setting says later.
+  dueAt             DateTime?                @map("due_at")
+  assignedAt        DateTime?                @map("assigned_at")
+  pickedUpAt        DateTime?                @map("picked_up_at")
+  deliveredAt       DateTime?                @map("delivered_at")
+  failedAt          DateTime?                @map("failed_at")
+  cancelledAt       DateTime?                @map("cancelled_at")
+  assignedById      String?                  @map("assigned_by_id")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+
+  dispatchBatch   DispatchBatch     @relation(fields: [dispatchBatchId], references: [id], onDelete: Cascade)
+  deliveryService DeliveryService   @relation(fields: [deliveryServiceId], references: [id], onDelete: Restrict)
+  assignedTo      User?             @relation("DeliveryAssignmentAgent", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedBy      User?             @relation("DeliveryAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  attempts        DeliveryAttempt[]
+
+  /// The agent's queue: "unclaimed work on my services", newest last.
+  @@index([deliveryServiceId, status, createdAt])
+  /// The agent's own list.
+  @@index([assignedToId, status])
+  /// The supervisor's overdue sweep.
+  @@index([status, dueAt])
+  @@map("delivery_assignments")
+}
+
+/// One knock on the door. Kept as its own row rather than overwriting the assignment, because a
+/// second attempt must not erase the reason the first one failed — that reason is what a vendor
+/// asks about.
+model DeliveryAttempt {
+  id            String                 @id @default(cuid())
+  assignmentId  String                 @map("assignment_id")
+  attemptNumber Int                    @map("attempt_number")
+  outcome       DeliveryAttemptOutcome
+  reason        String?                @db.Text
+  receiverName  String?                @map("receiver_name")
+  proofPhotoKey String?                @map("proof_photo_key")
+  byUserId      String?                @map("by_user_id")
+  createdAt     DateTime               @default(now()) @map("created_at")
+
+  assignment DeliveryAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  by         User?              @relation("DeliveryAttemptBy", fields: [byUserId], references: [id], onDelete: SetNull)
+
+  @@unique([assignmentId, attemptNumber])
+  @@index([assignmentId])
+  @@map("delivery_attempts")
 }

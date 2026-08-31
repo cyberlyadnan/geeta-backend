@@ -19,7 +19,7 @@ import {
 
 const SEED_ORDERS: OrderSeedScenario[] = [
   {
-    orderNumber: 'GP-SEED-000001',
+    orderNumber: '000001',
     orderName: 'Visiting Cards — Standard Run',
     productSlug: '350-gsm-visiting-card-matt',
     quantity: 1000,
@@ -27,7 +27,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'in_production',
   },
   {
-    orderNumber: 'GP-SEED-000002',
+    orderNumber: '000002',
     orderName: '8 Page Booklet — Completed',
     productSlug: '8-page-booklet',
     quantity: 500,
@@ -35,7 +35,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'completed',
   },
   {
-    orderNumber: 'GP-SEED-000003',
+    orderNumber: '000003',
     orderName: 'Star Flex Banner — QC',
     productSlug: 'star-flex-banner',
     quantity: 1,
@@ -43,7 +43,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'qc',
   },
   {
-    orderNumber: 'GP-SEED-000004',
+    orderNumber: '000004',
     orderName: 'Folding Carton — Ready for Dispatch',
     productSlug: 'folding-carton',
     quantity: 500,
@@ -51,7 +51,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'dispatch_ready',
   },
   {
-    orderNumber: 'GP-SEED-000005',
+    orderNumber: '000005',
     orderName: 'Acrylic Photo Print — Dispatched',
     productSlug: 'acrylic-photo-print',
     quantity: 10,
@@ -59,7 +59,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'completed',
   },
   {
-    orderNumber: 'GP-SEED-000006',
+    orderNumber: '000006',
     orderName: 'Gold Foil Cards — Rework',
     productSlug: 'gold-foil-visiting-card',
     quantity: 1000,
@@ -67,7 +67,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'rework',
   },
   {
-    orderNumber: 'GP-SEED-000007',
+    orderNumber: '000007',
     orderName: 'Corporate Brochure — On Hold',
     productSlug: 'corporate-brochure',
     quantity: 250,
@@ -75,7 +75,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'on_hold',
   },
   {
-    orderNumber: 'GP-SEED-000008',
+    orderNumber: '000008',
     orderName: 'A4 Flyer — Rush & Delayed',
     productSlug: 'a4-flyer',
     quantity: 5000,
@@ -84,7 +84,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'rush_delayed',
   },
   {
-    orderNumber: 'GP-SEED-000009',
+    orderNumber: '000009',
     orderName: 'Premium PVC Card — Artwork Review',
     productSlug: 'premium-pvc-visiting-card',
     quantity: 500,
@@ -92,7 +92,7 @@ const SEED_ORDERS: OrderSeedScenario[] = [
     scenario: 'artwork',
   },
   {
-    orderNumber: 'GP-SEED-000010',
+    orderNumber: '000010',
     orderName: 'Tri-Fold Brochure — Packing',
     productSlug: 'tri-fold-brochure',
     quantity: 1000,

@@ -1,5 +1,6 @@
 import { ProductionOrderStatus } from '@prisma/client';
 import { prisma } from '../../config/database.js';
+import { normalizeOrderNumberInput } from '../../modules/orders/order-number.service.js';
 import { supportSettingsService } from './support-settings.service.js';
 import { evaluateReprintWindow } from './reprint-window.js';
 
@@ -213,8 +214,16 @@ export class ReprintEligibilityService {
 
   /** Looks an order up by the number the vendor typed, then runs the same check. */
   async checkByOrderNumber(orderNumber: string, vendorUserId: string | null): Promise<ReprintEligibility> {
-    const order = await prisma.productionOrder.findUnique({
-      where: { orderNumber: orderNumber.trim().toUpperCase() },
+    const trimmed = orderNumber.trim();
+    const normalized = normalizeOrderNumberInput(trimmed);
+    const order = await prisma.productionOrder.findFirst({
+      where: {
+        OR: [
+          { orderNumber: normalized },
+          { orderNumber: trimmed },
+          ...(trimmed !== normalized ? [{ orderNumber: trimmed.toUpperCase() }] : []),
+        ],
+      },
       select: { id: true },
     });
     if (!order) {
