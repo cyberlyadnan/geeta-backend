@@ -5,6 +5,10 @@ import {
 } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { logger } from '../../logs/logger.js';
+import {
+  hasOpenDispatchWork,
+  isPreDispatchProductionComplete,
+} from '../workflow/workflow-dispatch.util.js';
 
 /** Department code that identifies design work, independent of step type — a VENDOR_APPROVAL
  *  gate is design-stage work when it belongs to Design (proof/sample approval) but review-stage
@@ -131,7 +135,41 @@ export async function syncOrderStatusForOrder(orderId: string): Promise<void> {
     }
   }
 
-  if (!nextStatus || nextStatus === order.status) return;
+  if (!nextStatus || nextStatus === order.status) {
+    if (
+      SYNCABLE_STATUSES.has(order.status) &&
+      order.status !== ProductionOrderStatus.READY_FOR_DISPATCH
+    ) {
+      const instances = await prisma.workflowInstance.findMany({
+        where: { orderId: order.id },
+        select: {
+          status: true,
+          tasks: {
+            select: {
+              status: true,
+              workflowStep: { select: { stepType: true, stepCode: true } },
+            },
+          },
+        },
+      });
+      const awaitingDispatch = instances.some(
+        (instance) =>
+          isPreDispatchProductionComplete(instance.tasks, instance.status) &&
+          hasOpenDispatchWork(instance.tasks),
+      );
+      if (awaitingDispatch) {
+        await prisma.productionOrder.update({
+          where: { id: order.id },
+          data: { status: ProductionOrderStatus.READY_FOR_DISPATCH },
+        });
+        logger.info('Order status synced to ready for dispatch', {
+          orderId: order.id,
+          from: order.status,
+        });
+      }
+    }
+    return;
+  }
 
   const currentRank = STATUS_RANK[order.status] ?? -1;
   const nextRank = STATUS_RANK[nextStatus] ?? -1;
@@ -143,6 +181,29 @@ export async function syncOrderStatusForOrder(orderId: string): Promise<void> {
     order.status === ProductionOrderStatus.IMPROPER_ORDER ||
     nextRank > currentRank;
   if (!isTransitionAllowed) return;
+
+  // Production finished and dispatch dept owns the order — show on Ready for Dispatch, not Production.
+  const instances = await prisma.workflowInstance.findMany({
+    where: { orderId: order.id },
+    select: {
+      status: true,
+      tasks: {
+        select: {
+          status: true,
+          workflowStep: { select: { stepType: true, stepCode: true } },
+        },
+      },
+    },
+  });
+  const awaitingDispatch = instances.some(
+    (instance) =>
+      isPreDispatchProductionComplete(instance.tasks, instance.status) &&
+      hasOpenDispatchWork(instance.tasks),
+  );
+  const readyForDispatchRank = STATUS_RANK[ProductionOrderStatus.READY_FOR_DISPATCH] ?? 8;
+  if (awaitingDispatch && (STATUS_RANK[nextStatus] ?? -1) < readyForDispatchRank) {
+    nextStatus = ProductionOrderStatus.READY_FOR_DISPATCH;
+  }
 
   await prisma.productionOrder.update({
     where: { id: order.id },

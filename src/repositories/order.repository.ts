@@ -1,34 +1,28 @@
 import {
-  WorkflowTaskStatus,
+  ProductionOrderStatus,
   type Prisma,
-  type ProductionOrderStatus,
 } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import { orderNumberSearchConditions } from '../modules/orders/order-number.service.js';
+import {
+  buildAwaitingDispatchWhere,
+  buildVendorOrderListStatusWhere,
+} from '../modules/orders/vendor-order-list-filter.js';
 
-/** Active (in-flight) task statuses — mirrors order-status-sync.service.ts's own predicate so the
- *  "which department is this order in right now" label always agrees with what actually drove the
- *  order's status. BLOCKED is excluded here: an elsewhere-blocked task (e.g. rework wait) isn't a
- *  meaningful "current stage" to show the vendor. */
-const ACTIVE_TASK_STATUSES = [
-  WorkflowTaskStatus.READY,
-  WorkflowTaskStatus.ASSIGNED,
-  WorkflowTaskStatus.IN_PROGRESS,
-  WorkflowTaskStatus.REWORK,
-];
-
-/** Selected on every order query so the service layer can resolve which real department (e.g.
- *  "Lamination", "Die Cutting") an IN_PRODUCTION order is actually sitting in — "Production" alone
- *  isn't a department, it's a status bucket covering several. */
-const CURRENT_STAGE_SELECT = {
+/** Selected on every order query so the service layer can resolve workflow stage labels for list
+ *  rows — active step for the badge and the full production trail (print + gloss + cutting). */
+const WORKFLOW_STAGE_SELECT = {
   workflowInstances: {
+    take: 1,
     select: {
       tasks: {
-        where: { status: { in: ACTIVE_TASK_STATUSES } },
+        orderBy: { stepOrder: 'asc' as const },
         select: {
+          id: true,
           stepOrder: true,
+          status: true,
           department: { select: { name: true } },
-          workflowStep: { select: { stepType: true } },
+          workflowStep: { select: { stepCode: true, stepName: true, stepType: true } },
         },
       },
     },
@@ -147,7 +141,7 @@ export const ORDER_DETAIL_SELECT = {
       createdAt: true,
     },
   },
-  ...CURRENT_STAGE_SELECT,
+  ...WORKFLOW_STAGE_SELECT,
 } satisfies Prisma.ProductionOrderSelect;
 
 export const ORDER_LIST_SELECT = {
@@ -178,7 +172,7 @@ export const ORDER_LIST_SELECT = {
       orderArtworks: { select: { approvalStatus: true } },
     },
   },
-  ...CURRENT_STAGE_SELECT,
+  ...WORKFLOW_STAGE_SELECT,
 } satisfies Prisma.ProductionOrderSelect;
 
 export interface OrderListFilters {
@@ -195,9 +189,13 @@ export class OrderRepository {
     take: number,
     filters: OrderListFilters = {},
   ) {
+    const statusWhere = filters.status
+      ? buildVendorOrderListStatusWhere(filters.status)
+      : {};
+
     const where: Prisma.ProductionOrderWhereInput = {
       customerId,
-      ...(filters.status && { status: filters.status }),
+      ...statusWhere,
       ...(filters.fromDate || filters.toDate
         ? {
             createdAt: {
@@ -240,6 +238,30 @@ export class OrderRepository {
       by: ['status'],
       where: { customerId },
       _count: { status: true },
+    });
+  }
+
+  countAwaitingDispatch(customerId: string) {
+    return prisma.productionOrder.count({
+      where: { customerId, ...buildAwaitingDispatchWhere() },
+    });
+  }
+
+  countInProductionTab(customerId: string) {
+    return prisma.productionOrder.count({
+      where: {
+        customerId,
+        ...buildVendorOrderListStatusWhere(ProductionOrderStatus.IN_PRODUCTION),
+      },
+    });
+  }
+
+  countDispatchedTab(customerId: string) {
+    return prisma.productionOrder.count({
+      where: {
+        customerId,
+        ...buildVendorOrderListStatusWhere(ProductionOrderStatus.DISPATCHED),
+      },
     });
   }
 }

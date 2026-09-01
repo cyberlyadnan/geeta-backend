@@ -60,6 +60,16 @@ const ROLE_PERMISSIONS: Record<RoleName, { displayName: string; description: str
       'production.order.view',
     ],
   },
+  [RoleName.SUPPORT]: {
+    displayName: 'Support operator',
+    description: 'Support desk — ticket queue only',
+    permissions: ['support:desk'],
+  },
+  [RoleName.DELIVERY]: {
+    displayName: 'Delivery agent',
+    description: 'Delivery department — consignments on tagged services only',
+    permissions: ['delivery:portal'],
+  },
   [RoleName.CUSTOMER]: {
     displayName: 'Customer',
     description: 'External customer',

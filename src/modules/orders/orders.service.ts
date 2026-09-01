@@ -8,6 +8,7 @@ import {
   ProductionOrderStatus,
   WalletTransactionType,
   WorkflowStepType,
+  WorkflowTaskStatus,
   type Prisma,
 } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
@@ -141,13 +142,25 @@ export class OrdersService {
   }
 
   async countByStatus(userId: string) {
-    const groups = await orderRepository.countByStatus(userId);
+    const [groups, awaitingDispatch, inProductionTab, dispatchedTab] = await Promise.all([
+      orderRepository.countByStatus(userId),
+      orderRepository.countAwaitingDispatch(userId),
+      orderRepository.countInProductionTab(userId),
+      orderRepository.countDispatchedTab(userId),
+    ]);
+
     const counts: Record<string, number> = {};
     let total = 0;
     for (const g of groups) {
       counts[g.status] = g._count.status;
       total += g._count.status;
     }
+
+    // Vendor list tabs — workflow-aware counts for dispatch stages.
+    counts[ProductionOrderStatus.READY_FOR_DISPATCH] = awaitingDispatch;
+    counts[ProductionOrderStatus.IN_PRODUCTION] = inProductionTab;
+    counts[ProductionOrderStatus.DISPATCHED] = dispatchedTab;
+
     return { counts, total };
   }
 
@@ -948,9 +961,87 @@ const PRODUCTION_STEP_TYPES = new Set<WorkflowStepType>([
 ]);
 
 interface StageTask {
+  id: string;
   stepOrder: number;
+  status: WorkflowTaskStatus;
   department: { name: string } | null;
-  workflowStep: { stepType: WorkflowStepType };
+  workflowStep: { stepCode: string; stepName: string; stepType: WorkflowStepType };
+}
+
+export interface OrderWorkflowStageDto {
+  shortLabel: string;
+  fullLabel: string;
+  state: 'done' | 'active' | 'pending';
+}
+
+const ACTIVE_TASK_STATUSES = new Set<WorkflowTaskStatus>([
+  WorkflowTaskStatus.READY,
+  WorkflowTaskStatus.ASSIGNED,
+  WorkflowTaskStatus.IN_PROGRESS,
+  WorkflowTaskStatus.REWORK,
+]);
+
+function compactStageLabel(task: StageTask): string {
+  const raw = (task.department?.name ?? task.workflowStep.stepName).trim();
+  const lower = raw.toLowerCase();
+  if (/\bprint(ing)?\b/.test(lower)) return 'print';
+  if (lower.includes('lamination') || lower.includes('laminate') || lower.includes('gloss')) {
+    return 'gloss';
+  }
+  if (lower.includes('die') && lower.includes('cut')) return 'cutting';
+  if (lower.includes('cutting') || /\bcut\b/.test(lower)) return 'cutting';
+  if (lower.includes('uv')) return 'uv';
+  if (lower.includes('foil')) return 'foil';
+  if (lower.includes('pack')) return 'pack';
+  const code = task.workflowStep.stepCode.replace(/_/g, ' ').toLowerCase();
+  if (code.length <= 14) return code;
+  return raw.split(/\s+/)[0]?.toLowerCase() ?? code.slice(0, 12);
+}
+
+/**
+ * Compact production trail for list rows — e.g. print+gloss+cutting with the active step highlighted.
+ * Only production-step types are included; skipped steps are omitted.
+ */
+function deriveWorkflowStages(
+  workflowInstances: { tasks: StageTask[] }[],
+): OrderWorkflowStageDto[] | null {
+  const tasks = workflowInstances[0]?.tasks ?? [];
+  const productionTasks = tasks.filter(
+    (task) =>
+      PRODUCTION_STEP_TYPES.has(task.workflowStep.stepType) &&
+      task.status !== WorkflowTaskStatus.SKIPPED,
+  );
+  if (productionTasks.length === 0) return null;
+
+  let activeTaskId: string | null = null;
+  for (const task of productionTasks) {
+    if (ACTIVE_TASK_STATUSES.has(task.status)) {
+      activeTaskId = task.id;
+    }
+  }
+  if (!activeTaskId) {
+    activeTaskId =
+      productionTasks.find(
+        (task) =>
+          task.status === WorkflowTaskStatus.PENDING ||
+          task.status === WorkflowTaskStatus.WAITING,
+      )?.id ?? null;
+  }
+
+  const allCompleted = productionTasks.every(
+    (task) => task.status === WorkflowTaskStatus.COMPLETED,
+  );
+
+  return productionTasks.map((task) => ({
+    shortLabel: compactStageLabel(task),
+    fullLabel: task.department?.name ?? task.workflowStep.stepName,
+    state:
+      task.status === WorkflowTaskStatus.COMPLETED
+        ? 'done'
+        : task.id === activeTaskId && !allCompleted
+          ? 'active'
+          : 'pending',
+  }));
 }
 
 /**
@@ -966,6 +1057,7 @@ function deriveCurrentStageLabel(workflowInstances: { tasks: StageTask[] }[]): s
   let best: { stepOrder: number; label: string } | null = null;
   for (const instance of workflowInstances) {
     for (const task of instance.tasks) {
+      if (!ACTIVE_TASK_STATUSES.has(task.status)) continue;
       if (!PRODUCTION_STEP_TYPES.has(task.workflowStep.stepType)) continue;
       if (!task.department?.name) continue;
       if (!best || task.stepOrder > best.stepOrder) {
@@ -998,6 +1090,7 @@ function mapOrderToListDto(order: OrderListRecord) {
     orderName: order.orderName,
     status: order.status,
     currentStageLabel: deriveCurrentStageLabel(order.workflowInstances),
+    workflowStages: deriveWorkflowStages(order.workflowInstances),
     artworkState,
     productName:
       item?.productOfferingVersion.productOffering.displayName ??

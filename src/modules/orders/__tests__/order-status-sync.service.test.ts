@@ -17,6 +17,7 @@ type TaskRow = {
 function mockOrderFlow(orderId: string, status: ProductionOrderStatus, tasks: TaskRow[]) {
   const originalFindUnique = prisma.productionOrder.findUnique;
   const originalFindMany = prisma.workflowTask.findMany;
+  const originalInstanceFindMany = prisma.workflowInstance.findMany;
   const originalUpdate = prisma.productionOrder.update;
 
   let updatedStatus: ProductionOrderStatus | null = null;
@@ -28,6 +29,8 @@ function mockOrderFlow(orderId: string, status: ProductionOrderStatus, tasks: Ta
 
   prisma.workflowTask.findMany = (async () => tasks) as typeof prisma.workflowTask.findMany;
 
+  prisma.workflowInstance.findMany = (async () => []) as typeof prisma.workflowInstance.findMany;
+
   prisma.productionOrder.update = (async ({ data }: { data: { status: ProductionOrderStatus } }) => {
     updatedStatus = data.status;
     return { id: orderId, status: data.status };
@@ -38,6 +41,7 @@ function mockOrderFlow(orderId: string, status: ProductionOrderStatus, tasks: Ta
     restore: () => {
       prisma.productionOrder.findUnique = originalFindUnique;
       prisma.workflowTask.findMany = originalFindMany;
+      prisma.workflowInstance.findMany = originalInstanceFindMany;
       prisma.productionOrder.update = originalUpdate;
     },
   };
