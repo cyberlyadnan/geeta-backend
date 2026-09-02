@@ -1,7 +1,9 @@
-import { Prisma, ProductionOrderStatus } from '@prisma/client';
+import { Prisma, ProductionOrderStatus, GstSupplyType } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { storageService } from '../../services/storage/index.js';
+import { gstService } from '../../services/accounting/gst.service.js';
+import { splitTaxAmount, stateCodeFromGstin } from '../../services/accounting/gst-math.js';
 import type {
   InvoiceListQuery,
   PurchaseReportQuery,
@@ -44,6 +46,14 @@ export class VendorReportsService {
   // ── Purchase register ─────────────────────────────────────────────────────
 
   async purchaseReport(vendorUserId: string, query: PurchaseReportQuery) {
+    const vendorProfile = await prisma.vendorProfile.findUnique({
+      where: { userId: vendorUserId },
+      select: { gstNumber: true },
+    });
+    const placeOfSupply = stateCodeFromGstin(vendorProfile?.gstNumber);
+    const isIntraState =
+      (await gstService.supplyTypeFor(placeOfSupply)) !== GstSupplyType.INTER_STATE;
+
     const where: Prisma.ProductionOrderWhereInput = {
       customerId: vendorUserId,
       status: { notIn: NON_BILLABLE_STATUSES },
@@ -117,7 +127,24 @@ export class VendorReportsService {
           dispatchBatchOrder: {
             select: {
               dispatchBatch: {
-                select: { dispatchedAt: true, invoice: { select: { id: true, invoiceNumber: true, createdAt: true } } },
+                select: {
+                  dispatchedAt: true,
+                  invoice: {
+                    select: {
+                      id: true,
+                      invoiceNumber: true,
+                      createdAt: true,
+                      subtotal: true,
+                      deliveryCharge: true,
+                      gstAmount: true,
+                      gstRate: true,
+                      cgstAmount: true,
+                      sgstAmount: true,
+                      igstAmount: true,
+                      supplyType: true,
+                    },
+                  },
+                },
               },
             },
           },
@@ -136,6 +163,47 @@ export class VendorReportsService {
       const item = order.items[0];
       const offering = item?.productOfferingVersion.productOffering;
       const invoice = order.dispatchBatchOrder?.dispatchBatch.invoice ?? null;
+      const subtotal = num(order.subtotal);
+      const deliveryCharge = num(order.deliveryCharge);
+      const taxAmount = num(order.taxAmount);
+      const taxableValue = round2(subtotal + deliveryCharge);
+
+      let cgstAmount = 0;
+      let sgstAmount = 0;
+      let igstAmount = 0;
+
+      if (invoice && num(invoice.gstAmount) > 0) {
+        const invoiceTaxable = round2(num(invoice.subtotal) + num(invoice.deliveryCharge));
+        const invoiceCgst = num(invoice.cgstAmount);
+        const invoiceSgst = num(invoice.sgstAmount);
+        const invoiceIgst = num(invoice.igstAmount);
+        const hasSplit = invoiceCgst + invoiceSgst + invoiceIgst > 0;
+
+        if (hasSplit && invoiceTaxable > 0) {
+          const share = taxableValue / invoiceTaxable;
+          cgstAmount = round2(invoiceCgst * share);
+          sgstAmount = round2(invoiceSgst * share);
+          igstAmount = round2(invoiceIgst * share);
+        } else {
+          const split = splitTaxAmount(taxAmount, invoice.supplyType !== GstSupplyType.INTER_STATE);
+          cgstAmount = split.cgst;
+          sgstAmount = split.sgst;
+          igstAmount = split.igst;
+        }
+      } else {
+        const split = splitTaxAmount(taxAmount, isIntraState);
+        cgstAmount = split.cgst;
+        sgstAmount = split.sgst;
+        igstAmount = split.igst;
+      }
+
+      const gstRate =
+        taxableValue > 0 && taxAmount > 0
+          ? round2((taxAmount / taxableValue) * 100)
+          : invoice
+            ? round2(num(invoice.gstRate) * 100)
+            : 0;
+
       return {
         id: order.id,
         orderNumber: order.orderNumber,
@@ -149,9 +217,13 @@ export class VendorReportsService {
         hsnCode: offering?.hsnCode ?? null,
         quantity: order.items.reduce((sum, line) => sum + line.quantity, 0),
         unitPrice: num(item?.unitPrice),
-        subtotal: num(order.subtotal),
-        deliveryCharge: num(order.deliveryCharge),
-        taxAmount: num(order.taxAmount),
+        subtotal,
+        deliveryCharge,
+        taxAmount,
+        cgstAmount,
+        sgstAmount,
+        igstAmount,
+        gstRate,
         totalAmount: num(order.totalAmount),
         dispatchedAt: order.dispatchBatchOrder?.dispatchBatch.dispatchedAt?.toISOString() ?? null,
         invoiceId: invoice?.id ?? null,

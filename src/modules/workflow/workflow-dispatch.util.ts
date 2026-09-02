@@ -1,4 +1,4 @@
-import { WorkflowStepType, WorkflowTaskStatus, type WorkflowTask } from '@prisma/client';
+import { WorkflowStepType, WorkflowTaskStatus, type Prisma, type WorkflowTask } from '@prisma/client';
 
 /** Terminal states — the step is finished and no longer blocks downstream work. */
 export const WORKFLOW_TASK_TERMINAL_STATUSES: WorkflowTaskStatus[] = [
@@ -23,6 +23,15 @@ export function isDispatchWorkflowStep(step: DispatchStepRef): boolean {
     (step.stepCode?.includes('DISPATCH') ?? false)
   );
 }
+
+/** Prisma filter for workflow steps that represent dispatch department work. */
+export const DISPATCH_WORKFLOW_STEP_FILTER = {
+  OR: [
+    { stepType: WorkflowStepType.DISPATCH },
+    { stepCode: { equals: 'DISPATCH', mode: 'insensitive' as const } },
+    { stepCode: { contains: 'DISPATCH', mode: 'insensitive' as const } },
+  ],
+} satisfies Prisma.WorkflowTemplateStepWhereInput;
 
 export function isWorkflowTaskTerminal(status: WorkflowTaskStatus): boolean {
   return WORKFLOW_TASK_TERMINAL_STATUSES.includes(status);

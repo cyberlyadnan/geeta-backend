@@ -10,6 +10,32 @@ import {
   isPreDispatchProductionComplete,
 } from '../workflow/workflow-dispatch.util.js';
 
+async function bookOrderIntoDispatchBatchIfReady(orderId: string): Promise<boolean> {
+  const instances = await prisma.workflowInstance.findMany({
+    where: { orderId },
+    select: {
+      status: true,
+      tasks: {
+        select: {
+          status: true,
+          workflowStep: { select: { stepType: true, stepCode: true } },
+        },
+      },
+    },
+  });
+
+  const awaitingDispatch = instances.some(
+    (instance) =>
+      isPreDispatchProductionComplete(instance.tasks, instance.status) &&
+      hasOpenDispatchWork(instance.tasks),
+  );
+  if (!awaitingDispatch) return false;
+
+  const { dispatchReadinessService } = await import('../dispatch/dispatch-readiness.service.js');
+  await dispatchReadinessService.evaluateOrder(orderId);
+  return true;
+}
+
 /** Department code that identifies design work, independent of step type — a VENDOR_APPROVAL
  *  gate is design-stage work when it belongs to Design (proof/sample approval) but review-stage
  *  work when it belongs elsewhere, so step type alone can't disambiguate. */
@@ -140,29 +166,9 @@ export async function syncOrderStatusForOrder(orderId: string): Promise<void> {
       SYNCABLE_STATUSES.has(order.status) &&
       order.status !== ProductionOrderStatus.READY_FOR_DISPATCH
     ) {
-      const instances = await prisma.workflowInstance.findMany({
-        where: { orderId: order.id },
-        select: {
-          status: true,
-          tasks: {
-            select: {
-              status: true,
-              workflowStep: { select: { stepType: true, stepCode: true } },
-            },
-          },
-        },
-      });
-      const awaitingDispatch = instances.some(
-        (instance) =>
-          isPreDispatchProductionComplete(instance.tasks, instance.status) &&
-          hasOpenDispatchWork(instance.tasks),
-      );
-      if (awaitingDispatch) {
-        await prisma.productionOrder.update({
-          where: { id: order.id },
-          data: { status: ProductionOrderStatus.READY_FOR_DISPATCH },
-        });
-        logger.info('Order status synced to ready for dispatch', {
+      const booked = await bookOrderIntoDispatchBatchIfReady(order.id);
+      if (booked) {
+        logger.info('Order booked into dispatch batch via status sync', {
           orderId: order.id,
           from: order.status,
         });
@@ -202,7 +208,12 @@ export async function syncOrderStatusForOrder(orderId: string): Promise<void> {
   );
   const readyForDispatchRank = STATUS_RANK[ProductionOrderStatus.READY_FOR_DISPATCH] ?? 8;
   if (awaitingDispatch && (STATUS_RANK[nextStatus] ?? -1) < readyForDispatchRank) {
-    nextStatus = ProductionOrderStatus.READY_FOR_DISPATCH;
+    await bookOrderIntoDispatchBatchIfReady(order.id);
+    logger.info('Order booked into dispatch batch via status sync', {
+      orderId: order.id,
+      from: order.status,
+    });
+    return;
   }
 
   await prisma.productionOrder.update({

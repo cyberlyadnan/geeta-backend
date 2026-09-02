@@ -12,6 +12,9 @@ import { deliveryRoutingService } from './delivery-routing.service.js';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
+/** Remote DB round-trips can exceed Prisma's 5s default; keep writes short, allow headroom. */
+const DELIVERY_WRITE_TX = { maxWait: 10_000, timeout: 20_000 } as const;
+
 /**
  * The life of one consignment, from the moment it leaves the counter to the signature at the door.
  *
@@ -112,7 +115,7 @@ export class DeliveryAssignmentService {
     to: DeliveryAssignmentStatus,
     data: Prisma.DeliveryAssignmentUpdateInput = {},
   ) {
-    return prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       const current = await tx.deliveryAssignment.findUnique({
         where: { id: assignmentId },
         select: { id: true, status: true },
@@ -121,12 +124,13 @@ export class DeliveryAssignmentService {
 
       assertTransition(current.status, to);
 
-      return tx.deliveryAssignment.update({
+      await tx.deliveryAssignment.update({
         where: { id: assignmentId },
         data: { status: to, ...data },
-        include: ASSIGNMENT_DETAIL_INCLUDE,
       });
-    });
+    }, DELIVERY_WRITE_TX);
+
+    return this.get(assignmentId);
   }
 
   /**
@@ -146,7 +150,7 @@ export class DeliveryAssignmentService {
     proofPhotoKey?: string;
     notes?: string;
   }) {
-    return prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       const current = await tx.deliveryAssignment.findUnique({
         where: { id: input.assignmentId },
         select: { id: true, status: true, attemptCount: true },
@@ -170,7 +174,7 @@ export class DeliveryAssignmentService {
         },
       });
 
-      return tx.deliveryAssignment.update({
+      await tx.deliveryAssignment.update({
         where: { id: input.assignmentId },
         data: {
           status: to,
@@ -189,9 +193,10 @@ export class DeliveryAssignmentService {
               }),
           ...(input.notes ? { notes: input.notes } : {}),
         },
-        include: ASSIGNMENT_DETAIL_INCLUDE,
       });
-    });
+    }, DELIVERY_WRITE_TX);
+
+    return this.get(input.assignmentId);
   }
 
   /**

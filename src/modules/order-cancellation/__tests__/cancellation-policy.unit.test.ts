@@ -26,10 +26,10 @@ const defaultRules = [
     stageKey: CancellationStageKey.PRODUCTION,
     label: 'Production',
     vendorDirectCancel: false,
-    vendorRequestAllowed: true,
+    vendorRequestAllowed: false,
     managerApprovalRequired: true,
-    cancellationAllowed: true,
-    policyExplanation: 'Request cancellation during production.',
+    cancellationAllowed: false,
+    policyExplanation: 'Production has started. Contact support if you need to discuss this order.',
     sortOrder: 30,
     isActive: true,
     createdAt: new Date(),
@@ -68,13 +68,13 @@ describe('cancellation policy engine', () => {
     assert.equal(decision?.vendorDirectCancelAllowed, true);
   });
 
-  it('requires cancellation request during production', () => {
+  it('disallows vendor cancellation once production has started', () => {
     const decision = resolveCancellationPolicy(
       ProductionOrderStatus.IN_PRODUCTION,
       defaultRules,
     );
-    assert.equal(decision?.allowedAction, 'REQUEST_CANCELLATION');
-    assert.equal(decision?.managerApprovalRequired, true);
+    assert.equal(decision?.allowedAction, 'NOT_ALLOWED');
+    assert.equal(decision?.vendorRequestAllowed, false);
   });
 
   it('blocks actions when pending request exists', () => {

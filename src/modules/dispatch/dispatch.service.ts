@@ -2,6 +2,7 @@ import {
   FinancialActorType,
   FinancialEventType,
   FinancialReferenceType,
+  ProductionOrderStatus,
   Prisma,
   WalletTransactionType,
   FinancialAuditAction,
@@ -20,6 +21,7 @@ import { logger } from '../../logs/logger.js';
 import { deliveryAssignmentService } from '../../services/delivery/index.js';
 import { extractProductAttributes } from '../../utils/product-attributes.js';
 import { companyProfileRepository } from '../../repositories/company-profile.repository.js';
+import { DISPATCH_WORKFLOW_STEP_FILTER } from '../workflow/workflow-dispatch.util.js';
 
 /** Narrow slice of the Prisma client this service needs — injectable so tests can drive the
  *  whole flow with a hand-rolled fake instead of monkey-patching the real (proxy-based) Prisma
@@ -140,18 +142,35 @@ export class DispatchService {
   /** The dispatcher's working view. */
   async listBatches(query: { shiftId?: string; status?: string; dispatchDate?: string; page: number; limit: number }) {
     try {
+      const { dispatchReadinessService } = await import('./dispatch-readiness.service.js');
+
+      const unbatchedReady = await prisma.productionOrder.findMany({
+        where: {
+          status: ProductionOrderStatus.READY_FOR_DISPATCH,
+          deliveryRequired: true,
+          dispatchBatchOrder: null,
+        },
+        select: { id: true },
+        take: 100,
+      });
+
+      for (const order of unbatchedReady) {
+        await dispatchReadinessService.evaluateOrder(order.id).catch((err) => {
+          logger.error('Reconciliation check: evaluateOrder failed for ready order', {
+            orderId: order.id,
+            err,
+          });
+        });
+      }
+
       const outstandingTasks = await this.db.workflowTask.findMany({
         where: {
           status: { in: ['READY', 'ASSIGNED', 'IN_PROGRESS'] },
-          workflowStep: {
-            OR: [
-              { stepType: 'DISPATCH' },
-              { stepCode: 'DISPATCH' },
-            ],
-          },
+          workflowStep: DISPATCH_WORKFLOW_STEP_FILTER,
           workflowInstance: {
             order: {
               dispatchBatchOrder: null,
+              deliveryRequired: true,
             },
           },
         },
@@ -160,15 +179,16 @@ export class DispatchService {
             select: { orderId: true },
           },
         },
+        take: 100,
       });
 
-      if (outstandingTasks.length > 0) {
-        const { dispatchReadinessService } = await import('./dispatch-readiness.service.js');
-        for (const t of outstandingTasks) {
-          await dispatchReadinessService.evaluateOrder(t.workflowInstance.orderId).catch((err) => {
-            logger.error('Reconciliation check: evaluateOrder failed', { orderId: t.workflowInstance.orderId, err });
+      for (const t of outstandingTasks) {
+        await dispatchReadinessService.evaluateOrder(t.workflowInstance.orderId).catch((err) => {
+          logger.error('Reconciliation check: evaluateOrder failed', {
+            orderId: t.workflowInstance.orderId,
+            err,
           });
-        }
+        });
       }
     } catch (err) {
       logger.error('Failed to reconcile outstanding dispatch tasks', { err });
@@ -581,12 +601,7 @@ export class DispatchService {
       where: {
         workflowInstance: { orderId: { in: orderIds } },
         status: { in: ['READY', 'ASSIGNED', 'IN_PROGRESS'] },
-        workflowStep: {
-          OR: [
-            { stepType: 'DISPATCH' },
-            { stepCode: 'DISPATCH' },
-          ],
-        },
+        workflowStep: DISPATCH_WORKFLOW_STEP_FILTER,
       },
       select: { id: true, workflowInstanceId: true },
     });

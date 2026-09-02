@@ -1,9 +1,9 @@
 import {
   ProductionOrderStatus,
-  WorkflowStepType,
   WorkflowTaskStatus,
   type Prisma,
 } from '@prisma/client';
+import { DISPATCH_WORKFLOW_STEP_FILTER } from '../workflow/workflow-dispatch.util.js';
 
 /** Workflow task is finished — no longer blocks downstream work. */
 const TASK_TERMINAL_STATUSES: WorkflowTaskStatus[] = [
@@ -12,13 +12,7 @@ const TASK_TERMINAL_STATUSES: WorkflowTaskStatus[] = [
   WorkflowTaskStatus.CANCELLED,
 ];
 
-const DISPATCH_STEP_FILTER = {
-  OR: [
-    { stepType: WorkflowStepType.DISPATCH },
-    { stepCode: { equals: 'DISPATCH', mode: 'insensitive' as const } },
-    { stepCode: { contains: 'DISPATCH', mode: 'insensitive' as const } },
-  ],
-} satisfies Prisma.WorkflowTemplateStepWhereInput;
+const DISPATCH_STEP_FILTER = DISPATCH_WORKFLOW_STEP_FILTER;
 
 /**
  * Production is complete and the dispatch department still has open work — the order belongs on
