@@ -1,5 +1,6 @@
 ﻿import { z } from 'zod';
 import { normalizeIndianPhone } from './auth.utils.js';
+import { stateCodeFromName } from '../../services/accounting/india-states.js';
 
 const phoneSchema = z
   .string()
@@ -29,7 +30,15 @@ export const vendorRegisterSchema = z.object({
   password: z.string().min(8).max(128),
   referenceCode: z.string().max(50).optional(),
   employeeCode: z.string().max(50).optional(),
-  country: z.string().min(1).max(100),
+  /** Vendor's operating state — drives place of supply (CGST+SGST vs IGST). */
+  state: z
+    .string()
+    .min(2)
+    .max(100)
+    .refine((val) => stateCodeFromName(val) !== null, {
+      message: 'Choose a valid Indian state for GST',
+    }),
+  city: z.string().min(2).max(100),
   pinCode: z.string().regex(/^\d{6}$/, 'Enter a valid 6-digit PIN code'),
   gstNumber: z.string().max(20).optional(),
   fullAddress: z.string().min(10).max(2000),
