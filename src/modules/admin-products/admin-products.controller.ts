@@ -159,6 +159,11 @@ export class AdminProductsController {
     return ApiResponse.success(res, result, 'Attribute deleted');
   });
 
+  reorderAttributes = asyncHandler(async (req: Request, res: Response) => {
+    const result = await adminAttributesService.reorder(req.body as ReorderCatalogInput);
+    return ApiResponse.success(res, result, 'Attributes reordered');
+  });
+
   // Order configuration (ConfigurationRule + aggregated Product Version order config)
   listConfigRules = asyncHandler(async (req: Request, res: Response) => {
     const { versionId } = req.validatedQuery as ListConfigRulesQuery;

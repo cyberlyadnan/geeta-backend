@@ -44,7 +44,7 @@ const VENDOR_DETAIL_INCLUDE = {
     include: {
       quantityPricing: { where: { isActive: true }, orderBy: { quantity: 'asc' } },
       configurationFields: {
-        orderBy: { sortOrder: 'asc' },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         include: {
           options: {
             where: { isActive: true },

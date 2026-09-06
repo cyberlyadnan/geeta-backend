@@ -3,7 +3,7 @@ import { prisma } from '../../config/database.js';
 import { ApiError } from '../../common/errors/ApiError.js';
 import { catalogAuditService } from '../../services/catalog/catalog-audit.service.js';
 import { toDecimal } from '../../utils/money.js';
-import type { CreateAttributeInput, UpdateAttributeInput } from './admin-products.validation.js';
+import type { CreateAttributeInput, ReorderCatalogInput, UpdateAttributeInput } from './admin-products.validation.js';
 import { pricingRepository } from '../../repositories/pricing.repository.js';
 import { rateCatalogCacheService } from '../rate-catalog/rate-catalog.cache.js';
 import { mapOptionPricingDto } from './option-pricing.mapper.js';
@@ -116,7 +116,7 @@ export class AdminAttributesService {
   async list(versionId: string) {
     const fields = await prisma.configurationField.findMany({
       where: { productOfferingVersionId: versionId },
-      orderBy: { sortOrder: 'asc' },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       include: {
         options: {
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -157,6 +157,15 @@ export class AdminAttributesService {
     if (!version) throw ApiError.notFound('Product version not found');
 
     const field = await prisma.$transaction(async (tx) => {
+      let sortOrder = input.sortOrder;
+      if (sortOrder == null) {
+        const max = await tx.configurationField.aggregate({
+          where: { productOfferingVersionId: input.versionId },
+          _max: { sortOrder: true },
+        });
+        sortOrder = (max._max.sortOrder ?? -1) + 1;
+      }
+
       const created = await tx.configurationField.create({
         data: {
           productOfferingVersionId: input.versionId,
@@ -169,7 +178,7 @@ export class AdminAttributesService {
           relevantStepTypes: input.relevantStepTypes ?? [],
           description: input.description,
           placeholder: input.placeholder,
-          sortOrder: input.sortOrder ?? 0,
+          sortOrder,
         },
       });
 
@@ -336,6 +345,19 @@ export class AdminAttributesService {
     });
 
     return { id, deleted: true };
+  }
+
+  /** Persist explicit question order for a product version (admin drag / up-down). */
+  async reorder(input: ReorderCatalogInput) {
+    await prisma.$transaction(
+      input.items.map((item) =>
+        prisma.configurationField.update({
+          where: { id: item.id },
+          data: { sortOrder: item.sortOrder },
+        }),
+      ),
+    );
+    return { success: true };
   }
 }
 

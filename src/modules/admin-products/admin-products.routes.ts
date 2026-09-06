@@ -91,6 +91,11 @@ attributesRouter.use(authorize(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.MA
 
 attributesRouter.get('/', validate(listAttributesQuerySchema, 'query'), adminProductsController.listAttributes);
 attributesRouter.post('/', validate(createAttributeSchema), adminProductsController.createAttribute);
+attributesRouter.post(
+  '/reorder',
+  validate(reorderCatalogSchema),
+  adminProductsController.reorderAttributes,
+);
 attributesRouter.patch(
   '/:id',
   validate(attributeIdParamSchema, 'params'),

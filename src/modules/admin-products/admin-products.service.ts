@@ -47,7 +47,7 @@ const PRODUCT_DETAIL_INCLUDE = {
     include: {
       quantityPricing: { orderBy: { quantity: 'asc' } },
       configurationFields: {
-        orderBy: { sortOrder: 'asc' },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         include: {
           options: {
             orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
